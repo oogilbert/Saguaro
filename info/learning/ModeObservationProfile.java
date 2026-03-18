@@ -1,0 +1,109 @@
+package oog.mega.saguaro.info.learning;
+
+import oog.mega.saguaro.info.wave.WaveContextFeatures;
+import oog.mega.saguaro.math.GuessFactorDistribution;
+
+public final class ModeObservationProfile implements ObservationProfile {
+    private final ObservationProfile delegate;
+    private ModeObservationPolicy policy = ModeObservationPolicy.FULL;
+
+    public ModeObservationProfile(ObservationProfile delegate) {
+        if (delegate == null) {
+            throw new IllegalArgumentException("Mode observation profile requires a non-null delegate");
+        }
+        this.delegate = delegate;
+    }
+
+    public void setPolicy(ModeObservationPolicy policy) {
+        if (policy == null) {
+            throw new IllegalArgumentException("Mode observation profile requires a non-null policy");
+        }
+        this.policy = policy;
+    }
+
+    @Override
+    public void logGunInterval(WaveContextFeatures.WaveContext context,
+                               double gfMin,
+                               double gfMax,
+                               boolean saveObservation) {
+        if (!policy.logTargetingObservations) {
+            return;
+        }
+        delegate.logGunInterval(
+                context,
+                gfMin,
+                gfMax,
+                saveObservation && policy.saveTargetingObservations);
+    }
+
+    @Override
+    public void logGunInterval(WaveContextFeatures.WaveContext context,
+                               double gfMin,
+                               double gfMax,
+                               boolean saveObservation,
+                               boolean updateModel) {
+        if (!policy.logTargetingObservations && !updateModel) {
+            return;
+        }
+        delegate.logGunInterval(
+                context,
+                gfMin,
+                gfMax,
+                saveObservation && policy.saveTargetingObservations,
+                updateModel && policy.updateTargetingModel);
+    }
+
+    @Override
+    public void logMovementResult(WaveContextFeatures.WaveContext context,
+                                  double gf,
+                                  boolean saveObservation) {
+        if (!policy.logMovementObservations) {
+            return;
+        }
+        delegate.logMovementResult(
+                context,
+                gf,
+                saveObservation && policy.saveMovementObservations);
+    }
+
+    @Override
+    public void logMovementResult(WaveContextFeatures.WaveContext context,
+                                  double gf,
+                                  boolean saveObservation,
+                                  boolean updateModel) {
+        if (!policy.logMovementObservations && !updateModel) {
+            return;
+        }
+        delegate.logMovementResult(
+                context,
+                gf,
+                saveObservation && policy.saveMovementObservations,
+                updateModel && policy.updateMovementModel);
+    }
+
+    @Override
+    public GuessFactorDistribution createGunDistribution(WaveContextFeatures.WaveContext context) {
+        if (!policy.useTargetingDistributions) {
+            return null;
+        }
+        return delegate.createGunDistribution(context);
+    }
+
+    @Override
+    public GuessFactorDistribution createMovementDistribution(WaveContextFeatures.WaveContext context) {
+        if (!policy.useMovementDistributions) {
+            return null;
+        }
+        return delegate.createMovementDistribution(context);
+    }
+
+    @Override
+    public boolean shouldUpdateTargetingModel() {
+        return policy.updateTargetingModel;
+    }
+
+    @Override
+    public boolean shouldUpdateMovementModel() {
+        return policy.updateMovementModel;
+    }
+}
