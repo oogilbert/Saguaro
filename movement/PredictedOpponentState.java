@@ -23,8 +23,7 @@ public final class PredictedOpponentState {
                 || !Double.isFinite(heading)
                 || !Double.isFinite(velocity)
                 || !Double.isFinite(gunHeat)
-                || !Double.isFinite(energy)
-                || !Double.isFinite(lastDetectedBulletPower)) {
+                || !Double.isFinite(energy)) {
             throw new IllegalArgumentException("Predicted opponent state requires finite values");
         }
         this.x = x;

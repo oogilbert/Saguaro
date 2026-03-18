@@ -7,7 +7,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import robocode.RobocodeFileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -237,7 +237,7 @@ public final class BattleDataStore {
         }
 
         try (DataOutputStream out = new DataOutputStream(
-                new BufferedOutputStream(new FileOutputStream(dataFile, false)))) {
+                new BufferedOutputStream(new RobocodeFileOutputStream(dataFile.getPath(), false)))) {
             out.writeInt(CONTAINER_MAGIC);
             out.writeByte(CONTAINER_VERSION);
             out.writeByte(sectionMask);
@@ -466,7 +466,26 @@ public final class BattleDataStore {
     }
 
     private static String recordFileName(String opponentName) {
-        return "opponent-" + safeFileStem(opponentName) + ".dat";
+        return "opponent-" + safeFileStem(stripDuplicateIndex(opponentName)) + ".dat";
+    }
+
+    private static String stripDuplicateIndex(String name) {
+        if (name.endsWith(")")) {
+            int openParen = name.lastIndexOf(" (");
+            if (openParen >= 0) {
+                boolean allDigits = openParen + 2 < name.length() - 1;
+                for (int i = openParen + 2; i < name.length() - 1; i++) {
+                    if (!Character.isDigit(name.charAt(i))) {
+                        allDigits = false;
+                        break;
+                    }
+                }
+                if (allDigits) {
+                    return name.substring(0, openParen);
+                }
+            }
+        }
+        return name;
     }
 
     private static String safeFileStem(String value) {
