@@ -21,6 +21,7 @@ import oog.mega.saguaro.info.persistence.ModePerformanceDataSet;
 import oog.mega.saguaro.info.persistence.ScoreHistoryDataSet;
 import oog.mega.saguaro.info.persistence.WaveLogModelDataSet;
 import oog.mega.saguaro.info.state.RobocodeScoreUtil;
+import oog.mega.saguaro.mode.gto.GtoMode;
 import oog.mega.saguaro.mode.perfectprediction.PerfectPredictionMode;
 import oog.mega.saguaro.mode.perfectprediction.PrecisePredictionProfile;
 import oog.mega.saguaro.mode.scoremax.ScoreMaxMode;
@@ -36,6 +37,7 @@ import robocode.RobotDeathEvent;
 import robocode.ScannedRobotEvent;
 
 public final class ModeController {
+    private static final ModeId FORCED_MODE_ID = ModeId.GTO;
     private static final double MODE_SELECTION_CONFIDENCE_SCALE = 4.0;
     private static final double POSTERIOR_SCORE_UNIT = 24.0;
     private static final double MODE_PRIOR_SCORE = 48.0;
@@ -105,14 +107,15 @@ public final class ModeController {
     }
 
     private final BulletShieldMode bulletShieldMode = new BulletShieldMode();
+    private final GtoMode gtoMode = new GtoMode();
     private final PerfectPredictionMode perfectPredictionMode = new PerfectPredictionMode();
     private final ScoreMaxMode scoreMaxMode = new ScoreMaxMode();
     private final ModeObservationProfile observationProfile =
             new ModeObservationProfile(ScoreMaxLearningProfile.INSTANCE);
     private final BattleDataStore dataStore = new BattleDataStore();
     private final ModeRoundScoreTracker roundScoreTracker = new ModeRoundScoreTracker();
-    private BattleMode activeMode = scoreMaxMode;
-    private ModeId activeModeId = ModeId.SCORE_MAX;
+    private BattleMode activeMode = gtoMode;
+    private ModeId activeModeId = ModeId.GTO;
     private final Set<BattleMode> modesUsedThisBattle = new LinkedHashSet<>();
     private BattleServices services;
     private Info info;
@@ -136,6 +139,7 @@ public final class ModeController {
         dataStore.startBattle();
         PrecisePredictionProfile.startBattle();
         startRoundOutcomeProfile(bulletShieldMode.getRoundOutcomeProfile(), null);
+        startRoundOutcomeProfile(gtoMode.getRoundOutcomeProfile(), bulletShieldMode.getRoundOutcomeProfile());
         startRoundOutcomeProfile(scoreMaxMode.getRoundOutcomeProfile(), bulletShieldMode.getRoundOutcomeProfile());
         modesUsedThisBattle.clear();
         initializedRound = -1;
@@ -147,7 +151,7 @@ public final class ModeController {
         battleOpeningModeResolved = false;
         remainingBulletShieldForgivenHits = 0;
         roundScoreTracker.startBattle();
-        setActiveMode(ModeId.SCORE_MAX);
+        setActiveMode(FORCED_MODE_ID);
     }
 
     public void init(Info info) {
@@ -159,6 +163,7 @@ public final class ModeController {
         }
         this.info = info;
         bulletShieldMode.init(info, services);
+        gtoMode.init(info, services);
         perfectPredictionMode.init(info, services);
         scoreMaxMode.init(info, services);
         int roundNumber = info.getRobot().getRoundNum();
@@ -331,10 +336,7 @@ public final class ModeController {
     }
 
     private ModeId choosePreScanRoundMode() {
-        if (!opponentContextLoaded) {
-            return ModeId.BULLET_SHIELD;
-        }
-        return chooseRoundStartMode();
+        return FORCED_MODE_ID;
     }
 
     private void resolvePendingOpponentContext(ScannedRobotEvent event) {
@@ -386,10 +388,7 @@ public final class ModeController {
     }
 
     private ModeId chooseRoundStartMode() {
-        if (!battleOpeningModeResolved) {
-            return chooseOpeningMode();
-        }
-        return chooseModeForSwitch();
+        return FORCED_MODE_ID;
     }
 
     private ModeId chooseOpeningMode() {
@@ -397,14 +396,7 @@ public final class ModeController {
     }
 
     private void maybeReevaluateModeSelection() {
-        if (!roundSelectionResolved || pendingOpponentContextResolution || !opponentContextLoaded) {
-            return;
-        }
-        ModeId selectedMode = chooseModeForSwitch();
-        if (selectedMode == activeModeId) {
-            return;
-        }
-        activateModeForRound(selectedMode);
+        return;
     }
 
     private ModePosterior[] admissibleModePosteriors() {
@@ -661,6 +653,9 @@ public final class ModeController {
         if (modeId == ModeId.PERFECT_PREDICTION) {
             return perfectPredictionMode;
         }
+        if (modeId == ModeId.GTO) {
+            return gtoMode;
+        }
         throw new IllegalArgumentException("Unsupported mode id " + modeId);
     }
 
@@ -705,6 +700,9 @@ public final class ModeController {
         }
         if (modeId == ModeId.PERFECT_PREDICTION) {
             return "PerfectPrediction";
+        }
+        if (modeId == ModeId.GTO) {
+            return "GTO";
         }
         throw new IllegalArgumentException("Unsupported mode id " + modeId);
     }

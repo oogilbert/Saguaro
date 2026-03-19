@@ -7,11 +7,13 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 
 public final class ModePerformanceProfile {
-    // Opponent mode-performance records are disposable caches. When this layout changes, bump the
-    // section version and let BattleDataStore discard stale files instead of maintaining migrations.
-    private static final int SECTION_VERSION = 3;
+    // Opponent mode-performance records use a compact counted prefix in stable persistence order so
+    // new modes can default to unseen without discarding older opponent files.
+    private static final int LEGACY_SECTION_VERSION = 3;
+    private static final int SECTION_VERSION = 4;
     private static final int MODE_BYTES = 16;
-    private static final int SECTION_BYTES = MODE_BYTES * ModeId.values().length;
+    private static final int MODE_COUNT_BYTES = 1;
+    private static final int LEGACY_SECTION_BYTES = MODE_BYTES * 3;
     private static final double MAX_RETAINED_TOTAL_SCORE = 1_000_000.0;
 
     private static final MutableModeStats[] persistedStats = createStatsArray();
@@ -117,18 +119,25 @@ public final class ModePerformanceProfile {
     }
 
     public static byte[] createPersistedSectionPayload(int maxPayloadBytes, boolean includeCurrentBattleData) {
-        if (maxPayloadBytes < SECTION_BYTES) {
+        int modeCount = persistenceModeCount(includeCurrentBattleData);
+        if (modeCount <= 0) {
+            return null;
+        }
+        int requiredBytes = MODE_COUNT_BYTES + modeCount * MODE_BYTES;
+        if (maxPayloadBytes < requiredBytes) {
             throw new IllegalStateException(
                     "Insufficient data quota to save mode-performance payload: payload budget="
                             + maxPayloadBytes + " bytes");
         }
-        if (!hasAnyData(persistedStats) && (!includeCurrentBattleData || !hasAnyData(currentBattleStats))) {
-            return null;
-        }
 
         try (ByteArrayOutputStream raw = new ByteArrayOutputStream();
              DataOutputStream out = new DataOutputStream(raw)) {
-            for (ModeId modeId : ModeId.values()) {
+            out.writeByte(modeCount);
+            for (int persistenceIndex = 0; persistenceIndex < modeCount; persistenceIndex++) {
+                ModeId modeId = ModeId.fromPersistenceIndex(persistenceIndex);
+                if (modeId == null) {
+                    throw new IllegalStateException("Missing mode for persistence index " + persistenceIndex);
+                }
                 ModeStatsSnapshot stats = includeCurrentBattleData
                         ? getCombinedStats(modeId)
                         : getPersistedStats(modeId);
@@ -149,17 +158,29 @@ public final class ModePerformanceProfile {
     }
 
     private static void loadPersistedPayload(int sectionVersion, byte[] payload) {
+        if (sectionVersion == LEGACY_SECTION_VERSION) {
+            loadLegacyPayload(payload);
+            return;
+        }
         if (sectionVersion != SECTION_VERSION) {
             throw new IllegalStateException("Unsupported mode-performance section version " + sectionVersion);
         }
-        if (payload.length != SECTION_BYTES) {
-            throw new IllegalStateException("Unexpected mode-performance payload length");
+        loadCountedPayload(payload);
+    }
+
+    private static void loadLegacyPayload(byte[] payload) {
+        if (payload.length != LEGACY_SECTION_BYTES) {
+            throw new IllegalStateException("Unexpected legacy mode-performance payload length");
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
-            for (ModeId modeId : ModeId.values()) {
+            for (int persistenceIndex = 0; persistenceIndex < LEGACY_SECTION_BYTES / MODE_BYTES; persistenceIndex++) {
+                ModeId modeId = ModeId.fromPersistenceIndex(persistenceIndex);
+                if (modeId == null) {
+                    throw new IllegalStateException("Missing legacy mode for persistence index " + persistenceIndex);
+                }
                 double totalOurScore = in.readDouble();
                 double totalOpponentScore = in.readDouble();
-                validateLoadedStats(modeId, totalOurScore, totalOpponentScore);
+                validateLoadedStats(totalOurScore, totalOpponentScore);
                 persistedStats[modeId.ordinal()].set(totalOurScore, totalOpponentScore);
             }
             if (in.available() != 0) {
@@ -171,9 +192,36 @@ public final class ModePerformanceProfile {
         }
     }
 
-    private static void validateLoadedStats(ModeId modeId,
-                                            double totalOurScore,
-                                            double totalOpponentScore) {
+    private static void loadCountedPayload(byte[] payload) {
+        if (payload.length < MODE_COUNT_BYTES) {
+            throw new IllegalStateException("Unexpected mode-performance payload length");
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
+            int modeCount = in.readUnsignedByte();
+            int expectedPayloadBytes = MODE_COUNT_BYTES + modeCount * MODE_BYTES;
+            if (payload.length != expectedPayloadBytes) {
+                throw new IllegalStateException("Unexpected mode-performance payload length");
+            }
+            for (int persistenceIndex = 0; persistenceIndex < modeCount; persistenceIndex++) {
+                double totalOurScore = in.readDouble();
+                double totalOpponentScore = in.readDouble();
+                validateLoadedStats(totalOurScore, totalOpponentScore);
+                ModeId modeId = ModeId.fromPersistenceIndex(persistenceIndex);
+                if (modeId == null) {
+                    continue;
+                }
+                persistedStats[modeId.ordinal()].set(totalOurScore, totalOpponentScore);
+            }
+            if (in.available() != 0) {
+                throw new IllegalStateException("Mode-performance payload contained trailing bytes");
+            }
+            persistedModeStatsLoaded = true;
+        } catch (IOException e) {
+            throw new IllegalStateException("Unreadable mode-performance payload", e);
+        }
+    }
+
+    private static void validateLoadedStats(double totalOurScore, double totalOpponentScore) {
         if (!Double.isFinite(totalOurScore) || !Double.isFinite(totalOpponentScore)) {
             throw new IllegalStateException("Mode-performance payload must contain finite values");
         }
@@ -212,6 +260,17 @@ public final class ModePerformanceProfile {
             stats[modeId.ordinal()] = new MutableModeStats();
         }
         return stats;
+    }
+
+    private static int persistenceModeCount(boolean includeCurrentBattleData) {
+        int highestIncludedIndex = -1;
+        for (ModeId modeId : ModeId.orderedByPersistenceIndex()) {
+            ModeStatsSnapshot stats = includeCurrentBattleData ? getCombinedStats(modeId) : getPersistedStats(modeId);
+            if (stats.hasSamples()) {
+                highestIncludedIndex = modeId.persistenceIndex();
+            }
+        }
+        return highestIncludedIndex + 1;
     }
 
     private static void clearStats(MutableModeStats[] stats) {

@@ -77,18 +77,8 @@ public final class BattleDataStore {
             trackedOpponentName = opponentName;
             File dataFile = recordFile(robot, opponentName);
             Map<Integer, StoredSection> sections = loadSections(robot, opponentName, dataFile);
-            try {
-                loadRegisteredDataSets(robot, opponentName, sections);
-                trackedOpponentHadPersistedData = !sections.isEmpty();
-            } catch (RuntimeException e) {
-                if (!discardStaleRecord(robot, dataFile, opponentName, "invalid section payload")) {
-                    suppressSavesForBattle(
-                            "persisted baseline could not be invalidated after an invalid section payload");
-                }
-                resetRegisteredDataSetsForFallback();
-                loadRegisteredDataSets(robot, opponentName, new LinkedHashMap<Integer, StoredSection>());
-                trackedOpponentHadPersistedData = false;
-            }
+            loadRegisteredDataSets(robot, opponentName, sections);
+            trackedOpponentHadPersistedData = !sections.isEmpty();
             reportBaselineStatus(robot);
             return;
         }
@@ -249,23 +239,22 @@ public final class BattleDataStore {
         }
     }
 
-    private void resetRegisteredDataSetsForFallback() {
-        requestedSaveTypes.clear();
-        for (OpponentDataSet dataSet : registeredDataSets) {
-            dataSet.startBattle();
-        }
-    }
-
     private void loadRegisteredDataSets(Saguaro robot,
                                         String opponentName,
                                         Map<Integer, StoredSection> sections) {
         for (OpponentDataSet dataSet : registeredDataSets) {
             StoredSection section = sections.get(dataSet.sectionMaskBit());
-            dataSet.loadForOpponent(
-                    robot,
-                    opponentName,
-                    section != null ? section.version : 0,
-                    section != null ? section.payload : null);
+            if (section == null) {
+                dataSet.loadForOpponent(robot, opponentName, 0, null);
+                continue;
+            }
+            try {
+                dataSet.loadForOpponent(robot, opponentName, section.version, section.payload);
+            } catch (RuntimeException e) {
+                reportIgnoredSection(robot, opponentName, dataSet, section, e);
+                suppressSavesForBattle("persisted baseline preserved because at least one section could not be read safely");
+                resetDataSetForFallback(dataSet, robot, opponentName);
+            }
         }
     }
 
@@ -404,17 +393,24 @@ public final class BattleDataStore {
                                 + opponentName
                                 + ": "
                                 + describeIOException(e)
-                                + ". Using defaults and leaving the file untouched.");
+                                + ". Using defaults, preserving the file, and disabling saves for this battle.");
             }
-            suppressSavesForBattle("persisted baseline could not be read safely");
+            suppressSavesForBattle("persisted baseline preserved because it could not be read safely");
             return new LinkedHashMap<>();
         }
 
         if (staleReason != null) {
-            if (!discardStaleRecord(robot, dataFile, opponentName, staleReason)) {
-                suppressSavesForBattle(
-                        "persisted baseline could not be invalidated (" + staleReason + ")");
+            if (robot != null) {
+                robot.out.println(
+                        "Persisted baseline for "
+                                + opponentName
+                                + " is stale: "
+                                + staleReason
+                                + " ("
+                                + dataFile.getName()
+                                + "). Using defaults, preserving the file, and disabling saves for this battle.");
             }
+            suppressSavesForBattle("persisted baseline preserved because it is stale (" + staleReason + ")");
             return new LinkedHashMap<>();
         }
         return sections;
@@ -430,33 +426,45 @@ public final class BattleDataStore {
         return mask;
     }
 
-    private static boolean discardStaleRecord(Saguaro robot, File dataFile, String opponentName, String reason) {
-        if (!dataFile.isFile()) {
-            return true;
+    private void resetDataSetForFallback(OpponentDataSet dataSet, Saguaro robot, String opponentName) {
+        dataSet.startBattle();
+        try {
+            dataSet.loadForOpponent(robot, opponentName, 0, null);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException(
+                    "Failed to reset dataset after ignoring persisted section " + dataSet.key(),
+                    e);
         }
-        if (!dataFile.delete()) {
-            if (robot != null) {
-                robot.out.println(
-                        "Unable to delete invalid persisted baseline for "
-                                + opponentName
-                                + ": "
-                                + reason
-                                + " ("
-                                + dataFile.getName()
-                                + "). Using defaults and leaving the file untouched.");
-            }
-            return false;
+    }
+
+    private static void reportIgnoredSection(Saguaro robot,
+                                             String opponentName,
+                                             OpponentDataSet dataSet,
+                                             StoredSection section,
+                                             RuntimeException e) {
+        if (robot == null || dataSet == null || section == null) {
+            return;
         }
-        if (robot != null) {
-            robot.out.println(
-                    "Deleted invalid persisted baseline for " + opponentName
-                            + ": " + reason
-                            + " (" + dataFile.getName() + ")");
-        }
-        return true;
+        robot.out.println(
+                "Ignoring persisted section '"
+                        + dataSet.key()
+                        + "' for "
+                        + opponentName
+                        + ": "
+                        + describeRuntimeException(e)
+                        + " (version="
+                        + section.version
+                        + ", bytes="
+                        + section.payload.length
+                        + "). Using defaults for that section, preserving the file, and disabling saves for this battle.");
     }
 
     private static String describeIOException(IOException e) {
+        String message = e.getMessage();
+        return message != null && !message.isEmpty() ? message : e.getClass().getSimpleName();
+    }
+
+    private static String describeRuntimeException(RuntimeException e) {
         String message = e.getMessage();
         return message != null && !message.isEmpty() ? message : e.getClass().getSimpleName();
     }

@@ -11,8 +11,8 @@ import java.util.Map;
 import oog.mega.saguaro.info.wave.Wave;
 
 public final class BulletPowerHitRateTracker {
-    // Opponent hit-rate baselines are cheap caches. When the compact layout changes, bump the
-    // section version and let BattleDataStore discard stale files instead of maintaining migrations.
+    // Opponent hit-rate baselines are cheap caches. When this compact layout changes, newer code
+    // may ignore the stale section, preserve the file, and disable saves for the battle.
     private static final int SECTION_VERSION = 1;
     private static final int FLIGHT_BIN_COUNT = 8;
     private static final int SECTION_BYTES = (FLIGHT_BIN_COUNT + 1) * 2;
