@@ -7,6 +7,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 
 import oog.mega.saguaro.info.state.RobocodeScoreUtil;
+import oog.mega.saguaro.mode.ModeId;
+import oog.mega.saguaro.mode.ModePerformanceProfile;
 import robocode.Rules;
 
 public final class ScoreMaxScoreHistoryProfile implements RoundOutcomeProfile {
@@ -147,7 +149,7 @@ public final class ScoreMaxScoreHistoryProfile implements RoundOutcomeProfile {
 
     @Override
     public double getSurvivalPrior() {
-        return combinedScoreShare();
+        return historicalScoreShare();
     }
 
     public double getCombinedOurScore() {
@@ -156,6 +158,14 @@ public final class ScoreMaxScoreHistoryProfile implements RoundOutcomeProfile {
 
     public double getCombinedOpponentScore() {
         return persistedOpponentScore + currentBattleOpponentScore;
+    }
+
+    public double getCurrentBattleOurScore() {
+        return currentBattleOurScore;
+    }
+
+    public double getCurrentBattleOpponentScore() {
+        return currentBattleOpponentScore;
     }
 
     public static int persistenceSectionVersion() {
@@ -249,9 +259,17 @@ public final class ScoreMaxScoreHistoryProfile implements RoundOutcomeProfile {
         }
     }
 
-    private double combinedScoreShare() {
-        double denominator = getCombinedOurScore() + getCombinedOpponentScore();
-        return denominator > 0.0 ? getCombinedOurScore() / denominator : DEFAULT_SCORE_SHARE_PRIOR;
+    private double historicalScoreShare() {
+        ModePerformanceProfile.ModeStatsSnapshot scoreMaxStats = ModePerformanceProfile.getPersistedStats(ModeId.SCORE_MAX);
+        double scoreMaxDenominator = scoreMaxStats.totalOurScore + scoreMaxStats.totalOpponentScore;
+        if (scoreMaxDenominator > 0.0) {
+            return scoreMaxStats.totalOurScore / scoreMaxDenominator;
+        }
+        double legacyDenominator = persistedOurScore + persistedOpponentScore;
+        if (legacyDenominator > 0.0) {
+            return persistedOurScore / legacyDenominator;
+        }
+        return DEFAULT_SCORE_SHARE_PRIOR;
     }
 
     private static void validateLoadedTotals(double totalOurScore, double totalOpponentScore) {

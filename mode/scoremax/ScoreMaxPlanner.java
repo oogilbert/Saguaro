@@ -1555,8 +1555,8 @@ final class ScoreMaxPlanner {
     }
 
     private void prepareScoreContext(RobotSnapshot robotState) {
-        double ourScore = ScoreMaxScoreHistoryProfile.INSTANCE.getCombinedOurScore();
-        double opponentScore = ScoreMaxScoreHistoryProfile.INSTANCE.getCombinedOpponentScore();
+        double ourScore = ScoreMaxScoreHistoryProfile.INSTANCE.getCurrentBattleOurScore();
+        double opponentScore = ScoreMaxScoreHistoryProfile.INSTANCE.getCurrentBattleOpponentScore();
         boolean bonusEnabled = isEndOfRoundBonusEvEnabledForState();
         if (!bonusEnabled) {
             scoreContext = new ScoreContext(

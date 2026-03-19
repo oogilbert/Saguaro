@@ -42,6 +42,6 @@ public final class ScoreHistoryDataSet implements OpponentDataSet {
                               String opponentName,
                               int maxPayloadBytes,
                               boolean includeCurrentBattleData) {
-        return ScoreMaxScoreHistoryProfile.createPersistedSectionPayload(maxPayloadBytes, includeCurrentBattleData);
+        return null;
     }
 }

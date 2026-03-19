@@ -18,7 +18,6 @@ import oog.mega.saguaro.info.learning.ScoreMaxScoreHistoryProfile;
 import oog.mega.saguaro.info.persistence.BattleDataStore;
 import oog.mega.saguaro.info.persistence.BulletPowerHitRateDataSet;
 import oog.mega.saguaro.info.persistence.ModePerformanceDataSet;
-import oog.mega.saguaro.info.persistence.ScoreHistoryDataSet;
 import oog.mega.saguaro.info.persistence.WaveLogModelDataSet;
 import oog.mega.saguaro.info.state.RobocodeScoreUtil;
 import oog.mega.saguaro.mode.gto.GtoMode;
@@ -209,7 +208,6 @@ public final class ModeController {
         if (robot == null) {
             throw new IllegalArgumentException("Mode controller requires non-null robot to save battle data");
         }
-        dataStore.requestDataSetSave(ScoreHistoryDataSet.class);
         dataStore.requestDataSetSave(ModePerformanceDataSet.class);
         dataStore.requestDataSetSave(BulletPowerHitRateDataSet.class);
         dataStore.requestDataSetSave(WaveLogModelDataSet.class);
