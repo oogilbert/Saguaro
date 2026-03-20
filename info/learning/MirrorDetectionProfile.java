@@ -7,8 +7,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 
 public final class MirrorDetectionProfile {
-    // Opponent mirror-detection records are compact caches. When this layout changes, newer code
-    // may ignore the stale section, preserve the file, and disable saves for the battle.
+    // Opponent mirror-detection records are disposable caches. When this layout changes, bump the
+    // section version and let BattleDataStore discard stale files instead of maintaining migrations.
     private static final int SECTION_VERSION = 2;
     private static final int SECTION_BYTES = 21;
 
