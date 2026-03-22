@@ -8,8 +8,6 @@ import java.util.Map;
 
 import oog.mega.saguaro.gun.GunController;
 import oog.mega.saguaro.gun.ShotSolution;
-import oog.mega.saguaro.info.Info;
-import oog.mega.saguaro.info.learning.ScoreMaxScoreHistoryProfile;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.wave.BulletShadowUtil;
 import oog.mega.saguaro.info.wave.Wave;
@@ -148,7 +146,6 @@ final class ShotPlanner {
         }
     }
 
-    private final Info info;
     private final MovementController movement;
     private final GunController gun;
     private final ScoreEvaluator scoreEvaluator;
@@ -156,19 +153,18 @@ final class ShotPlanner {
     private CandidatePath scoringWaveCachePath;
     private int scoringWaveCacheTickOffset;
     private List<Wave> scoringWaveCacheWaves;
-    ShotPlanner(Info info,
-                MovementController movement,
+    ShotPlanner(MovementController movement,
                 GunController gun,
                 ScoreEvaluator scoreEvaluator) {
-        if (info == null || movement == null || gun == null || scoreEvaluator == null) {
-            throw new IllegalArgumentException("ShotPlanner requires non-null dependencies");
-        }
-        this.info = info;
         this.movement = movement;
         this.gun = gun;
         this.scoreEvaluator = scoreEvaluator;
     }
 
+    // Selects the best shot option for a given path. Establishes a no-fire baseline, then
+    // compares against a shadow shot (low-power bullet aimed to block incoming enemy waves)
+    // and an offensive shot (full-power aimed to hit). If a forcedShot is provided, only that
+    // option is evaluated. Returns the highest-scoring ShotSelection.
     ShotSelection chooseBestShot(CandidatePath path,
                                  double shooterX, double shooterY,
                                  double shooterHeading, double shooterVelocity,
@@ -289,6 +285,10 @@ final class ShotPlanner {
         return MIN_TARGETING_DATA_HIT_RATE_SCALE + (1.0 - MIN_TARGETING_DATA_HIT_RATE_SCALE) * maturity;
     }
 
+    // Evaluates a single shot at a specific power level. Queries the gun for the optimal
+    // (or forced) firing angle, computes raw hit probability, adjusts for bullet-bullet
+    // collisions via evaluateCollisionEffects, then delegates to the ScoreEvaluator for
+    // final scoring.
     private ShotSelection evaluateShotAtPower(CandidatePath path,
                                               double power,
                                               double shooterX, double shooterY,
@@ -306,26 +306,25 @@ final class ShotPlanner {
                                               double enemyEnergyForScoring,
                                               double continuationFirePower,
                                               boolean shadowShot) {
-        if (power < MIN_FIRE_POWER) {
-            throw new IllegalStateException("Shot evaluation requires power >= 0.1, got " + power);
+        if (enemyAtFireTime == null) {
+            return new ShotSelection(
+                    0.0, Double.NaN, 0.0, fireTime, fireTime, 0.0, 0.0,
+                    expectedBulletDamageTaken, expectedEnemyEnergyGain, 0.0,
+                    Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY,
+                    0.0, false, baseWaveHitProbabilities(pathIntersections));
         }
-
-        double rawExpectedDamage = 0.0;
-        double firingAngle = Double.NaN;
-        if (enemyAtFireTime != null) {
-            ShotSolution shotSolution;
-            if (Double.isNaN(forcedFiringAngle)) {
-                shotSolution = gun.selectOptimalShotFromPosition(
-                        shooterX, shooterY, enemyAtFireTime.x, enemyAtFireTime.y, power,
-                        gunHeadingAtDecision, ticksUntilFire);
-            } else {
-                shotSolution = gun.evaluateShotAtAngleFromPosition(
-                        shooterX, shooterY, enemyAtFireTime.x, enemyAtFireTime.y, power,
-                        forcedFiringAngle, gunHeadingAtDecision, ticksUntilFire);
-            }
-            rawExpectedDamage = shotSolution.expectedDamage;
-            firingAngle = shotSolution.firingAngle;
+        ShotSolution shotSolution;
+        if (Double.isNaN(forcedFiringAngle)) {
+            shotSolution = gun.selectOptimalShotFromPosition(
+                    shooterX, shooterY, enemyAtFireTime.x, enemyAtFireTime.y, power,
+                    gunHeadingAtDecision, ticksUntilFire);
+        } else {
+            shotSolution = gun.evaluateShotAtAngleFromPosition(
+                    shooterX, shooterY, enemyAtFireTime.x, enemyAtFireTime.y, power,
+                    forcedFiringAngle, gunHeadingAtDecision, ticksUntilFire);
         }
+        double rawExpectedDamage = shotSolution.expectedDamage;
+        double firingAngle = shotSolution.firingAngle;
         if (!Double.isNaN(forcedFiringAngle) && Double.isNaN(firingAngle)) {
             return new ShotSelection(
                     0.0, Double.NaN, 0.0, fireTime, fireTime, 0.0, 0.0,
@@ -375,6 +374,10 @@ final class ShotPlanner {
         return candidate.withScore(shotScore);
     }
 
+    // Finds the best firing angle for a shadow bullet — a min-power bullet aimed to collide
+    // with the first incoming enemy wave, blocking the most dangerous GF region. Scans
+    // candidate GFs within the exposed intervals at first contact, projects each to a firing
+    // angle, checks gun reachability, and picks the angle that blocks the most probability mass.
     private double chooseShadowFiringAngle(CandidatePath path,
                                            double shooterX,
                                            double shooterY,
@@ -530,7 +533,7 @@ final class ShotPlanner {
             return 0.0;
         }
         return overlapWeightedProbabilityMass(
-                distributionForIntersection(firstIntersection),
+                firstIntersection.distribution,
                 candidateIntervals,
                 activeShadowIntervals);
     }
@@ -578,6 +581,11 @@ final class ShotPlanner {
         return Double.NaN;
     }
 
+    // Computes how our planned bullet interacts with enemy waves in flight. Two effects:
+    // 1. Our bullet may be destroyed by an enemy bullet before reaching the target,
+    //    reducing our effective hit probability (bulletSurvivalProbability).
+    // 2. Our bullet casts a shadow on enemy waves it crosses, reducing the probability
+    //    of those waves hitting us (adjusting expectedBulletDamageTaken downward).
     private CollisionEffects evaluateCollisionEffects(Wave plannedWave,
                                                       EnemyInfo.PredictedPosition enemyAtFireTime,
                                                       List<PathWaveIntersection> pathIntersections,
@@ -600,9 +608,6 @@ final class ShotPlanner {
 
         double bulletSurvivalProbability = 1.0;
         for (Wave enemyWave : enemyWavesAtFireTime) {
-            if (!enemyWave.isEnemy) {
-                continue;
-            }
             double collisionProbability = collisionProbabilityForEnemyWave(
                     plannedWave,
                     hitTimeCeiling,
@@ -634,7 +639,7 @@ final class ShotPlanner {
                     continue;
                 }
                 double blockedProbability = overlapWeightedProbabilityMass(
-                        distributionForIntersection(intersection),
+                        intersection.distribution,
                         intersection.exposedGfIntervals,
                         activeShadowIntervals);
                 if (blockedProbability <= 0.0) {
@@ -664,8 +669,7 @@ final class ShotPlanner {
                                                     long collisionCutoffTime,
                                                     Wave enemyWave,
                                                     GuessFactorDistribution movementDistribution) {
-        if (!enemyWave.isEnemy
-                || enemyWave.hasHit(plannedWave.originX, plannedWave.originY, plannedWave.fireTime)) {
+        if (enemyWave.hasHit(plannedWave.originX, plannedWave.originY, plannedWave.fireTime)) {
             return 0.0;
         }
         List<BulletShadowUtil.WeightedGfInterval> activeShadowIntervals = activeCollisionShadowIntervals(
@@ -689,7 +693,7 @@ final class ShotPlanner {
                                                                                       Wave enemyWave,
                                                                                       double referenceBearingOverride,
                                                                                       double meaOverride) {
-        if (!enemyWave.isEnemy || enemyWave.fireTime > hitTimeCeiling) {
+        if (enemyWave.fireTime > hitTimeCeiling) {
             return java.util.Collections.emptyList();
         }
         List<BulletShadowUtil.ShadowInterval> shadows =
@@ -703,9 +707,6 @@ final class ShotPlanner {
             referenceBearing = referenceBearingOverride;
             mea = meaOverride;
         } else {
-            if (Double.isNaN(enemyWave.targetX) || Double.isNaN(enemyWave.targetY)) {
-                throw new IllegalStateException("Enemy wave missing fire-time target reference for shadow scoring");
-            }
             referenceBearing = Math.atan2(
                     enemyWave.targetX - enemyWave.originX,
                     enemyWave.targetY - enemyWave.originY);
@@ -717,6 +718,8 @@ final class ShotPlanner {
                 1.0);
     }
 
+    // Computes the probability mass in a distribution that falls within the overlap of two
+    // sets of weighted GF intervals, using a merge-join over the sorted interval lists.
     private static double overlapWeightedProbabilityMass(
             GuessFactorDistribution distribution,
             List<BulletShadowUtil.WeightedGfInterval> baseIntervals,
@@ -760,14 +763,6 @@ final class ShotPlanner {
         return mass;
     }
 
-    private static GuessFactorDistribution distributionForIntersection(
-            PathWaveIntersection intersection) {
-        if (intersection.distribution == null) {
-            throw new IllegalStateException("Path wave intersection missing fire-time distribution");
-        }
-        return intersection.distribution;
-    }
-
     private static Map<Wave, Double> baseWaveHitProbabilities(
             List<PathWaveIntersection> pathIntersections) {
         Map<Wave, Double> hitProbabilities = new IdentityHashMap<>();
@@ -803,7 +798,7 @@ final class ShotPlanner {
                 Math.min(
                         1.0,
                         BulletShadowUtil.integrateWeightedIntervals(
-                                distributionForIntersection(intersection),
+                                intersection.distribution,
                                 intersection.exposedGfIntervals,
                                 -1.0,
                                 1.0)));
@@ -827,9 +822,6 @@ final class ShotPlanner {
 
     private List<Wave> getScoringWavesAtFireTime(CandidatePath path,
                                                  int tickOffset) {
-        if (path == null) {
-            throw new IllegalArgumentException("Scoring-wave lookup requires a candidate path");
-        }
         if (scoringWaveCacheValid
                 && scoringWaveCachePath == path
                 && scoringWaveCacheTickOffset == tickOffset) {

@@ -79,7 +79,6 @@ final class ScoreMaxPlanner {
         this.movement = movement;
         this.gun = gun;
         this.shotPlanner = new ShotPlanner(
-                info,
                 movement,
                 gun,
                 (path, pathIntersections, selection, currentOurEnergy) -> scoreShotSelection(
@@ -532,8 +531,9 @@ final class ScoreMaxPlanner {
         if (pathIntersections == null) {
             pathIntersections = movement.collectPathWaveIntersections(path, pathIntersectionContext);
         }
+
         int pathLength = path.trajectory.length();
-        if (firstFiringTickOffset < 0 || firstFiringTickOffset >= pathLength) {
+        if (firstFiringTickOffset >= pathLength) {
             return new FireWindowContext(
                     path,
                     pathIntersections,
