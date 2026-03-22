@@ -58,7 +58,6 @@ final class ScoreMaxPlanner {
     private ShotPlanner shotPlanner;
     private CandidatePath lastSelectedPath;
     private List<CandidatePath> lastSelectedFamilyPaths;
-    private List<CandidatePath> lastSelectedSafeSpotPaths;
     private List<PathWaveIntersection> lastSelectedPathIntersections;
     private long lastSelectedWaveDangerRevision;
     private double lastSelectedFirePower;
@@ -70,6 +69,7 @@ final class ScoreMaxPlanner {
     private int scoreMaxSelectedRoundCount;
     private int lastCountedScoreMaxRound;
     private ScoreContext scoreContext;
+    private final RobocodeScoreUtil.HitScoreScratch hitScoreScratch = new RobocodeScoreUtil.HitScoreScratch();
 
     public void init(Info info, MovementController movement, GunController gun) {
         if (info == null || movement == null || gun == null) {
@@ -89,7 +89,6 @@ final class ScoreMaxPlanner {
                         currentOurEnergy));
         this.lastSelectedPath = null;
         this.lastSelectedFamilyPaths = new ArrayList<>();
-        this.lastSelectedSafeSpotPaths = new ArrayList<>();
         this.lastSelectedPathIntersections = new ArrayList<>();
         this.lastSelectedWaveDangerRevision = info.getEnemyWaveDangerRevision();
         this.lastSelectedFirePower = 0.0;
@@ -1396,32 +1395,29 @@ final class ScoreMaxPlanner {
         }
 
         double targetEnergyBeforeHit = ourSide ? branch.enemyEnergy : branch.ourEnergy;
-        double creditedDamage = RobocodeScoreUtil.creditedBulletDamage(event.shotPower, targetEnergyBeforeHit);
-        if (!(creditedDamage > 0.0)) {
+        RobocodeScoreUtil.scoreBulletHit(
+                event.shotPower,
+                targetEnergyBeforeHit,
+                ourSide ? branch.ourCreditedDamageOnEnemy : branch.enemyCreditedDamageOnUs,
+                ourSide ? branch.ourKillBonusApplied : branch.enemyKillBonusApplied,
+                hitScoreScratch);
+        if (!(hitScoreScratch.creditedDamage > 0.0)) {
             return;
         }
 
         if (ourSide) {
-            branch.ourScore += creditedDamage;
-            branch.ourCreditedDamageOnEnemy += creditedDamage;
-            if (!branch.ourKillBonusApplied
-                    && RobocodeScoreUtil.isLethalDamage(targetEnergyBeforeHit, creditedDamage)) {
-                branch.ourScore += RobocodeScoreUtil.BULLET_KILL_BONUS_MULTIPLIER * branch.ourCreditedDamageOnEnemy;
-                branch.ourKillBonusApplied = true;
-            }
-            branch.enemyEnergy = Math.max(0.0, branch.enemyEnergy - creditedDamage);
+            branch.ourScore += hitScoreScratch.scoreDelta;
+            branch.ourCreditedDamageOnEnemy = hitScoreScratch.cumulativeCreditedDamage;
+            branch.ourKillBonusApplied = hitScoreScratch.killBonusApplied;
+            branch.enemyEnergy = Math.max(0.0, branch.enemyEnergy - hitScoreScratch.creditedDamage);
             if (shooterAliveBeforeCost && shooterAliveAfterCost) {
                 branch.ourEnergy += 3.0 * event.shotPower;
             }
         } else {
-            branch.opponentScore += creditedDamage;
-            branch.enemyCreditedDamageOnUs += creditedDamage;
-            if (!branch.enemyKillBonusApplied
-                    && RobocodeScoreUtil.isLethalDamage(targetEnergyBeforeHit, creditedDamage)) {
-                branch.opponentScore += RobocodeScoreUtil.BULLET_KILL_BONUS_MULTIPLIER * branch.enemyCreditedDamageOnUs;
-                branch.enemyKillBonusApplied = true;
-            }
-            branch.ourEnergy = Math.max(0.0, branch.ourEnergy - creditedDamage);
+            branch.opponentScore += hitScoreScratch.scoreDelta;
+            branch.enemyCreditedDamageOnUs = hitScoreScratch.cumulativeCreditedDamage;
+            branch.enemyKillBonusApplied = hitScoreScratch.killBonusApplied;
+            branch.ourEnergy = Math.max(0.0, branch.ourEnergy - hitScoreScratch.creditedDamage);
             if (shooterAliveBeforeCost && shooterAliveAfterCost) {
                 branch.enemyEnergy += 3.0 * event.shotPower;
             }
@@ -1686,11 +1682,9 @@ final class ScoreMaxPlanner {
         double extraEnemyCreditedDamage = expectedCreditedDamageOverDuration(enemyDamageRate, fightDuration);
 
         double ourTerminalIfWin = RobocodeScoreUtil.SURVIVAL_AND_LAST_BONUS_1V1
-                + RobocodeScoreUtil.BULLET_KILL_BONUS_MULTIPLIER
-                * (Math.max(0.0, ourCreditedDamageOnEnemy) + extraOurCreditedDamage);
+                + RobocodeScoreUtil.bulletKillBonus(ourCreditedDamageOnEnemy + extraOurCreditedDamage);
         double enemyTerminalIfWin = RobocodeScoreUtil.SURVIVAL_AND_LAST_BONUS_1V1
-                + RobocodeScoreUtil.BULLET_KILL_BONUS_MULTIPLIER
-                * (Math.max(0.0, enemyCreditedDamageOnUs) + extraEnemyCreditedDamage);
+                + RobocodeScoreUtil.bulletKillBonus(enemyCreditedDamageOnUs + extraEnemyCreditedDamage);
         return new TerminalScoreEstimate(
                 clampedOurWinProbability * ourTerminalIfWin,
                 clampedEnemyWinProbability * enemyTerminalIfWin);
@@ -1786,10 +1780,6 @@ final class ScoreMaxPlanner {
 
     public List<PathWaveIntersection> getLastSelectedPathIntersections() {
         return lastSelectedPathIntersections;
-    }
-
-    public List<CandidatePath> getLastSelectedSafeSpotPaths() {
-        return lastSelectedSafeSpotPaths;
     }
 
     private WinProbabilityModel.Params getAssumedWinProbabilityParams() {
@@ -1946,7 +1936,7 @@ final class ScoreMaxPlanner {
         }
         return Math.min(
                 ShotPlanner.MAX_FIRE_POWER,
-                Math.min(availableEnergy, RobocodeScoreUtil.powerToDealDamage(enemyEnergyForScoring)));
+                Math.min(availableEnergy, PhysicsUtil.requiredBulletPowerForDamage(enemyEnergyForScoring)));
     }
 
     private List<Double> buildCandidateOffensivePowers(double maxPower) {
@@ -2310,7 +2300,6 @@ final class ScoreMaxPlanner {
         if (disabledRamPlan != null) {
             lastSelectedPath = null;
             lastSelectedFamilyPaths = new ArrayList<>();
-            lastSelectedSafeSpotPaths = new ArrayList<>();
             lastSelectedPathIntersections = new ArrayList<>();
             scoreContext = null;
             return disabledRamPlan;
@@ -2457,10 +2446,6 @@ final class ScoreMaxPlanner {
         BattlePlan bestPlan = selection.bestPlan;
         lastSelectedPath = selection.bestPath;
         lastSelectedFamilyPaths = selectTopDistinctFamilyPaths(firstPassEvaluations, MAX_CARRIED_FORWARD_FAMILIES);
-        lastSelectedSafeSpotPaths = new ArrayList<>();
-        if (selection.bestPath != null) {
-            lastSelectedSafeSpotPaths = RenderPathSelector.collectFirstSegmentDisplayPaths(paths, selection.bestPath);
-        }
         lastSelectedPathIntersections = selection.bestPathIntersections;
         lastSelectedWaveDangerRevision = info.getEnemyWaveDangerRevision();
         lastSelectedFirePower = bestPlan.firePower;
@@ -2480,7 +2465,6 @@ final class ScoreMaxPlanner {
         }
         lastSelectedPath = null;
         lastSelectedFamilyPaths = new ArrayList<>();
-        lastSelectedSafeSpotPaths = new ArrayList<>();
         lastSelectedPathIntersections = new ArrayList<>();
         lastSelectedWaveDangerRevision = currentRevision;
     }

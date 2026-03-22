@@ -630,6 +630,14 @@ public final class PhysicsUtil {
         return x >= WALL_MARGIN && x <= bfWidth - WALL_MARGIN && y >= WALL_MARGIN && y <= bfHeight - WALL_MARGIN;
     }
 
+    public static double requiredBulletPowerForDamage(double damage) {
+        double clampedDamage = Math.max(0.0, damage);
+        double requiredPower = clampedDamage <= 4.0
+                ? clampedDamage / 4.0
+                : (clampedDamage + 2.0) / 6.0;
+        return Math.max(Rules.MIN_BULLET_POWER, Math.min(Rules.MAX_BULLET_POWER, requiredPower));
+    }
+
     private static double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
     }

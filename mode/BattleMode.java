@@ -4,6 +4,7 @@ import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ModeObservationPolicy;
 import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
+import oog.mega.saguaro.render.RenderState;
 import robocode.BulletHitEvent;
 import robocode.BulletHitBulletEvent;
 import robocode.HitByBulletEvent;
@@ -22,7 +23,7 @@ public interface BattleMode {
 
     BattlePlan getPlan();
 
-    ModeController.RenderState getRenderState();
+    RenderState getRenderState();
 
     void applyColors(Saguaro robot);
 

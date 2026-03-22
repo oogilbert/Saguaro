@@ -1,6 +1,7 @@
 package oog.mega.saguaro.mode.scoremax;
 
 import java.awt.Color;
+import java.util.Collections;
 
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.gun.GunController;
@@ -11,8 +12,9 @@ import oog.mega.saguaro.info.learning.ScoreMaxScoreHistoryProfile;
 import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleMode;
 import oog.mega.saguaro.mode.BattleServices;
-import oog.mega.saguaro.mode.ModeController;
 import oog.mega.saguaro.movement.MovementController;
+import oog.mega.saguaro.render.PathOverlay;
+import oog.mega.saguaro.render.RenderState;
 
 /**
  * Our bot's primary mode. It works by doing the following:
@@ -30,6 +32,11 @@ import oog.mega.saguaro.movement.MovementController;
  */
 
 public final class ScoreMaxMode implements BattleMode {
+    private static final Color SELECTED_PATH_LINE_COLOR = new Color(80, 215, 140);
+    private static final Color SELECTED_PATH_NODE_COLOR = new Color(80, 215, 140, 210);
+    private static final Color SELECTED_PATH_MARKER_COLOR = Color.WHITE;
+    private static final float SELECTED_PATH_STROKE_WIDTH = 2.0f;
+
     private final ScoreMaxPlanner planner = new ScoreMaxPlanner();
     private final RoundOutcomeProfile roundOutcomeProfile = ScoreMaxScoreHistoryProfile.INSTANCE;
     private MovementController movement;
@@ -58,11 +65,18 @@ public final class ScoreMaxMode implements BattleMode {
     }
 
     @Override
-    public ModeController.RenderState getRenderState() {
-        return new ModeController.RenderState(
+    public RenderState getRenderState() {
+        PathOverlay overlay = PathOverlay.forCandidatePath(
                 planner.getLastSelectedPath(),
-                planner.getLastSelectedSafeSpotPaths(),
-                planner.getLastSelectedPathIntersections());
+                planner.getLastSelectedPathIntersections(),
+                SELECTED_PATH_LINE_COLOR,
+                SELECTED_PATH_NODE_COLOR,
+                SELECTED_PATH_MARKER_COLOR,
+                SELECTED_PATH_STROKE_WIDTH);
+        return new RenderState(
+                overlay != null
+                        ? Collections.singletonList(overlay)
+                        : Collections.<PathOverlay>emptyList());
     }
 
     @Override

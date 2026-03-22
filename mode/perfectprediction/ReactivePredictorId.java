@@ -8,9 +8,6 @@ public enum ReactivePredictorId {
     private final String displayName;
 
     ReactivePredictorId(String displayName) {
-        if (displayName == null || displayName.isEmpty()) {
-            throw new IllegalArgumentException("Reactive predictor ids require a non-empty display name");
-        }
         this.displayName = displayName;
     }
 

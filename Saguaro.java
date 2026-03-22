@@ -6,18 +6,17 @@ import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.ModeController;
 import oog.mega.saguaro.radar.Radar;
+import oog.mega.saguaro.render.RenderState;
 import robocode.*;
 
 public class Saguaro extends AdvancedRobot {
-    private static final boolean ENABLE_WAVE_RENDERING = true;
-    private static Info info = new Info();
-    private static Radar radar = new Radar();
-    private static ModeController mode;
+    private static final Info info = new Info();
+    private static final Radar radar = new Radar();
+    private static final ModeController mode = new ModeController();
 
     @Override
     public void run() {
-        if (getRoundNum() == 0 || mode == null) {
-            mode = new ModeController();
+        if (getRoundNum() == 0) {
             mode.startBattle();
         }
         info.init(this, mode.getRoundOutcomeProfile(), mode.getObservationProfile(), mode.getDataStore());
@@ -25,33 +24,25 @@ public class Saguaro extends AdvancedRobot {
         radar.reset(this);
         setAdjustGunForRobotTurn(true);
         setAdjustRadarForGunTurn(true);
-        boolean hasGraphics = ENABLE_WAVE_RENDERING && getGraphics() != null;
 
         while (true) {
-            info.updateAllEnemiesTick();
+            info.updateTickState();
             radar.execute(info);
 
             BattlePlan plan = mode.getPlan();
-            mode.applyColors(this);
-            ModeController.RenderState renderState = mode.getRenderState();
-            Graphics2D graphics = hasGraphics ? getGraphics() : null;
+            RenderState renderState = mode.getRenderState();
+            Graphics2D graphics = BotConfig.ENABLE_WAVE_RENDERING ? getGraphics() : null;
 
             info.updateWaves(
                     graphics,
-                    renderState.selectedPath,
-                    renderState.selectedSafeSpotPaths,
-                    renderState.selectedPathIntersections,
-                    renderState.debugLines,
+                    renderState.pathOverlays,
                     renderState.renderDefaultWaveGraphics);
 
             setAhead(plan.moveDistance);
             setTurnRightRadians(plan.turnAngle);
             setTurnGunRightRadians(plan.gunTurnAngle);
-            if (plan.firePower >= 0.1 && getGunHeat() == 0) {
-                Bullet bullet = setFireBullet(plan.firePower);
-                if (bullet != null) {
-                    info.onBulletFired(bullet);
-                }
+            if (plan.firePower >= 0.1 && getGunHeat() == 0 && getEnergy() >= plan.firePower) {
+                info.onBulletFired(setFireBullet(plan.firePower));
             }
 
             execute();
@@ -72,17 +63,13 @@ public class Saguaro extends AdvancedRobot {
     @Override
     public void onDeath(DeathEvent e) {
         info.onDeath();
-        if (mode != null) {
-            mode.onDeath();
-        }
+        mode.onDeath();
     }
 
     @Override
     public void onWin(WinEvent e) {
         info.onWin();
-        if (mode != null) {
-            mode.onWin();
-        }
+        mode.onWin();
     }
 
     @Override
@@ -115,16 +102,12 @@ public class Saguaro extends AdvancedRobot {
 
     @Override
     public void onBattleEnded(BattleEndedEvent event) {
-        if (mode != null) {
-            mode.saveCurrentBattle(this);
-        }
+        mode.saveCurrentBattle(this);
     }
 
     @Override
     public void onRoundEnded(RoundEndedEvent event) {
-        if (mode != null) {
-            mode.onRoundEnded();
-        }
+        mode.onRoundEnded();
     }
 
 }

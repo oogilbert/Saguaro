@@ -3,6 +3,7 @@ package oog.mega.saguaro.info.state;
 import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 
 public final class ScoreTracker {
+    private final RobocodeScoreUtil.HitScoreScratch hitScoreScratch = new RobocodeScoreUtil.HitScoreScratch();
     private RoundOutcomeProfile roundOutcomeProfile;
     private boolean roundResultApplied;
     private double ourScore;
@@ -42,54 +43,56 @@ public final class ScoreTracker {
     }
 
     public void onBulletHit(double bulletPower, double enemyEnergyBeforeHit) {
-        double creditedDamage = RobocodeScoreUtil.creditedBulletDamage(bulletPower, enemyEnergyBeforeHit);
-        ourScore += creditedDamage;
-        ourBulletDamageOnEnemyThisRound += creditedDamage;
-        ourCreditedDamageOnEnemyThisRound += creditedDamage;
-        if (!ourKillBonusAppliedThisRound
-                && RobocodeScoreUtil.isLethalDamage(enemyEnergyBeforeHit, creditedDamage)) {
-            ourScore += RobocodeScoreUtil.BULLET_KILL_BONUS_MULTIPLIER * ourCreditedDamageOnEnemyThisRound;
-            ourKillBonusAppliedThisRound = true;
-        }
+        RobocodeScoreUtil.scoreBulletHit(
+                bulletPower,
+                enemyEnergyBeforeHit,
+                ourCreditedDamageOnEnemyThisRound,
+                ourKillBonusAppliedThisRound,
+                hitScoreScratch);
+        ourScore += hitScoreScratch.scoreDelta;
+        ourBulletDamageOnEnemyThisRound += hitScoreScratch.creditedDamage;
+        ourCreditedDamageOnEnemyThisRound = hitScoreScratch.cumulativeCreditedDamage;
+        ourKillBonusAppliedThisRound = hitScoreScratch.killBonusApplied;
     }
 
     public void onHitByBullet(double bulletPower, double ourEnergyBeforeHit) {
-        double creditedDamage = RobocodeScoreUtil.creditedBulletDamage(bulletPower, ourEnergyBeforeHit);
-        opponentScore += creditedDamage;
-        enemyBulletDamageOnUsThisRound += creditedDamage;
-        enemyCreditedDamageOnUsThisRound += creditedDamage;
-        if (!enemyKillBonusAppliedThisRound
-                && RobocodeScoreUtil.isLethalDamage(ourEnergyBeforeHit, creditedDamage)) {
-            opponentScore += RobocodeScoreUtil.BULLET_KILL_BONUS_MULTIPLIER * enemyCreditedDamageOnUsThisRound;
-            enemyKillBonusAppliedThisRound = true;
-        }
+        RobocodeScoreUtil.scoreBulletHit(
+                bulletPower,
+                ourEnergyBeforeHit,
+                enemyCreditedDamageOnUsThisRound,
+                enemyKillBonusAppliedThisRound,
+                hitScoreScratch);
+        opponentScore += hitScoreScratch.scoreDelta;
+        enemyBulletDamageOnUsThisRound += hitScoreScratch.creditedDamage;
+        enemyCreditedDamageOnUsThisRound = hitScoreScratch.cumulativeCreditedDamage;
+        enemyKillBonusAppliedThisRound = hitScoreScratch.killBonusApplied;
     }
 
     public void onHitRobot(boolean myFault,
                            double enemyEnergyBeforeCollision,
                            double ourEnergyBeforeCollision) {
         if (myFault) {
-            double creditedDamage = RobocodeScoreUtil.creditedRamDamage(enemyEnergyBeforeCollision);
-            ourScore += RobocodeScoreUtil.ramDamageScore(creditedDamage);
-            ourRammingDamageOnEnemyThisRound += creditedDamage;
-            ourCreditedDamageOnEnemyThisRound += creditedDamage;
-            if (!ourKillBonusAppliedThisRound
-                    && RobocodeScoreUtil.isLethalDamage(enemyEnergyBeforeCollision, creditedDamage)) {
-                ourScore += RobocodeScoreUtil.RAM_KILL_BONUS_MULTIPLIER * ourCreditedDamageOnEnemyThisRound;
-                ourKillBonusAppliedThisRound = true;
-            }
+            RobocodeScoreUtil.scoreRamHit(
+                    enemyEnergyBeforeCollision,
+                    ourCreditedDamageOnEnemyThisRound,
+                    ourKillBonusAppliedThisRound,
+                    hitScoreScratch);
+            ourScore += hitScoreScratch.scoreDelta;
+            ourRammingDamageOnEnemyThisRound += hitScoreScratch.creditedDamage;
+            ourCreditedDamageOnEnemyThisRound = hitScoreScratch.cumulativeCreditedDamage;
+            ourKillBonusAppliedThisRound = hitScoreScratch.killBonusApplied;
             return;
         }
 
-        double creditedDamage = RobocodeScoreUtil.creditedRamDamage(ourEnergyBeforeCollision);
-        opponentScore += RobocodeScoreUtil.ramDamageScore(creditedDamage);
-        enemyRammingDamageOnUsThisRound += creditedDamage;
-        enemyCreditedDamageOnUsThisRound += creditedDamage;
-        if (!enemyKillBonusAppliedThisRound
-                && RobocodeScoreUtil.isLethalDamage(ourEnergyBeforeCollision, creditedDamage)) {
-            opponentScore += RobocodeScoreUtil.RAM_KILL_BONUS_MULTIPLIER * enemyCreditedDamageOnUsThisRound;
-            enemyKillBonusAppliedThisRound = true;
-        }
+        RobocodeScoreUtil.scoreRamHit(
+                ourEnergyBeforeCollision,
+                enemyCreditedDamageOnUsThisRound,
+                enemyKillBonusAppliedThisRound,
+                hitScoreScratch);
+        opponentScore += hitScoreScratch.scoreDelta;
+        enemyRammingDamageOnUsThisRound += hitScoreScratch.creditedDamage;
+        enemyCreditedDamageOnUsThisRound = hitScoreScratch.cumulativeCreditedDamage;
+        enemyKillBonusAppliedThisRound = hitScoreScratch.killBonusApplied;
     }
 
     public void onWin() {

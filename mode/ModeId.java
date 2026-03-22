@@ -1,20 +1,23 @@
 package oog.mega.saguaro.mode;
 
 public enum ModeId {
-    SCORE_MAX("scoreMax"),
-    BULLET_SHIELD("bulletShield"),
-    PERFECT_PREDICTION("perfectPrediction");
+    SCORE_MAX("scoreMax", "ScoreMax"),
+    BULLET_SHIELD("bulletShield", "BulletShielding"),
+    PERFECT_PREDICTION("perfectPrediction", "PerfectPrediction");
 
     private final String label;
+    private final String displayName;
 
-    ModeId(String label) {
-        if (label == null || label.isEmpty()) {
-            throw new IllegalArgumentException("Mode label must be non-empty");
-        }
+    ModeId(String label, String displayName) {
         this.label = label;
+        this.displayName = displayName;
     }
 
     public String label() {
         return label;
+    }
+
+    public String displayName() {
+        return displayName;
     }
 }

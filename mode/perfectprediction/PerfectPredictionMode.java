@@ -25,10 +25,11 @@ import oog.mega.saguaro.movement.SurfSegmentRecommendation;
 import oog.mega.saguaro.mode.BattleMode;
 import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleServices;
-import oog.mega.saguaro.mode.ModeController;
 import oog.mega.saguaro.mode.scripted.CommittedWaypointPlan;
 import oog.mega.saguaro.mode.scripted.OpponentDriveSimulator;
 import oog.mega.saguaro.mode.scripted.ScriptedWaypoint;
+import oog.mega.saguaro.render.PathOverlay;
+import oog.mega.saguaro.render.RenderState;
 
 /**
  * This mode is designed to take advantage of any bot whose movement is purely a function of the current state of the battle, and for whom we can
@@ -57,7 +58,6 @@ public final class PerfectPredictionMode implements BattleMode {
     private final RoundOutcomeProfile roundOutcomeProfile = NoOpLearningProfile.INSTANCE;
     private final Random random = new Random();
     private final List<ScriptedWaypoint> waypoints = new ArrayList<ScriptedWaypoint>();
-    private final List<ModeController.DebugLine> debugLines = new ArrayList<ModeController.DebugLine>();
 
     private Info info;
     private MovementController movement;
@@ -88,7 +88,6 @@ public final class PerfectPredictionMode implements BattleMode {
         this.movement = services.movement();
         this.planStartTime = Long.MIN_VALUE;
         this.waypoints.clear();
-        this.debugLines.clear();
         this.lastAimSolution = null;
         this.lastPlannedTrajectory = null;
         this.lastPredictedOpponentTrajectory = null;
@@ -134,20 +133,14 @@ public final class PerfectPredictionMode implements BattleMode {
                 : 0.0;
         double firePower = shouldFire(myNow, aimSolution) ? FIRE_POWER : 0.0;
 
-        rebuildDebugLines();
         return planState != null
                 ? planState.movementPlan.createExecutionPlan(myNow, gunTurn, firePower)
                 : new BattlePlan(0.0, 0.0, gunTurn, firePower);
     }
 
     @Override
-    public ModeController.RenderState getRenderState() {
-        return new ModeController.RenderState(
-                null,
-                null,
-                null,
-                new ArrayList<ModeController.DebugLine>(debugLines),
-                false);
+    public RenderState getRenderState() {
+        return new RenderState(buildPathOverlays(), false);
     }
 
     @Override
@@ -368,27 +361,20 @@ public final class PerfectPredictionMode implements BattleMode {
                 opponentTrajectory.stateAt(opponentTrajectory.length() - 1));
     }
 
-    private void rebuildDebugLines() {
-        debugLines.clear();
-        appendTrajectoryDebugLines(lastPlannedTrajectory, OUR_PATH_COLOR);
-        appendTrajectoryDebugLines(lastPredictedOpponentTrajectory, OPPONENT_PATH_COLOR);
+    private List<PathOverlay> buildPathOverlays() {
+        List<PathOverlay> overlays = new ArrayList<PathOverlay>(2);
+        appendPathOverlay(overlays, lastPlannedTrajectory, OUR_PATH_COLOR);
+        appendPathOverlay(overlays, lastPredictedOpponentTrajectory, OPPONENT_PATH_COLOR);
+        return overlays;
     }
 
-    private void appendTrajectoryDebugLines(PhysicsUtil.Trajectory trajectory, Color color) {
+    private static void appendPathOverlay(List<PathOverlay> overlays,
+                                          PhysicsUtil.Trajectory trajectory,
+                                          Color color) {
         if (trajectory == null || trajectory.length() < 2) {
             return;
         }
-        for (int i = 1; i < trajectory.length(); i++) {
-            PhysicsUtil.PositionState previous = trajectory.states[i - 1];
-            PhysicsUtil.PositionState current = trajectory.states[i];
-            debugLines.add(new ModeController.DebugLine(
-                    previous.x,
-                    previous.y,
-                    current.x,
-                    current.y,
-                    color,
-                    PATH_STROKE_WIDTH));
-        }
+        overlays.add(PathOverlay.forTrajectory(trajectory, color, PATH_STROKE_WIDTH));
     }
 
     private CandidateLeg buildCandidateLeg(WaypointSeed seed,
@@ -667,5 +653,3 @@ public final class PerfectPredictionMode implements BattleMode {
         }
     }
 }
-
-

@@ -11,9 +11,8 @@ import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.PhysicsUtil;
 
 final class RamSimulator {
-    private static final double RAM_DAMAGE = 0.6;
-    private static final double RAM_KILL_BONUS_MULTIPLIER = 0.3;
     private static final double ROBOT_HITBOX_SIZE = 36.0;
+    private final RobocodeScoreUtil.HitScoreScratch hitScoreScratch = new RobocodeScoreUtil.HitScoreScratch();
 
     static final class Result {
         final PhysicsUtil.Trajectory adjustedTrajectory;
@@ -167,12 +166,21 @@ final class RamSimulator {
                     enemyState.y)) {
                 double ourEnergyBeforeCollision = ourEnergy;
                 double enemyEnergyBeforeCollision = enemyEnergy;
-                double ourEnergyLossThisCollision = Math.min(RAM_DAMAGE, Math.max(0.0, ourEnergyBeforeCollision));
-                double enemyEnergyLossThisCollision = Math.min(RAM_DAMAGE, Math.max(0.0, enemyEnergyBeforeCollision));
-                double creditedDamage = RobocodeScoreUtil.creditedRamDamage(enemyEnergyBeforeCollision);
-                double scoreDelta = RobocodeScoreUtil.ramDamageScore(creditedDamage);
-                boolean ourKillBonusApplied = false;
-                cumulativeOurRamDamage += creditedDamage;
+                RobocodeScoreUtil.scoreRamHit(
+                        enemyEnergyBeforeCollision,
+                        cumulativeOurRamDamage,
+                        false,
+                        hitScoreScratch);
+                double ourEnergyLossThisCollision = Math.min(
+                        RobocodeScoreUtil.RAM_DAMAGE,
+                        Math.max(0.0, ourEnergyBeforeCollision));
+                double enemyEnergyLossThisCollision = Math.min(
+                        RobocodeScoreUtil.RAM_DAMAGE,
+                        Math.max(0.0, enemyEnergyBeforeCollision));
+                double creditedDamage = hitScoreScratch.creditedDamage;
+                double scoreDelta = hitScoreScratch.scoreDelta;
+                boolean ourKillBonusApplied = hitScoreScratch.killBonusApplied;
+                cumulativeOurRamDamage = hitScoreScratch.cumulativeCreditedDamage;
                 ourEnergy = Math.max(0.0, ourEnergyBeforeCollision - ourEnergyLossThisCollision);
                 enemyEnergy = Math.max(0.0, enemyEnergyBeforeCollision - enemyEnergyLossThisCollision);
                 ramScoreDealt += scoreDelta;
@@ -186,12 +194,8 @@ final class RamSimulator {
                 }
                 nextOurState = rollbackOurCollision(previousOurState, nextOurState);
                 ourTurnLocked = true;
-                if (enemyAlive && enemyEnergy <= 0.0) {
+                if (enemyAlive && ourKillBonusApplied) {
                     enemyAlive = false;
-                    ourKillBonusApplied = true;
-                    double killBonus = RAM_KILL_BONUS_MULTIPLIER * cumulativeOurRamDamage;
-                    ramScoreDealt += killBonus;
-                    scoreDelta += killBonus;
                 }
                 ramEvents.add(new RamEvent(
                         startTime + i,
@@ -235,12 +239,21 @@ final class RamSimulator {
                     nextOurState.y)) {
                 double ourEnergyBeforeCollision = ourEnergy;
                 double enemyEnergyBeforeCollision = enemyEnergy;
-                double ourEnergyLossThisCollision = Math.min(RAM_DAMAGE, Math.max(0.0, ourEnergyBeforeCollision));
-                double enemyEnergyLossThisCollision = Math.min(RAM_DAMAGE, Math.max(0.0, enemyEnergyBeforeCollision));
-                double creditedDamage = RobocodeScoreUtil.creditedRamDamage(ourEnergyBeforeCollision);
-                double scoreDelta = RobocodeScoreUtil.ramDamageScore(creditedDamage);
-                boolean enemyKillBonusApplied = false;
-                cumulativeEnemyRamDamage += creditedDamage;
+                RobocodeScoreUtil.scoreRamHit(
+                        ourEnergyBeforeCollision,
+                        cumulativeEnemyRamDamage,
+                        false,
+                        hitScoreScratch);
+                double ourEnergyLossThisCollision = Math.min(
+                        RobocodeScoreUtil.RAM_DAMAGE,
+                        Math.max(0.0, ourEnergyBeforeCollision));
+                double enemyEnergyLossThisCollision = Math.min(
+                        RobocodeScoreUtil.RAM_DAMAGE,
+                        Math.max(0.0, enemyEnergyBeforeCollision));
+                double creditedDamage = hitScoreScratch.creditedDamage;
+                double scoreDelta = hitScoreScratch.scoreDelta;
+                boolean enemyKillBonusApplied = hitScoreScratch.killBonusApplied;
+                cumulativeEnemyRamDamage = hitScoreScratch.cumulativeCreditedDamage;
                 ourEnergy = Math.max(0.0, ourEnergyBeforeCollision - ourEnergyLossThisCollision);
                 enemyEnergy = Math.max(0.0, enemyEnergyBeforeCollision - enemyEnergyLossThisCollision);
                 ramScoreTaken += scoreDelta;
@@ -249,12 +262,8 @@ final class RamSimulator {
 
                 enemyState = rollbackEnemyCollision(previousEnemyState, enemyState);
                 enemyTurnLocked = true;
-                if (ourAlive && ourEnergy <= 0.0) {
+                if (ourAlive && enemyKillBonusApplied) {
                     ourAlive = false;
-                    enemyKillBonusApplied = true;
-                    double killBonus = RAM_KILL_BONUS_MULTIPLIER * cumulativeEnemyRamDamage;
-                    ramScoreTaken += killBonus;
-                    scoreDelta += killBonus;
                 }
                 ramEvents.add(new RamEvent(
                         startTime + i,

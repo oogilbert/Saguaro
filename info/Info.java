@@ -17,11 +17,10 @@ import oog.mega.saguaro.info.state.RobotSnapshot;
 import oog.mega.saguaro.info.state.ScoreTracker;
 import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.info.wave.WaveManager;
-import oog.mega.saguaro.info.wave.WaveRenderer;
-import oog.mega.saguaro.mode.ModeController;
+import oog.mega.saguaro.render.PathRenderer;
+import oog.mega.saguaro.render.PathOverlay;
+import oog.mega.saguaro.render.WaveRenderer;
 import oog.mega.saguaro.mode.perfectprediction.ReactiveOpponentPredictor;
-import oog.mega.saguaro.movement.CandidatePath;
-import oog.mega.saguaro.movement.PathWaveIntersection;
 import robocode.Bullet;
 import robocode.BulletHitBulletEvent;
 import robocode.BulletHitEvent;
@@ -38,6 +37,7 @@ public class Info {
     private final EnemyTracker enemyTracker = new EnemyTracker();
     private final WaveManager waveManager = new WaveManager();
     private final WaveRenderer waveRenderer = new WaveRenderer();
+    private final PathRenderer pathRenderer = new PathRenderer();
     private final ScoreTracker scoreTracker = new ScoreTracker();
     private final BulletPowerHitRateTracker bulletPowerHitRateTracker = BulletPowerHitRateTracker.INSTANCE;
     private final EnemyBulletHitRateTracker enemyBulletHitRateTracker = new EnemyBulletHitRateTracker();
@@ -78,34 +78,29 @@ public class Info {
         trackedOurEnergy = robot.getEnergy();
     }
 
-    public void updateWaves(Graphics2D g, CandidatePath selectedPath,
-                            List<CandidatePath> selectedSafeSpotPaths,
-                            List<PathWaveIntersection> selectedPathIntersections,
-                            List<ModeController.DebugLine> debugLines,
+    public void updateWaves(Graphics2D g,
+                            List<PathOverlay> pathOverlays,
                             boolean renderDefaultWaveGraphics) {
         waveManager.update();
-        waveRenderer.render(
-                g,
-                robot.getTime(),
-                battlefieldWidth,
-                battlefieldHeight,
-                waveManager.getEnemyWaves(),
-                waveManager.getMyWaves(),
-                selectedPath,
-                selectedSafeSpotPaths,
-                selectedPathIntersections,
-                debugLines,
-                renderDefaultWaveGraphics);
+        if (renderDefaultWaveGraphics) {
+            waveRenderer.render(
+                    g,
+                    robot.getTime(),
+                    battlefieldWidth,
+                    battlefieldHeight,
+                    waveManager.getEnemyWaves(),
+                    waveManager.getMyWaves());
+        }
+        pathRenderer.render(g, pathOverlays);
     }
 
     /**
-     * Called every tick to update predictable enemy state (like gun heat cooling).
+     * Called every tick to update per-tick state that evolves even before scans arrive.
      * Must be called before processing any scans for that tick.
      */
-    public void updateAllEnemiesTick() {
+    public void updateTickState() {
         robotMotionTracker.update();
         enemyTracker.updateTick();
-        trackedOurEnergy = robot.getEnergy();
     }
 
     public void onScannedRobot(ScannedRobotEvent e) {

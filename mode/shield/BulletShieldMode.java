@@ -23,13 +23,13 @@ import oog.mega.saguaro.info.learning.NoOpLearningProfile;
 import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.info.persistence.BattleDataStore;
 import oog.mega.saguaro.info.state.EnemyInfo;
-import oog.mega.saguaro.info.state.RobocodeScoreUtil;
 import oog.mega.saguaro.info.state.RobotSnapshot;
 import oog.mega.saguaro.info.wave.Wave;
+import oog.mega.saguaro.math.PhysicsUtil;
 import oog.mega.saguaro.mode.BattleMode;
 import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleServices;
-import oog.mega.saguaro.mode.ModeController;
+import oog.mega.saguaro.render.RenderState;
 import robocode.Bullet;
 import robocode.BulletHitBulletEvent;
 import robocode.BulletHitEvent;
@@ -95,7 +95,6 @@ public final class BulletShieldMode implements BattleMode {
     private long estimatedEnemyNextFireTime = Long.MIN_VALUE;
     private long lastDetectedEnemyShotTime = Long.MIN_VALUE;
     private double lastDetectedEnemyBulletPower = 2.0;
-    private boolean aggressiveVisualState;
 
     @Override
     public RoundOutcomeProfile getRoundOutcomeProfile() {
@@ -135,7 +134,6 @@ public final class BulletShieldMode implements BattleMode {
         this.estimatedEnemyNextFireTime = Long.MIN_VALUE;
         this.lastDetectedEnemyShotTime = Long.MIN_VALUE;
         this.lastDetectedEnemyBulletPower = 2.0;
-        this.aggressiveVisualState = false;
         this.myHistory.clear();
         this.enemyHistory.clear();
         this.enemyWaves.clear();
@@ -155,20 +153,12 @@ public final class BulletShieldMode implements BattleMode {
     }
 
     @Override
-    public ModeController.RenderState getRenderState() {
-        return new ModeController.RenderState(null, null, null);
+    public RenderState getRenderState() {
+        return new RenderState(null);
     }
 
     @Override
     public void applyColors(Saguaro robot) {
-        if (aggressiveVisualState) {
-            robot.setBodyColor(new Color(155, 17, 30));
-            robot.setGunColor(new Color(120, 10, 20));
-            robot.setRadarColor(new Color(190, 30, 45));
-            robot.setBulletColor(new Color(220, 40, 50));
-            robot.setScanColor(new Color(200, 25, 40));
-            return;
-        }
         robot.setBodyColor(new Color(4, 137, 80));
         robot.setGunColor(new Color(2, 100, 58));
         robot.setRadarColor(new Color(20, 170, 100));
@@ -177,7 +167,6 @@ public final class BulletShieldMode implements BattleMode {
     }
 
     private BattlePlan tick() {
-        aggressiveVisualState = false;
         Snapshot myNow = captureSelf();
         if (lastScanEvent != null && lastScanEvent.getTime() == myNow.time) {
             processScan(lastScanEvent, myNow);
@@ -199,7 +188,6 @@ public final class BulletShieldMode implements BattleMode {
                 } else {
                     BattlePlan directAttack = tryFireDirectAttack(myNow, nextWave);
                     if (directAttack != null) {
-                        aggressiveVisualState = true;
                         return directAttack;
                     }
                 }
@@ -212,13 +200,11 @@ public final class BulletShieldMode implements BattleMode {
         if (nextWave == null) {
             BattlePlan finisher = tryFireFinisher(myNow);
             if (finisher != null) {
-                aggressiveVisualState = true;
                 return finisher;
             }
         }
         BattlePlan directAttack = tryFireDirectAttack(myNow, null);
         if (directAttack != null) {
-            aggressiveVisualState = true;
             return directAttack;
         }
         return holdShieldStance(myNow);
@@ -669,7 +655,7 @@ public final class BulletShieldMode implements BattleMode {
     private double selectDirectAttackPower(Snapshot myNow, EnemyWave blockingWave) {
         double aggressivePower = Math.min(3.0, myNow.energy);
         aggressivePower = Math.min(aggressivePower, latestEnemy.energy);
-        aggressivePower = Math.min(aggressivePower, RobocodeScoreUtil.powerToDealDamage(latestEnemy.energy));
+        aggressivePower = Math.min(aggressivePower, PhysicsUtil.requiredBulletPowerForDamage(latestEnemy.energy));
         if (aggressivePower < Rules.MIN_BULLET_POWER) {
             return Double.NaN;
         }
