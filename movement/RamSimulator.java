@@ -33,7 +33,7 @@ final class RamSimulator {
             this.ramScoreTaken = ramScoreTaken;
             this.ramEnergyLoss = ramEnergyLoss;
             this.ramEnemyEnergyLoss = ramEnemyEnergyLoss;
-            this.ramEvents = ramEvents == null ? Collections.<RamEvent>emptyList() : ramEvents;
+            this.ramEvents = ramEvents;
         }
     }
 
