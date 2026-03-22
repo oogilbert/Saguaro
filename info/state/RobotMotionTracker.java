@@ -4,7 +4,7 @@ import oog.mega.saguaro.Saguaro;
 
 public final class RobotMotionTracker {
     private Saguaro robot;
-    private long motionStateTime;
+    private boolean firstUpdate;
     private double lastVelocity;
     private int accelerationSign;
     private int ticksSinceVelocityReversal;
@@ -12,11 +12,8 @@ public final class RobotMotionTracker {
     private int lastNonZeroVelocitySign;
 
     public void init(Saguaro robot) {
-        if (robot == null) {
-            throw new IllegalArgumentException("RobotMotionTracker requires a non-null robot");
-        }
         this.robot = robot;
-        motionStateTime = Long.MIN_VALUE;
+        firstUpdate = true;
         lastVelocity = 0.0;
         accelerationSign = 0;
         ticksSinceVelocityReversal = 0;
@@ -25,23 +22,22 @@ public final class RobotMotionTracker {
     }
 
     public void update() {
-        long currentTime = robot.getTime();
-        if (motionStateTime == currentTime) {
-            return;
-        }
-
         double currentVelocity = robot.getVelocity();
-        if (motionStateTime == Long.MIN_VALUE) {
+        int currentVelocitySign = currentVelocity > 0 ? 1 : currentVelocity < 0 ? -1 : 0;
+        if (firstUpdate) {
+            firstUpdate = false;
             accelerationSign = 0;
             ticksSinceDecel = 0;
+            if (currentVelocitySign != 0) {
+                lastNonZeroVelocitySign = currentVelocitySign;
+            }
         } else {
-            accelerationSign = signWithEpsilon(currentVelocity - lastVelocity);
-            if (Math.abs(currentVelocity) < Math.abs(lastVelocity) - 1e-9) {
+            accelerationSign = currentVelocity > lastVelocity ? 1 : currentVelocity < lastVelocity ? -1 : 0;
+            if (Math.abs(currentVelocity) < Math.abs(lastVelocity)) {
                 ticksSinceDecel = 0;
             } else {
                 ticksSinceDecel++;
             }
-            int currentVelocitySign = signWithEpsilon(currentVelocity);
             if (currentVelocitySign != 0) {
                 if (lastNonZeroVelocitySign != 0 && currentVelocitySign != lastNonZeroVelocitySign) {
                     ticksSinceVelocityReversal = 0;
@@ -54,12 +50,7 @@ public final class RobotMotionTracker {
             }
         }
 
-        int currentVelocitySign = signWithEpsilon(currentVelocity);
-        if (motionStateTime == Long.MIN_VALUE && currentVelocitySign != 0) {
-            lastNonZeroVelocitySign = currentVelocitySign;
-        }
         lastVelocity = currentVelocity;
-        motionStateTime = currentTime;
     }
 
     public int getAccelerationSign() {
@@ -74,13 +65,4 @@ public final class RobotMotionTracker {
         return ticksSinceDecel;
     }
 
-    private static int signWithEpsilon(double value) {
-        if (value > 1e-9) {
-            return 1;
-        }
-        if (value < -1e-9) {
-            return -1;
-        }
-        return 0;
-    }
 }
