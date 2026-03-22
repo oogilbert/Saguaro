@@ -140,8 +140,7 @@ public class Info {
     public void onBulletHit(BulletHitEvent e) {
         Wave matchedWave = waveManager.validateAndRemoveMyWave(e);
         bulletPowerHitRateTracker.onMyWaveHit(matchedWave);
-        EnemyInfo enemy = enemyTracker.getEnemy();
-        double enemyEnergyBeforeHit = enemy != null ? enemy.energy : Double.NaN;
+        double enemyEnergyBeforeHit = currentEnemyEnergyForScoring();
         scoreTracker.onBulletHit(e.getBullet().getPower(), enemyEnergyBeforeHit);
         enemyTracker.onBulletHit(e.getName(), e.getBullet().getPower());
         trackedOurEnergy = robot.getEnergy();
@@ -171,8 +170,7 @@ public class Info {
     }
 
     public void onHitRobot(HitRobotEvent e) {
-        EnemyInfo enemy = enemyTracker.getEnemy();
-        double enemyEnergyBeforeCollision = enemy != null ? enemy.energy : Double.NaN;
+        double enemyEnergyBeforeCollision = currentEnemyEnergyForScoring();
         double ourEnergyBeforeCollision = trackedOurEnergy;
         scoreTracker.onHitRobot(e.isMyFault(), enemyEnergyBeforeCollision, ourEnergyBeforeCollision);
         enemyTracker.onHitRobot(e.isMyFault(), e.getEnergy());
@@ -352,6 +350,14 @@ public class Info {
 
     public double getTrackedOurEnergy() {
         return trackedOurEnergy;
+    }
+
+    private double currentEnemyEnergyForScoring() {
+        EnemyInfo enemy = enemyTracker.getEnemy();
+        if (enemy == null || !Double.isFinite(enemy.energy) || enemy.energy <= 0.0) {
+            return 0.0;
+        }
+        return enemy.energy;
     }
 
     private static BattleDataStore requireDataStore(BattleDataStore dataStore) {

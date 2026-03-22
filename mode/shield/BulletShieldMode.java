@@ -630,14 +630,14 @@ public final class BulletShieldMode implements BattleMode {
             return null;
         }
         double gunTurn = Utils.normalRelativeAngle(fireAngle - myNow.gunHeading);
-
-        double bodyHeading = parallelHeading(
-                absoluteBearing(myNow.x, myNow.y, latestEnemy.x, latestEnemy.y),
-                myNow.heading);
         double firePower = 0.0;
         if (myNow.gunHeat == 0.0) {
             firePower = attackPower;
         }
+
+        double bodyHeading = parallelHeading(
+                absoluteBearing(myNow.x, myNow.y, latestEnemy.x, latestEnemy.y),
+                myNow.heading);
         return new BattlePlan(
                 0.0,
                 Utils.normalRelativeAngle(bodyHeading - myNow.heading),

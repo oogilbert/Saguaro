@@ -213,9 +213,13 @@ public final class ModeController {
 
     private double currentEnemyEnergyBeforeDamage() {
         if (info == null || info.getEnemy() == null) {
-            return Double.NaN;
+            return 0.0;
         }
-        return info.getEnemy().energy;
+        double enemyEnergy = info.getEnemy().energy;
+        if (!Double.isFinite(enemyEnergy) || enemyEnergy <= 0.0) {
+            return 0.0;
+        }
+        return enemyEnergy;
     }
 
     private void startRoundOutcomeProfile(RoundOutcomeProfile profile, RoundOutcomeProfile otherProfile) {
