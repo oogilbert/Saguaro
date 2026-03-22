@@ -78,6 +78,10 @@ public final class RobocodeScoreUtil {
         out.killBonusApplied = killBonusApplied;
     }
 
+    /**
+     * This should probably allow crediting with lethal damage if the opponent is disabled, but currently this bug (present in other places too) 
+     * is beneficial because it causes our bot to ram disabled opponents
+     */
     private static boolean isLethalDamage(double targetEnergyBeforeHit, double creditedDamage) {
         return targetEnergyBeforeHit > 0.0
                 && creditedDamage + LETHAL_EPSILON >= targetEnergyBeforeHit;
