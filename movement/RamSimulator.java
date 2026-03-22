@@ -13,7 +13,7 @@ import oog.mega.saguaro.math.PhysicsUtil;
 final class RamSimulator {
     private static final double ROBOT_HITBOX_SIZE = 36.0;
     private final RobocodeScoreUtil.HitScoreScratch hitScoreScratch = new RobocodeScoreUtil.HitScoreScratch();
-
+    
     static final class Result {
         final PhysicsUtil.Trajectory adjustedTrajectory;
         final double ramScoreDealt;
@@ -54,9 +54,6 @@ final class RamSimulator {
     private final Info info;
 
     RamSimulator(Info info) {
-        if (info == null) {
-            throw new IllegalArgumentException("RamSimulator requires non-null info");
-        }
         this.info = info;
     }
 
@@ -70,15 +67,11 @@ final class RamSimulator {
         double bfHeight = info.getBattlefieldHeight();
         PhysicsUtil.PositionState[] rawStates = rawTrajectory.states;
         EnemyInfo.PredictedPosition enemyAtStart = enemy.predictPositionAtTime(startTime, bfWidth, bfHeight);
-        int horizonTicks = rawStates.length - 1;
-        double maxRelativeAxisTravel = (8.0 + Math.abs(enemy.velocity)) * horizonTicks + ROBOT_HITBOX_SIZE;
-        if (Math.abs(rawStates[0].x - enemyAtStart.x) > maxRelativeAxisTravel
-                || Math.abs(rawStates[0].y - enemyAtStart.y) > maxRelativeAxisTravel) {
-            return new Result(rawTrajectory, 0.0, 0.0, 0.0, 0.0, Collections.<RamEvent>emptyList());
-        }
-
         // Most candidate paths never physically overlap the enemy hitbox. In that common
         // case we can skip the expensive collision-adjusted replay entirely.
+        // We check at each tick whether the robots are still close enough for collision
+        // to be possible within the remaining ticks, and bail out early if not.
+        double maxSpeed = 8.0 + Math.abs(enemy.velocity);
         double probeX = enemyAtStart.x;
         double probeY = enemyAtStart.y;
         double probeHeading = enemy.heading;
@@ -86,6 +79,11 @@ final class RamSimulator {
         double[] overlapProbeInstruction = new double[2];
         boolean hasPotentialRamOverlap = false;
         for (int i = 1; i < rawStates.length; i++) {
+            double remainingReach = maxSpeed * (rawStates.length - i) + ROBOT_HITBOX_SIZE;
+            if (Math.abs(rawStates[i].x - probeX) > remainingReach
+                    || Math.abs(rawStates[i].y - probeY) > remainingReach) {
+                break;
+            }
             if (robotsOverlap(rawStates[i].x, rawStates[i].y, probeX, probeY)) {
                 hasPotentialRamOverlap = true;
                 break;
