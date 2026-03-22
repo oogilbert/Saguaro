@@ -18,12 +18,10 @@ final class WaveIntersectionAnalyzer {
     private final MovementEngine movement;
 
     WaveIntersectionAnalyzer(MovementEngine movement) {
-        if (movement == null) {
-            throw new IllegalArgumentException("WaveIntersectionAnalyzer requires non-null movement");
-        }
         this.movement = movement;
     }
 
+    // Sums expected bullet damage and enemy energy gain across all waves for a trajectory.
     MovementEngine.PathDangerMetrics evaluatePathDangerMetrics(
             PhysicsUtil.Trajectory trajectory,
             long startTime,
@@ -35,8 +33,7 @@ final class WaveIntersectionAnalyzer {
         List<PathWaveIntersection> intersections = new ArrayList<>();
 
         for (Wave wave : wavesToScore) {
-            MovementEngine.PrecomputedWaveData wavePrecomputed =
-                    precomputedWaveData != null ? precomputedWaveData.get(wave) : null;
+            MovementEngine.PrecomputedWaveData wavePrecomputed = precomputedWaveData != null ? precomputedWaveData.get(wave) : null;
             MovementEngine.WaveAnalysis waveAnalysis = analyzeWaveIntersection(
                     wave,
                     trajectory,
@@ -55,6 +52,7 @@ final class WaveIntersectionAnalyzer {
         return new MovementEngine.PathDangerMetrics(totalDanger, totalEnemyEnergyGain, intersections);
     }
 
+    // Collects wave intersection geometry for a path without computing aggregate danger.
     List<PathWaveIntersection> collectPathWaveIntersections(
             CandidatePath path,
             PathIntersectionContext context) {
@@ -63,14 +61,7 @@ final class WaveIntersectionAnalyzer {
             return intersections;
         }
 
-        if (path.pathIntersections != null) {
-            return path.pathIntersections;
-        }
-
         for (Wave wave : context.wavesToScore) {
-            if (!wave.isEnemy) {
-                continue;
-            }
             PathWaveIntersection intersection = analyzeWaveIntersection(
                     wave,
                     path.trajectory,
@@ -87,6 +78,17 @@ final class WaveIntersectionAnalyzer {
         return intersections;
     }
 
+    // Analyzes a single wave against a trajectory to compute hit probability and expected damage.
+    //
+    // 1. Resolves the reference frame: reference bearing, MEA, shadow intervals, and the
+    //    opponent's firing distribution. Uses precomputed data when available; for virtual waves,
+    //    simulates our position at the wave's fire time from the trajectory.
+    // 2. Walks each tick of the trajectory finding where the wave's annulus overlaps our hitbox,
+    //    converting each overlap into a guess factor interval.
+    // 3. Handles the tail: after the trajectory ends, the robot is stationary at its last
+    //    position, so checks remaining ticks where the wave still passes through.
+    // 4. Merges GF intervals, subtracts bullet shadows, and integrates the firing distribution
+    //    over exposed intervals to get hit probability, then converts to expected damage.
     private MovementEngine.WaveAnalysis analyzeWaveIntersection(
             Wave wave,
             PhysicsUtil.Trajectory trajectory,
@@ -244,6 +246,7 @@ final class WaveIntersectionAnalyzer {
                 intersection);
     }
 
+    // Converts a wave-annulus/hitbox overlap into a guess factor interval and appends it.
     private static void addWaveIntersectionInterval(List<double[]> intervals,
                                                     Wave wave,
                                                     PhysicsUtil.PositionState state,
