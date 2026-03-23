@@ -9,7 +9,6 @@ import java.util.Random;
 
 import robocode.Rules;
 import oog.mega.saguaro.info.Info;
-import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.state.RobotSnapshot;
 import oog.mega.saguaro.info.wave.BulletShadowUtil;
 import oog.mega.saguaro.info.wave.Wave;
@@ -32,8 +31,6 @@ public class MovementEngine implements MovementController {
     static final double PRE_FIRE_TARGET_DISTANCE = 1000.0;
     static final double CIRCULAR_WAVE_APPROX_RADIUS = RobotHitbox.HALF_WIDTH;
     private static final double GF_RANGE_OVERLAP_EPSILON = 1e-5;
-    private static final int OPTIMISTIC_RAY_FIXED_POINT_ITERS = 4;
-    private static final double OPTIMISTIC_RAY_INTERSECTION_EPS = 1e-9;
     static final double MAX_EFFECTIVE_VIRTUAL_GUN_HEAT = 1.6;
     // Debug toggle to isolate virtual-wave effects during tuning.
     static final boolean ENABLE_VIRTUAL_WAVES = true;
@@ -45,7 +42,6 @@ public class MovementEngine implements MovementController {
     private final WaveIntersectionAnalyzer waveIntersectionAnalyzer;
     private final WaveShadowCacheBuilder waveShadowCacheBuilder;
     private final PathGenerator pathGenerator;
-    private final WavePathGenerator wavePathGenerator;
     private final MovementWavePlanner movementWavePlanner;
     private final GuessFactorDangerAnalyzer guessFactorDangerAnalyzer;
     private final DefaultDistribution defaultDistribution = new DefaultDistribution();
@@ -63,7 +59,6 @@ public class MovementEngine implements MovementController {
         this.waveIntersectionAnalyzer = new WaveIntersectionAnalyzer(this);
         this.waveShadowCacheBuilder = new WaveShadowCacheBuilder(this);
         this.pathGenerator = new PathGenerator(this);
-        this.wavePathGenerator = new WavePathGenerator(this);
         this.movementWavePlanner = new MovementWavePlanner(this, info);
         this.guessFactorDangerAnalyzer = new GuessFactorDangerAnalyzer();
         this.latestPathPlanningDiagnostics = null;
@@ -546,103 +541,6 @@ public class MovementEngine implements MovementController {
         return 0;
     }
 
-    private int solveOptimisticSafeRayTicks(Wave wave,
-                                            PhysicsUtil.PositionState state,
-                                            long stateTime,
-                                            int initialTicksUntilArrival,
-                                            double targetAngle,
-                                            boolean moveOutward,
-                                            double bfWidth,
-                                            double bfHeight) {
-        if (wave.speed <= 0.0) {
-            throw new IllegalStateException("Wave speed must be positive for optimistic direct planning");
-        }
-        int ticks = Math.max(1, initialTicksUntilArrival);
-        int previousTicks = -1;
-        int previousPreviousTicks = -1;
-
-        for (int i = 0; i < OPTIMISTIC_RAY_FIXED_POINT_ITERS; i++) {
-            double desiredRadius = optimisticSafeRayIntersectionRadius(
-                    wave, state, targetAngle, ticks, moveOutward, bfWidth, bfHeight);
-            int nextTicks = estimateWaveContactTicksAtRadius(wave, stateTime, desiredRadius);
-            if (nextTicks == ticks) {
-                return ticks;
-            }
-            if (nextTicks == previousPreviousTicks && ticks == previousTicks) {
-                return moveOutward ? Math.max(ticks, nextTicks) : Math.min(ticks, nextTicks);
-            }
-            previousPreviousTicks = previousTicks;
-            previousTicks = ticks;
-            ticks = nextTicks;
-        }
-        return ticks;
-    }
-
-    private double optimisticSafeRayIntersectionRadius(Wave wave,
-                                                       PhysicsUtil.PositionState state,
-                                                       double targetAngle,
-                                                       int ticks,
-                                                       boolean moveOutward,
-                                                       double bfWidth,
-                                                       double bfHeight) {
-        double maxRadiusOnRay = Math.max(0.0, maxRadiusOnAngleWithinField(wave, targetAngle, bfWidth, bfHeight));
-        if (maxRadiusOnRay <= 0.0) {
-            return 0.0;
-        }
-
-        double travelDistance = optimisticTravelDistance(Math.abs(state.velocity), Math.max(1, ticks));
-        double dirX = FastTrig.sin(targetAngle);
-        double dirY = FastTrig.cos(targetAngle);
-        double offsetX = wave.originX - state.x;
-        double offsetY = wave.originY - state.y;
-
-        // Solve |(waveOrigin + dir * r) - state|^2 = travelDistance^2 for ray parameter r.
-        double dot = dirX * offsetX + dirY * offsetY;
-        double projectionRadius = -dot;
-        double c = offsetX * offsetX + offsetY * offsetY - travelDistance * travelDistance;
-        double discriminant = dot * dot - c;
-
-        double chosenRadius;
-        if (discriminant >= -OPTIMISTIC_RAY_INTERSECTION_EPS) {
-            double sqrtDisc = Math.sqrt(Math.max(0.0, discriminant));
-            double nearRadius = projectionRadius - sqrtDisc;
-            double farRadius = projectionRadius + sqrtDisc;
-            chosenRadius = moveOutward ? farRadius : nearRadius;
-        } else {
-            // No intersection for this tick estimate; use nearest point on the ray.
-            chosenRadius = projectionRadius;
-        }
-
-        if (!Double.isFinite(chosenRadius)) {
-            throw new IllegalStateException("Non-finite optimistic safespot-ray radius");
-        }
-        return Math.max(0.0, Math.min(maxRadiusOnRay, chosenRadius));
-    }
-
-    private static int estimateWaveContactTicksAtRadius(Wave wave, long stateTime, double targetRadius) {
-        double currentWaveReach = wave.getRadius(stateTime) + CIRCULAR_WAVE_APPROX_RADIUS;
-        double remaining = targetRadius - currentWaveReach;
-        if (remaining <= 0.0) {
-            return 1;
-        }
-        return Math.max(1, (int) Math.ceil(remaining / wave.speed));
-    }
-
-    private static double optimisticTravelDistance(double initialAbsVelocity, int ticks) {
-        if (ticks <= 0) {
-            return 0.0;
-        }
-        double clampedInitial = Math.max(0.0, Math.min(Rules.MAX_VELOCITY, initialAbsVelocity));
-        int rampTicks = (int) Math.ceil(Math.max(0.0, Rules.MAX_VELOCITY - clampedInitial));
-        int acceleratedTicks = Math.min(ticks, rampTicks);
-        double acceleratedTicksDouble = acceleratedTicks;
-        double acceleratedDistance =
-                acceleratedTicksDouble * clampedInitial
-                        + acceleratedTicksDouble * (acceleratedTicksDouble - 1.0) * 0.5;
-        int cruiseTicks = ticks - acceleratedTicks;
-        return acceleratedDistance + cruiseTicks * Rules.MAX_VELOCITY;
-    }
-
     /**
      * Finds the K safest guess factors on a wave by locating local minima of the
      * hit-probability function inside the reachable GF interval.
@@ -1007,10 +905,6 @@ public class MovementEngine implements MovementController {
         return Double.isFinite(maxDist) ? Math.max(0.0, maxDist) : 0.0;
     }
 
-    static double maxRadiusOnAngleWithinField(Wave wave, double angle, double bfWidth, double bfHeight) {
-        return maxDistanceInField(wave.originX, wave.originY, angle, bfWidth, bfHeight);
-    }
-
     static double clampToField(double value, double fieldSize, boolean isX) {
         double margin = PhysicsUtil.WALL_MARGIN;
         return Math.max(margin, Math.min(fieldSize - margin, value));
@@ -1068,65 +962,6 @@ public class MovementEngine implements MovementController {
                 precomputedWaveData));
     }
 
-    @Override
-    public SurfSegmentRecommendation recommendFutureSurfSegment(PhysicsUtil.Trajectory committedTrajectory,
-                                                                long trajectoryStartTime,
-                                                                PredictedOpponentState opponentStart,
-                                                                OpponentDriveSimulator.Instruction opponentInstruction) {
-        if (committedTrajectory == null || committedTrajectory.length() < 1) {
-            throw new IllegalArgumentException("Future surf recommendation requires a non-empty committed trajectory");
-        }
-        if (opponentStart != null && opponentInstruction == null) {
-            throw new IllegalArgumentException(
-                    "Future surf recommendation requires a non-null opponent instruction when opponent state is present");
-        }
-
-        FuturePredictionState futureState =
-                simulateFuturePredictionState(committedTrajectory, trajectoryStartTime, opponentStart, opponentInstruction);
-        List<Wave> scoringWaves = selectFutureScoringWaves(
-                futureState.activeEnemyWaves,
-                futureState.ourState.x,
-                futureState.ourState.y,
-                futureState.time);
-        List<Wave> planningWaves = buildPlanningWavesForState(
-                scoringWaves,
-                futureState.ourState.x,
-                futureState.ourState.y,
-                futureState.time);
-        if (planningWaves.isEmpty()) {
-            if (opponentInstruction == null) {
-                return null;
-            }
-            return wavePathGenerator.recommendFutureSurfSegment(
-                    futureState.ourState,
-                    futureState.time,
-                    getBattlefieldWidth(),
-                    getBattlefieldHeight(),
-                    scoringWaves,
-                    futureState.opponentState,
-                    opponentInstruction);
-        }
-
-        Map<Wave, List<BulletShadowUtil.ShadowInterval>> shadowCache =
-                waveShadowCacheBuilder.buildBaseShadowCache(scoringWaves);
-        PathGenerationContext context = new PathGenerationContext(
-                futureState.ourState,
-                futureState.time,
-                getBattlefieldWidth(),
-                getBattlefieldHeight(),
-                scoringWaves,
-                null,
-                futureState.opponentState != null ? futureState.opponentState.x : Double.NaN,
-                futureState.opponentState != null ? futureState.opponentState.y : Double.NaN,
-                scoringWaves,
-                planningWaves,
-                shadowCache);
-        Map<Wave, PrecomputedWaveData> precomputedWaveData =
-                waveShadowCacheBuilder.buildPrecomputedWaveData(scoringWaves, shadowCache);
-        return recommendationFromCandidates(
-                wavePathGenerator.generateCandidatePaths(context, shadowCache, precomputedWaveData));
-    }
-
     private List<Wave> selectFutureScoringWaves(List<Wave> activeEnemyWaves,
                                                 double robotX,
                                                 double robotY,
@@ -1138,36 +973,6 @@ public class MovementEngine implements MovementController {
             return new ArrayList<>(scoringWaves.subList(0, MAX_WAVE_DEPTH));
         }
         return scoringWaves;
-    }
-
-    SurfSegmentRecommendation recommendationFromCandidates(List<CandidatePath> candidates) {
-        if (candidates == null || candidates.isEmpty()) {
-            return null;
-        }
-        CandidatePath best = null;
-        for (CandidatePath candidate : candidates) {
-            if (candidate == null || candidate.firstLegDurationTicks <= 0
-                    || !Double.isFinite(candidate.firstTargetX) || !Double.isFinite(candidate.firstTargetY)) {
-                continue;
-            }
-            if (best == null
-                    || candidate.totalDanger < best.totalDanger - 1e-9
-                    || (Math.abs(candidate.totalDanger - best.totalDanger) <= 1e-9
-                    && candidate.wallHitDamage < best.wallHitDamage - 1e-9)
-                    || (Math.abs(candidate.totalDanger - best.totalDanger) <= 1e-9
-                    && Math.abs(candidate.wallHitDamage - best.wallHitDamage) <= 1e-9
-                    && candidate.firstLegDurationTicks < best.firstLegDurationTicks)) {
-                best = candidate;
-            }
-        }
-        if (best == null) {
-            return null;
-        }
-        return new SurfSegmentRecommendation(
-                best.firstTargetX,
-                best.firstTargetY,
-                best.firstLegDurationTicks,
-                best.totalDanger);
     }
 
     private FuturePredictionState simulateFuturePredictionState(PhysicsUtil.Trajectory committedTrajectory,
@@ -1187,7 +992,9 @@ public class MovementEngine implements MovementController {
             long time = trajectoryStartTime + tick;
             PhysicsUtil.PositionState ourState = ourStates[tick];
             if (opponentState != null && opponentEnergy >= 0.1 && opponentGunHeat <= 1e-9) {
-                double firePower = Math.min(3.0, opponentEnergy);
+                double firePower = Double.isNaN(opponentLastDetectedBulletPower)
+                        ? Math.min(3.0, opponentEnergy)
+                        : Math.min(opponentLastDetectedBulletPower, opponentEnergy);
                 MotionContext motionContext = deriveMotionContext(ourStates, tick, bfWidth, bfHeight);
                 List<Wave> referenceWaves = new ArrayList<>(info.getEnemyWaves());
                 referenceWaves.addAll(predictedEnemyWaves);
@@ -1263,6 +1070,7 @@ public class MovementEngine implements MovementController {
                 finalOurState,
                 finalTime,
                 activeEnemyWaves,
+                predictedEnemyWaves,
                 opponentState == null
                         ? null
                         : new PredictedOpponentState(
@@ -1279,15 +1087,18 @@ public class MovementEngine implements MovementController {
         final PhysicsUtil.PositionState ourState;
         final long time;
         final List<Wave> activeEnemyWaves;
+        final List<Wave> allPredictedWaves;
         final PredictedOpponentState opponentState;
 
         FuturePredictionState(PhysicsUtil.PositionState ourState,
                               long time,
                               List<Wave> activeEnemyWaves,
+                              List<Wave> allPredictedWaves,
                               PredictedOpponentState opponentState) {
             this.ourState = ourState;
             this.time = time;
             this.activeEnemyWaves = activeEnemyWaves;
+            this.allPredictedWaves = allPredictedWaves;
             this.opponentState = opponentState;
         }
     }
@@ -1383,6 +1194,218 @@ public class MovementEngine implements MovementController {
             throw new IllegalStateException("Missing shadow cache for enemy wave");
         }
         return shadows;
+    }
+
+    @Override
+    public List<PathLeg> generateBestRandomTail(PhysicsUtil.Trajectory committedPrefix,
+                                                 long prefixStartTime,
+                                                 PredictedOpponentState opponentStart,
+                                                 OpponentDriveSimulator.Instruction opponentInstruction,
+                                                 int minTailTicks,
+                                                 List<PathLeg> carryForwardTail) {
+        if (committedPrefix == null || committedPrefix.length() < 1) {
+            throw new IllegalArgumentException("generateBestRandomTail requires a non-empty committed prefix");
+        }
+        if (opponentStart != null && opponentInstruction == null) {
+            throw new IllegalArgumentException(
+                    "generateBestRandomTail requires a non-null opponent instruction when opponent state is present");
+        }
+
+        boolean hasCarryForward = carryForwardTail != null && !carryForwardTail.isEmpty();
+        int candidateCount = RANDOM_TAIL_CANDIDATE_COUNT;
+        double bfWidth = getBattlefieldWidth();
+        double bfHeight = getBattlefieldHeight();
+        PhysicsUtil.PositionState prefixEndState = committedPrefix.stateAt(committedPrefix.length() - 1);
+        long prefixEndTime = prefixStartTime + committedPrefix.length() - 1L;
+
+        // Simulate opponent along committed prefix to get future state
+        FuturePredictionState prefixFuture = simulateFuturePredictionState(
+                committedPrefix, prefixStartTime, opponentStart, opponentInstruction);
+
+        // Build planning waves from the prefix end state
+        List<Wave> baseScoringWaves = selectFutureScoringWaves(
+                prefixFuture.activeEnemyWaves,
+                prefixEndState.x,
+                prefixEndState.y,
+                prefixEndTime);
+        List<Wave> planningWaves = buildPlanningWavesForState(
+                baseScoringWaves,
+                prefixEndState.x,
+                prefixEndState.y,
+                prefixEndTime);
+
+        List<PathLeg> bestTailLegs = Collections.emptyList();
+        double bestDanger = Double.POSITIVE_INFINITY;
+        double bestOpponentDistance = Double.NEGATIVE_INFINITY;
+
+        for (int i = 0; i < candidateCount; i++) {
+            List<PathLeg> tailLegs;
+
+            if (i == 0 && hasCarryForward) {
+                // First candidate: evaluate the carry-forward tail from the previous tick
+                tailLegs = carryForwardTail;
+            } else {
+                // Generate random legs from prefix end state until all planning waves pass
+                tailLegs = generateRandomTailLegs(prefixEndState, prefixEndTime,
+                        planningWaves, minTailTicks, bfWidth, bfHeight);
+            }
+
+            // Simulate tail legs to get trajectory states
+            List<PhysicsUtil.PositionState> tailStates = new ArrayList<>();
+            tailStates.add(prefixEndState);
+            PhysicsUtil.PositionState currentState = prefixEndState;
+            long currentTime = prefixEndTime;
+            for (PathLeg leg : tailLegs) {
+                PhysicsUtil.Trajectory segment = PhysicsUtil.simulateTrajectory(
+                        currentState,
+                        leg.targetX,
+                        leg.targetY,
+                        currentTime,
+                        null,
+                        currentTime + leg.durationTicks,
+                        PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                        bfWidth,
+                        bfHeight);
+                for (int s = 1; s < segment.states.length; s++) {
+                    tailStates.add(segment.states[s]);
+                }
+                int segmentTicks = segment.length() - 1;
+                currentState = segment.stateAt(segmentTicks);
+                currentTime += segmentTicks;
+            }
+
+            // Extend carry-forward tail if it doesn't cover all planning waves
+            if (i == 0 && hasCarryForward
+                    && (!allPlanningWavesPassed(planningWaves, currentState, currentTime)
+                        || (currentTime - prefixEndTime) < minTailTicks)) {
+                tailLegs = new ArrayList<>(tailLegs);
+                while (!allPlanningWavesPassed(planningWaves, currentState, currentTime)
+                        || (currentTime - prefixEndTime) < minTailTicks) {
+                    PathLeg leg = nextRandomTailLeg(currentState, bfWidth, bfHeight);
+                    PhysicsUtil.Trajectory segment = PhysicsUtil.simulateTrajectory(
+                            currentState,
+                            leg.targetX,
+                            leg.targetY,
+                            currentTime,
+                            null,
+                            currentTime + leg.durationTicks,
+                            PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                            bfWidth,
+                            bfHeight);
+                    for (int s = 1; s < segment.states.length; s++) {
+                        tailStates.add(segment.states[s]);
+                    }
+                    int segmentTicks = segment.length() - 1;
+                    tailLegs.add(leg);
+                    currentState = segment.stateAt(segmentTicks);
+                    currentTime += segmentTicks;
+                }
+            }
+
+            // Build full trajectory: committed prefix + tail
+            PhysicsUtil.PositionState[] fullStates =
+                    new PhysicsUtil.PositionState[committedPrefix.length() + tailStates.size() - 1];
+            System.arraycopy(committedPrefix.states, 0, fullStates, 0, committedPrefix.length());
+            for (int s = 1; s < tailStates.size(); s++) {
+                fullStates[committedPrefix.length() + s - 1] = tailStates.get(s);
+            }
+            PhysicsUtil.Trajectory fullTrajectory = new PhysicsUtil.Trajectory(fullStates);
+
+            // Simulate opponent along the full trajectory
+            FuturePredictionState fullFuture = simulateFuturePredictionState(
+                    fullTrajectory, prefixStartTime, opponentStart, opponentInstruction);
+
+            // Score danger against all waves (real + all virtual, no depth limit)
+            List<Wave> allWaves = new ArrayList<>(info.getEnemyWaves());
+            allWaves.addAll(fullFuture.allPredictedWaves);
+            Map<Wave, List<BulletShadowUtil.ShadowInterval>> shadowCache =
+                    waveShadowCacheBuilder.buildBaseShadowCache(allWaves);
+            Map<Wave, PrecomputedWaveData> precomputedWaveData =
+                    waveShadowCacheBuilder.buildPrecomputedWaveData(allWaves, shadowCache);
+            PathDangerMetrics metrics = evaluatePathDangerMetrics(
+                    fullTrajectory, prefixStartTime, allWaves, shadowCache, precomputedWaveData);
+            double danger = metrics.expectedBulletDamageTaken;
+
+            // Distance from opponent as tiebreaker when danger is equal
+            double opponentDistance = 0.0;
+            if (fullFuture.opponentState != null) {
+                PhysicsUtil.PositionState tailEnd = fullStates[fullStates.length - 1];
+                opponentDistance = Math.hypot(
+                        tailEnd.x - fullFuture.opponentState.x,
+                        tailEnd.y - fullFuture.opponentState.y);
+            }
+
+            if (danger < bestDanger - 1e-9
+                    || (Math.abs(danger - bestDanger) <= 1e-9
+                        && opponentDistance > bestOpponentDistance)) {
+                bestDanger = danger;
+                bestOpponentDistance = opponentDistance;
+                bestTailLegs = tailLegs;
+            }
+        }
+
+        return bestTailLegs;
+    }
+
+    private static final int RANDOM_TAIL_CANDIDATE_COUNT = 50;
+    private static final double MAX_TAIL_SEGMENT_TARGET_DISTANCE = 150.0;
+    private static final int MAX_TAIL_SEGMENT_DURATION_TICKS = 30;
+
+    private static PathLeg nextRandomTailLeg(PhysicsUtil.PositionState currentState,
+                                              double bfWidth,
+                                              double bfHeight) {
+        double targetX, targetY;
+        do {
+            double angle = random.nextDouble() * (2.0 * Math.PI);
+            double distance = Math.sqrt(random.nextDouble()) * MAX_TAIL_SEGMENT_TARGET_DISTANCE;
+            targetX = currentState.x + FastTrig.sin(angle) * distance;
+            targetY = currentState.y + FastTrig.cos(angle) * distance;
+        } while (!PhysicsUtil.isWithinBattlefield(targetX, targetY, bfWidth, bfHeight));
+
+        int durationTicks = 1 + random.nextInt(MAX_TAIL_SEGMENT_DURATION_TICKS);
+        return new PathLeg(targetX, targetY, durationTicks);
+    }
+
+    private static List<PathLeg> generateRandomTailLegs(PhysicsUtil.PositionState startState,
+                                                          long startTime,
+                                                          List<Wave> planningWaves,
+                                                          int minTailTicks,
+                                                          double bfWidth,
+                                                          double bfHeight) {
+        List<PathLeg> legs = new ArrayList<>();
+        PhysicsUtil.PositionState currentState = startState;
+        long currentTime = startTime;
+        while (!allPlanningWavesPassed(planningWaves, currentState, currentTime)
+                || (currentTime - startTime) < minTailTicks
+                || legs.isEmpty()) {
+            PathLeg leg = nextRandomTailLeg(currentState, bfWidth, bfHeight);
+            PhysicsUtil.Trajectory segment = PhysicsUtil.simulateTrajectory(
+                    currentState,
+                    leg.targetX,
+                    leg.targetY,
+                    currentTime,
+                    null,
+                    currentTime + leg.durationTicks,
+                    PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                    bfWidth,
+                    bfHeight);
+            int segmentTicks = segment.length() - 1;
+            legs.add(leg);
+            currentState = segment.stateAt(segmentTicks);
+            currentTime += segmentTicks;
+        }
+        return legs;
+    }
+
+    private static boolean allPlanningWavesPassed(List<Wave> planningWaves,
+                                                   PhysicsUtil.PositionState state,
+                                                   long time) {
+        for (Wave wave : planningWaves) {
+            if (!wave.hasPassed(state.x, state.y, time)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     double getBattlefieldWidth() {

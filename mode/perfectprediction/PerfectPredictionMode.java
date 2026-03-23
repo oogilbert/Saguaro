@@ -1,10 +1,9 @@
 package oog.mega.saguaro.mode.perfectprediction;
 
 import java.awt.Color;
-import java.awt.geom.Point2D;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Random;
 
 import robocode.Rules;
 import oog.mega.saguaro.Saguaro;
@@ -15,13 +14,12 @@ import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.state.RobotSnapshot;
 import oog.mega.saguaro.info.wave.Wave;
-import oog.mega.saguaro.math.FastTrig;
 import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.PhysicsUtil;
 import oog.mega.saguaro.math.RobotHitbox;
 import oog.mega.saguaro.movement.MovementController;
+import oog.mega.saguaro.movement.PathLeg;
 import oog.mega.saguaro.movement.PredictedOpponentState;
-import oog.mega.saguaro.movement.SurfSegmentRecommendation;
 import oog.mega.saguaro.mode.BattleMode;
 import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleServices;
@@ -35,35 +33,32 @@ import oog.mega.saguaro.render.RenderState;
  * This mode is designed to take advantage of any bot whose movement is purely a function of the current state of the battle, and for whom we can
  * identify that function. This mode's movement is similar to ScoreMaxMode, except instead of changing plans every tick we commit to a future path
  * and do not deviate once it is selected. This allows us to perfectly simulate our opponent's movement and get near-100% targeting accuracy.
- * 
- * Currently only enabled for mirror bots; originally this was planned to be used against rambots but it turns out that being able to re-evaluate our
- * movement at close ranges is more important than achieving 100% accuracy
+ *
+ * Uses a committed + tentative path model: committed waypoints are stable and long enough for targeting;
+ * a tentative tail beyond them is re-evaluated every tick for safety using random-family path generation
+ * with per-candidate opponent simulation (since the opponent is reactive/mirror).
  */
 
 public final class PerfectPredictionMode implements BattleMode {
     private static final int MAX_SEGMENT_ADVANCES_PER_TICK = 64;
-    private static final int MAX_TRAVEL_ESTIMATE_TICKS = 2000;
-    private static final int CLEARANCE_TIME_WINDOW = 4;
-    private static final int MAX_WALL_ADJUSTMENT_STEPS = 90;
-    private static final double WALL_ADJUSTMENT_STEP = Math.toRadians(2.0);
-    private static final double MIN_SEGMENT_DISTANCE = 50.0;
-    private static final double TARGET_POINT_MARGIN = PhysicsUtil.WALL_MARGIN + 12.0;
-    private static final double MAX_TRAVEL_DISTANCE_FRACTION = 0.7;
-    private static final double MIN_RANDOM_CLEARANCE = 300.0;
     private static final double FIRE_POWER = 3.0;
+    // Gun cooldown at power 3.0 = ceil((1 + 3.0/5.0) / 0.1) = 16 ticks, * 1.5 for margin
+    private static final int MIN_TAIL_DURATION_TICKS = (int) Math.ceil((1.0 + 3.0 / 5.0) / 0.1 * 1.5);
     private static final Color OUR_PATH_COLOR = new Color(40, 200, 255);
+    private static final Color TENTATIVE_TAIL_COLOR = new Color(40, 200, 255, 100);
     private static final Color OPPONENT_PATH_COLOR = new Color(255, 80, 80);
     private static final float PATH_STROKE_WIDTH = 2.0f;
 
     private final RoundOutcomeProfile roundOutcomeProfile = NoOpLearningProfile.INSTANCE;
-    private final Random random = new Random();
     private final List<ScriptedWaypoint> waypoints = new ArrayList<ScriptedWaypoint>();
 
     private Info info;
     private MovementController movement;
     private long planStartTime;
+    private List<PathLeg> tentativeTailLegs = Collections.emptyList();
     private OpponentDriveSimulator.AimSolution lastAimSolution;
     private PhysicsUtil.Trajectory lastPlannedTrajectory;
+    private PhysicsUtil.Trajectory lastTentativeTailTrajectory;
     private PhysicsUtil.Trajectory lastPredictedOpponentTrajectory;
 
     @Override
@@ -88,8 +83,10 @@ public final class PerfectPredictionMode implements BattleMode {
         this.movement = services.movement();
         this.planStartTime = Long.MIN_VALUE;
         this.waypoints.clear();
+        this.tentativeTailLegs = Collections.emptyList();
         this.lastAimSolution = null;
         this.lastPlannedTrajectory = null;
+        this.lastTentativeTailTrajectory = null;
         this.lastPredictedOpponentTrajectory = null;
     }
 
@@ -103,16 +100,19 @@ public final class PerfectPredictionMode implements BattleMode {
         ReactiveOpponentPredictor predictor = currentPredictor();
         advanceWaypointQueue(myNow);
 
+        EnemyInfo enemy = info.getEnemy();
+        PredictedOpponentState opponentStart = buildOpponentStart(enemy, myNow);
+
+        // 1. Ensure committed path is long enough for targeting
         PlanState planState = null;
         PredictionResult prediction = null;
-        EnemyInfo enemy = info.getEnemy();
         while (true) {
             planState = currentPlanState(myNow);
             if (enemy == null || !enemy.alive || !enemy.seenThisRound) {
                 break;
             }
             if (planState.ourTrajectory.length() < 2) {
-                appendNextWaypointOrThrow(myNow, predictor, "next-tick firing state");
+                commitTailOrGenerate(myNow, opponentStart, predictor);
                 continue;
             }
 
@@ -120,7 +120,23 @@ public final class PerfectPredictionMode implements BattleMode {
             if (prediction == null || prediction.wavePassed) {
                 break;
             }
-            appendNextWaypointOrThrow(myNow, predictor, "precise-prediction aiming horizon");
+            commitTailOrGenerate(myNow, opponentStart, predictor);
+        }
+
+        // 2. Re-evaluate tentative tail every tick (carry forward previous best)
+        if (enemy != null && enemy.alive && enemy.seenThisRound) {
+            planState = currentPlanState(myNow);
+            tentativeTailLegs = movement.generateBestRandomTail(
+                    planState.ourTrajectory,
+                    myNow.time,
+                    opponentStart,
+                    predictor,
+                    MIN_TAIL_DURATION_TICKS,
+                    tentativeTailLegs);
+            lastTentativeTailTrajectory = simulateTailTrajectory(
+                    planState.ourTrajectory, tentativeTailLegs);
+        } else {
+            lastTentativeTailTrajectory = null;
         }
 
         lastPlannedTrajectory = planState != null ? planState.ourTrajectory : null;
@@ -150,6 +166,54 @@ public final class PerfectPredictionMode implements BattleMode {
         robot.setRadarColor(new Color(244, 226, 92));
         robot.setBulletColor(new Color(255, 236, 108));
         robot.setScanColor(new Color(112, 244, 182));
+    }
+
+    private void commitTailOrGenerate(RobotSnapshot myNow,
+                                      PredictedOpponentState opponentStart,
+                                      ReactiveOpponentPredictor predictor) {
+        if (!tentativeTailLegs.isEmpty()) {
+            // Commit only the first leg; keep the rest as tentative
+            PathLeg firstLeg = tentativeTailLegs.get(0);
+            waypoints.add(new ScriptedWaypoint(firstLeg.targetX, firstLeg.targetY, firstLeg.durationTicks));
+            tentativeTailLegs = tentativeTailLegs.size() > 1
+                    ? new ArrayList<>(tentativeTailLegs.subList(1, tentativeTailLegs.size()))
+                    : Collections.emptyList();
+        } else {
+            // Generate fresh tail and commit the first leg
+            PlanState planState = currentPlanState(myNow);
+            List<PathLeg> freshLegs = movement.generateBestRandomTail(
+                    planState.ourTrajectory,
+                    myNow.time,
+                    opponentStart,
+                    predictor,
+                    MIN_TAIL_DURATION_TICKS,
+                    Collections.emptyList());
+            if (!freshLegs.isEmpty()) {
+                PathLeg firstLeg = freshLegs.get(0);
+                waypoints.add(new ScriptedWaypoint(firstLeg.targetX, firstLeg.targetY, firstLeg.durationTicks));
+                tentativeTailLegs = freshLegs.size() > 1
+                        ? new ArrayList<>(freshLegs.subList(1, freshLegs.size()))
+                        : Collections.emptyList();
+            }
+        }
+    }
+
+    private PredictedOpponentState buildOpponentStart(EnemyInfo enemy, RobotSnapshot myNow) {
+        if (enemy == null || !enemy.alive || !enemy.seenThisRound) {
+            return null;
+        }
+        EnemyInfo.PredictedPosition enemyAtNow = enemy.predictPositionAtTime(
+                myNow.time,
+                info.getBattlefieldWidth(),
+                info.getBattlefieldHeight());
+        return new PredictedOpponentState(
+                enemyAtNow.x,
+                enemyAtNow.y,
+                enemyAtNow.heading,
+                enemyAtNow.velocity,
+                enemy.gunHeat,
+                enemy.energy,
+                enemy.lastDetectedBulletPower);
     }
 
     private void advanceWaypointQueue(RobotSnapshot myNow) {
@@ -223,147 +287,10 @@ public final class PerfectPredictionMode implements BattleMode {
                 && myNow.gunHeat == 0.0;
     }
 
-    private ScriptedWaypoint buildNextWaypoint(RobotSnapshot myNow, ReactiveOpponentPredictor predictor) {
-        ScriptedWaypoint surfWaypoint = buildSurfWaypoint(myNow, predictor);
-        if (surfWaypoint != null) {
-            return surfWaypoint;
-        }
-
-        // A synthesized future-wave query can legitimately fail when the next wave is already
-        // overlapping the bot body, so keep the legacy geometric leg as a fallback instead of
-        // stalling the committed plan entirely.
-        return buildLegacyWaypoint(myNow, predictor);
-    }
-
-    private void appendNextWaypointOrThrow(RobotSnapshot myNow,
-                                           ReactiveOpponentPredictor predictor,
-                                           String reason) {
-        ScriptedWaypoint nextWaypoint = buildNextWaypoint(myNow, predictor);
-        if (nextWaypoint == null) {
-            throw new IllegalStateException(
-                    "PerfectPrediction could not extend the committed path for " + reason);
-        }
-        if (nextWaypoint.durationTicks <= 0) {
-            throw new IllegalStateException(
-                    "PerfectPrediction generated a non-positive waypoint duration for " + reason);
-        }
-        waypoints.add(nextWaypoint);
-    }
-
-    private ScriptedWaypoint buildSurfWaypoint(RobotSnapshot myNow, ReactiveOpponentPredictor predictor) {
-        CommittedWaypointPlan currentPlan = new CommittedWaypointPlan(
-                planStartTime,
-                info.getBattlefieldWidth(),
-                info.getBattlefieldHeight(),
-                waypoints);
-        PhysicsUtil.Trajectory committedTrajectory = currentPlan.simulateRemainingTrajectory(myNow);
-
-        EnemyInfo enemy = info.getEnemy();
-        PredictedOpponentState opponentStart = null;
-        if (enemy != null && enemy.alive && enemy.seenThisRound) {
-            EnemyInfo.PredictedPosition enemyAtNow = enemy.predictPositionAtTime(
-                    myNow.time,
-                    info.getBattlefieldWidth(),
-                    info.getBattlefieldHeight());
-            opponentStart = new PredictedOpponentState(
-                    enemyAtNow.x,
-                    enemyAtNow.y,
-                    enemyAtNow.heading,
-                    enemyAtNow.velocity,
-                    enemy.gunHeat,
-                    enemy.energy,
-                    enemy.lastDetectedBulletPower);
-        }
-
-        SurfSegmentRecommendation recommendation = movement.recommendFutureSurfSegment(
-                committedTrajectory,
-                myNow.time,
-                opponentStart,
-                predictor);
-        if (recommendation == null || recommendation.durationTicks <= 0) {
-            return null;
-        }
-        return new ScriptedWaypoint(
-                recommendation.targetX,
-                recommendation.targetY,
-                recommendation.durationTicks);
-    }
-
-    private ScriptedWaypoint buildLegacyWaypoint(RobotSnapshot myNow, ReactiveOpponentPredictor predictor) {
-        WaypointSeed seed = buildWaypointSeed(myNow, predictor);
-        if (seed == null) {
-            return null;
-        }
-
-        double distanceToOpponent = Point2D.distance(
-                seed.ourState.x,
-                seed.ourState.y,
-                seed.opponentState.x,
-                seed.opponentState.y);
-        if (!(distanceToOpponent > 0.0)) {
-            return null;
-        }
-
-        double maxTravelDistance = distanceToOpponent * MAX_TRAVEL_DISTANCE_FRACTION;
-        double travelDistance = maxTravelDistance <= MIN_SEGMENT_DISTANCE
-                ? maxTravelDistance
-                : MIN_SEGMENT_DISTANCE + random.nextDouble() * (maxTravelDistance - MIN_SEGMENT_DISTANCE);
-        double bearingToOpponent = absoluteBearing(
-                seed.ourState.x,
-                seed.ourState.y,
-                seed.opponentState.x,
-                seed.opponentState.y);
-        CandidateLeg positiveCandidate = buildCandidateLeg(
-                seed,
-                predictor,
-                bearingToOpponent,
-                travelDistance,
-                Math.PI * 0.5);
-        CandidateLeg negativeCandidate = buildCandidateLeg(
-                seed,
-                predictor,
-                bearingToOpponent,
-                travelDistance,
-                -Math.PI * 0.5);
-        return chooseCandidate(positiveCandidate, negativeCandidate).waypoint;
-    }
-
-    private WaypointSeed buildWaypointSeed(RobotSnapshot myNow, ReactiveOpponentPredictor predictor) {
-        EnemyInfo enemy = info.getEnemy();
-        if (enemy == null || !enemy.alive || !enemy.seenThisRound) {
-            return null;
-        }
-
-        CommittedWaypointPlan currentPlan = new CommittedWaypointPlan(
-                planStartTime,
-                info.getBattlefieldWidth(),
-                info.getBattlefieldHeight(),
-                waypoints);
-        PhysicsUtil.Trajectory ourTrajectory = currentPlan.simulateRemainingTrajectory(myNow);
-        EnemyInfo.PredictedPosition enemyAtNow = enemy.predictPositionAtTime(
-                myNow.time,
-                info.getBattlefieldWidth(),
-                info.getBattlefieldHeight());
-        PhysicsUtil.PositionState enemyStart = new PhysicsUtil.PositionState(
-                enemyAtNow.x,
-                enemyAtNow.y,
-                enemyAtNow.heading,
-                enemyAtNow.velocity);
-        PhysicsUtil.Trajectory opponentTrajectory = OpponentDriveSimulator.simulateTrajectory(
-                enemyStart,
-                ourTrajectory,
-                predictor,
-                ourTrajectory.length() - 1,
-                info.getBattlefieldWidth(),
-                info.getBattlefieldHeight());
-        return new WaypointSeed(
-                ourTrajectory.stateAt(ourTrajectory.length() - 1),
-                opponentTrajectory.stateAt(opponentTrajectory.length() - 1));
-    }
-
     private List<PathOverlay> buildPathOverlays() {
-        List<PathOverlay> overlays = new ArrayList<PathOverlay>(2);
+        List<PathOverlay> overlays = new ArrayList<PathOverlay>(3);
         appendPathOverlay(overlays, lastPlannedTrajectory, OUR_PATH_COLOR);
+        appendPathOverlay(overlays, lastTentativeTailTrajectory, TENTATIVE_TAIL_COLOR);
         appendPathOverlay(overlays, lastPredictedOpponentTrajectory, OPPONENT_PATH_COLOR);
         return overlays;
     }
@@ -377,173 +304,29 @@ public final class PerfectPredictionMode implements BattleMode {
         overlays.add(PathOverlay.forTrajectory(trajectory, color, PATH_STROKE_WIDTH));
     }
 
-    private CandidateLeg buildCandidateLeg(WaypointSeed seed,
-                                           ReactiveOpponentPredictor predictor,
-                                           double bearingToOpponent,
-                                           double travelDistance,
-                                           double perpendicularOffset) {
-        double travelAngle = chooseInBoundsPerpendicularAngle(
-                seed.ourState.x,
-                seed.ourState.y,
-                bearingToOpponent,
-                perpendicularOffset,
-                travelDistance);
-        Point2D.Double point = project(seed.ourState.x, seed.ourState.y, travelAngle, travelDistance);
-        int durationTicks = estimateTravelTicks(seed.ourState, point.x, point.y);
-        return buildTimedCandidateLeg(seed, predictor, point.x, point.y, durationTicks);
-    }
-
-    private CandidateLeg buildTimedCandidateLeg(WaypointSeed seed,
-                                                ReactiveOpponentPredictor predictor,
-                                                double targetX,
-                                                double targetY,
-                                                int durationTicks) {
-        ScriptedWaypoint waypoint = new ScriptedWaypoint(targetX, targetY, durationTicks);
-        PhysicsUtil.Trajectory ourLegTrajectory = PhysicsUtil.simulateTrajectory(
-                seed.ourState,
-                targetX,
-                targetY,
-                durationTicks,
-                info.getBattlefieldWidth(),
-                info.getBattlefieldHeight());
-        PhysicsUtil.Trajectory opponentLegTrajectory = OpponentDriveSimulator.simulateTrajectory(
-                seed.opponentState,
-                ourLegTrajectory,
-                predictor,
-                durationTicks,
-                info.getBattlefieldWidth(),
-                info.getBattlefieldHeight());
-        return new CandidateLeg(
-                waypoint,
-                minWindowedSeparation(ourLegTrajectory, opponentLegTrajectory),
-                minSameTimeSeparation(ourLegTrajectory, opponentLegTrajectory));
-    }
-
-    private CandidateLeg chooseCandidate(CandidateLeg first, CandidateLeg second) {
-        boolean firstClear = first.windowedSeparation >= MIN_RANDOM_CLEARANCE;
-        boolean secondClear = second.windowedSeparation >= MIN_RANDOM_CLEARANCE;
-        if (firstClear && secondClear) {
-            return random.nextBoolean() ? first : second;
+    private PhysicsUtil.Trajectory simulateTailTrajectory(PhysicsUtil.Trajectory committedTrajectory,
+                                                            List<PathLeg> tailLegs) {
+        if (tailLegs == null || tailLegs.isEmpty() || committedTrajectory == null || committedTrajectory.length() < 1) {
+            return null;
         }
-        if (firstClear) {
-            return first;
-        }
-        if (secondClear) {
-            return second;
-        }
-        return chooseSaferCandidate(first, second);
-    }
-
-    private static CandidateLeg chooseSaferCandidate(CandidateLeg first, CandidateLeg second) {
-        if (second.windowedSeparation > first.windowedSeparation + 1e-9) {
-            return second;
-        }
-        if (first.windowedSeparation > second.windowedSeparation + 1e-9) {
-            return first;
-        }
-        if (second.sameTimeSeparation > first.sameTimeSeparation + 1e-9) {
-            return second;
-        }
-        return first;
-    }
-
-    private static double minWindowedSeparation(PhysicsUtil.Trajectory ourTrajectory,
-                                                PhysicsUtil.Trajectory opponentTrajectory) {
-        int ourTicks = ourTrajectory.length();
-        int opponentTicks = opponentTrajectory.length();
-        double minSeparation = Double.POSITIVE_INFINITY;
-        for (int ourTick = 0; ourTick < ourTicks; ourTick++) {
-            PhysicsUtil.PositionState ourState = ourTrajectory.stateAt(ourTick);
-            int startTick = Math.max(0, ourTick - CLEARANCE_TIME_WINDOW);
-            int endTick = Math.min(opponentTicks - 1, ourTick + CLEARANCE_TIME_WINDOW);
-            for (int opponentTick = startTick; opponentTick <= endTick; opponentTick++) {
-                PhysicsUtil.PositionState opponentState = opponentTrajectory.stateAt(opponentTick);
-                minSeparation = Math.min(
-                        minSeparation,
-                        Point2D.distance(ourState.x, ourState.y, opponentState.x, opponentState.y));
+        double bfWidth = info.getBattlefieldWidth();
+        double bfHeight = info.getBattlefieldHeight();
+        PhysicsUtil.PositionState currentState = committedTrajectory.stateAt(committedTrajectory.length() - 1);
+        long currentTime = 0L;
+        List<PhysicsUtil.PositionState> states = new ArrayList<>();
+        states.add(currentState);
+        for (PathLeg leg : tailLegs) {
+            PhysicsUtil.Trajectory segment = PhysicsUtil.simulateTrajectory(
+                    currentState, leg.targetX, leg.targetY, leg.durationTicks, bfWidth, bfHeight);
+            for (int i = 1; i < segment.states.length; i++) {
+                states.add(segment.states[i]);
             }
+            currentState = segment.stateAt(segment.length() - 1);
+            currentTime += segment.length() - 1;
         }
-        return minSeparation;
-    }
-
-    private static double minSameTimeSeparation(PhysicsUtil.Trajectory ourTrajectory,
-                                                PhysicsUtil.Trajectory opponentTrajectory) {
-        int ticks = Math.min(ourTrajectory.length(), opponentTrajectory.length());
-        double minSeparation = Double.POSITIVE_INFINITY;
-        for (int tick = 0; tick < ticks; tick++) {
-            PhysicsUtil.PositionState ourState = ourTrajectory.stateAt(tick);
-            PhysicsUtil.PositionState opponentState = opponentTrajectory.stateAt(tick);
-            minSeparation = Math.min(
-                    minSeparation,
-                    Point2D.distance(ourState.x, ourState.y, opponentState.x, opponentState.y));
-        }
-        return minSeparation;
-    }
-
-    private double chooseInBoundsPerpendicularAngle(double ourX,
-                                                    double ourY,
-                                                    double bearingToOpponent,
-                                                    double perpendicularOffset,
-                                                    double travelDistance) {
-        double offset = perpendicularOffset;
-        for (int i = 0; i < MAX_WALL_ADJUSTMENT_STEPS; i++) {
-            double candidateAngle = bearingToOpponent + offset;
-            if (isProjectedPointInBounds(ourX, ourY, candidateAngle, travelDistance)) {
-                return candidateAngle;
-            }
-            if (Math.abs(offset) <= WALL_ADJUSTMENT_STEP) {
-                break;
-            }
-            offset -= Math.copySign(WALL_ADJUSTMENT_STEP, offset);
-        }
-        return bearingToOpponent;
-    }
-
-    private boolean isProjectedPointInBounds(double sourceX,
-                                             double sourceY,
-                                             double angle,
-                                             double distance) {
-        Point2D.Double point = project(sourceX, sourceY, angle, distance);
-        return point.x >= TARGET_POINT_MARGIN
-                && point.x <= info.getBattlefieldWidth() - TARGET_POINT_MARGIN
-                && point.y >= TARGET_POINT_MARGIN
-                && point.y <= info.getBattlefieldHeight() - TARGET_POINT_MARGIN;
-    }
-
-    private static double absoluteBearing(double sourceX, double sourceY, double targetX, double targetY) {
-        return Math.atan2(targetX - sourceX, targetY - sourceY);
-    }
-
-    private static Point2D.Double project(double x, double y, double angle, double distance) {
-        return new Point2D.Double(
-                x + FastTrig.sin(angle) * distance,
-                y + FastTrig.cos(angle) * distance);
-    }
-
-    private int estimateTravelTicks(PhysicsUtil.PositionState startState, double targetX, double targetY) {
-        if (startState == null) {
-            throw new IllegalArgumentException("Travel-time estimation requires a non-null start state");
-        }
-
-        PhysicsUtil.PositionState current = startState;
-        double[] instruction = new double[2];
-        for (int tick = 0; tick < MAX_TRAVEL_ESTIMATE_TICKS; tick++) {
-            double dx = targetX - current.x;
-            double dy = targetY - current.y;
-            if (dx * dx + dy * dy < 1.0) {
-                return tick;
-            }
-            current = PhysicsUtil.advanceTowardTarget(
-                    current,
-                    targetX,
-                    targetY,
-                    info.getBattlefieldWidth(),
-                    info.getBattlefieldHeight(),
-                    instruction);
-        }
-
-        throw new IllegalStateException(
-                "Travel-time estimate exceeded max tick budget for target (" + targetX + ", " + targetY + ")");
+        return states.size() >= 2
+                ? new PhysicsUtil.Trajectory(states.toArray(new PhysicsUtil.PositionState[0]))
+                : null;
     }
 
     private static PhysicsUtil.Trajectory trajectoryFromOffset(PhysicsUtil.Trajectory trajectory, int startOffset) {
@@ -611,31 +394,6 @@ public final class PerfectPredictionMode implements BattleMode {
         PlanState(CommittedWaypointPlan movementPlan, PhysicsUtil.Trajectory ourTrajectory) {
             this.movementPlan = movementPlan;
             this.ourTrajectory = ourTrajectory;
-        }
-    }
-
-    private static final class WaypointSeed {
-        final PhysicsUtil.PositionState ourState;
-        final PhysicsUtil.PositionState opponentState;
-
-        WaypointSeed(PhysicsUtil.PositionState ourState,
-                     PhysicsUtil.PositionState opponentState) {
-            this.ourState = ourState;
-            this.opponentState = opponentState;
-        }
-    }
-
-    private static final class CandidateLeg {
-        final ScriptedWaypoint waypoint;
-        final double windowedSeparation;
-        final double sameTimeSeparation;
-
-        CandidateLeg(ScriptedWaypoint waypoint,
-                     double windowedSeparation,
-                     double sameTimeSeparation) {
-            this.waypoint = waypoint;
-            this.windowedSeparation = windowedSeparation;
-            this.sameTimeSeparation = sameTimeSeparation;
         }
     }
 

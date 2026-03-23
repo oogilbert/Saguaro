@@ -8,7 +8,7 @@ public final class ModeObservationPolicy {
     public static final ModeObservationPolicy TARGETING_ONLY =
             new ModeObservationPolicy(true, true, false, false, false, false, false, false);
     public static final ModeObservationPolicy COLLECT_ONLY =
-            new ModeObservationPolicy(false, true, true, false, true, true, false, false);
+            new ModeObservationPolicy(false, true, true, true, true, true, false, false);
 
     public final boolean useTargetingDistributions;
     public final boolean logTargetingObservations;

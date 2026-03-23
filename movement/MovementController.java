@@ -32,10 +32,12 @@ public interface MovementController {
 
     List<Wave> getScoringWavesForPathState(CandidatePath path, int tickOffset);
 
-    SurfSegmentRecommendation recommendFutureSurfSegment(PhysicsUtil.Trajectory committedTrajectory,
-                                                         long trajectoryStartTime,
-                                                         PredictedOpponentState opponentStart,
-                                                         OpponentDriveSimulator.Instruction opponentInstruction);
+    List<PathLeg> generateBestRandomTail(PhysicsUtil.Trajectory committedPrefix,
+                                         long prefixStartTime,
+                                         PredictedOpponentState opponentStart,
+                                         OpponentDriveSimulator.Instruction opponentInstruction,
+                                         int minTailTicks,
+                                         List<PathLeg> carryForwardTail);
 
     default String describeLatestPathPlanningDiagnostics() {
         return "planning=n/a";
