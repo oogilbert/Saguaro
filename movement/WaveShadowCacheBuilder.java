@@ -12,18 +12,12 @@ final class WaveShadowCacheBuilder {
     private final MovementEngine movement;
 
     WaveShadowCacheBuilder(MovementEngine movement) {
-        if (movement == null) {
-            throw new IllegalArgumentException("WaveShadowCacheBuilder requires non-null movement");
-        }
         this.movement = movement;
     }
 
     Map<Wave, List<BulletShadowUtil.ShadowInterval>> buildBaseShadowCache(List<Wave> waves) {
         Map<Wave, List<BulletShadowUtil.ShadowInterval>> cache = new IdentityHashMap<>();
         for (Wave wave : waves) {
-            if (!wave.isEnemy) {
-                continue;
-            }
             if (wave.isVirtual) {
                 // Virtual waves are speculative, so skip shadow modeling to keep
                 // pre-fire planning cheaper while preserving real-wave precision.
@@ -40,21 +34,19 @@ final class WaveShadowCacheBuilder {
             Map<Wave, List<BulletShadowUtil.ShadowInterval>> shadowCache) {
         Map<Wave, MovementEngine.PrecomputedWaveData> precomputed = new IdentityHashMap<>();
         for (Wave wave : waves) {
-            if (!wave.isEnemy || wave.isVirtual) {
+            if (wave.isVirtual) {
                 continue;
             }
             double referenceBearing = Math.atan2(
                     movement.waveReferenceX(wave) - wave.originX,
                     movement.waveReferenceY(wave) - wave.originY);
             double mea = MathUtils.maxEscapeAngle(wave.speed);
-            List<BulletShadowUtil.ShadowInterval> waveShadows =
-                    MovementEngine.shadowCacheForWave(shadowCache, wave);
+            List<BulletShadowUtil.ShadowInterval> waveShadows = MovementEngine.shadowCacheForWave(shadowCache, wave);
             List<BulletShadowUtil.WeightedGfInterval> mergedShadowGfIntervals;
-            if (waveShadows == null || waveShadows.isEmpty()) {
+            if (waveShadows.isEmpty()) {
                 mergedShadowGfIntervals = java.util.Collections.emptyList();
             } else {
-                mergedShadowGfIntervals = BulletShadowUtil.mergeAndClipWeightedIntervals(
-                        BulletShadowUtil.allGfIntervals(waveShadows, referenceBearing, mea), -1.0, 1.0);
+                mergedShadowGfIntervals = BulletShadowUtil.mergeAndClipWeightedIntervals(BulletShadowUtil.allGfIntervals(waveShadows, referenceBearing, mea), -1.0, 1.0);
             }
             precomputed.put(
                     wave,
