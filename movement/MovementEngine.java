@@ -830,6 +830,25 @@ public class MovementEngine implements MovementController {
                 trajectory, startTime, wavesToScore, shadowCache, precomputedWaveData);
     }
 
+    PathDangerMetrics evaluatePathDangerMetrics(PhysicsUtil.Trajectory trajectory,
+                                                long startTime,
+                                                List<Wave> wavesToScore,
+                                                Map<Wave, List<BulletShadowUtil.ShadowInterval>> shadowCache,
+                                                Map<Wave, PrecomputedWaveData> precomputedWaveData,
+                                                int startStateIndex,
+                                                int endStateIndex,
+                                                boolean includeStationaryTail) {
+        return waveIntersectionAnalyzer.evaluatePathDangerMetrics(
+                trajectory,
+                startTime,
+                wavesToScore,
+                shadowCache,
+                precomputedWaveData,
+                startStateIndex,
+                endStateIndex,
+                includeStationaryTail);
+    }
+
     private PathIntersectionContext createPathIntersectionContext(long startTime,
                                                                   PhysicsUtil.PositionState startState) {
         List<Wave> wavesToScore = getScoringWavesForState(
@@ -957,18 +976,53 @@ public class MovementEngine implements MovementController {
                                                                 PredictedOpponentState opponentStart,
                                                                 OpponentDriveSimulator.Instruction opponentInstruction) {
         PhysicsUtil.PositionState[] ourStates = committedTrajectory.states;
+        return simulateFuturePredictionState(
+                ourStates,
+                trajectoryStartTime,
+                opponentStart,
+                opponentInstruction,
+                java.util.Collections.<Wave>emptyList(),
+                0,
+                true);
+    }
+
+    private FuturePredictionState continueFuturePredictionState(PhysicsUtil.PositionState[] fullStates,
+                                                                long trajectoryStartTime,
+                                                                int startTickOffset,
+                                                                FuturePredictionState prefixFuture,
+                                                                OpponentDriveSimulator.Instruction opponentInstruction) {
+        return simulateFuturePredictionState(
+                fullStates,
+                trajectoryStartTime,
+                prefixFuture.opponentState,
+                opponentInstruction,
+                prefixFuture.allPredictedWaves,
+                startTickOffset,
+                false);
+    }
+
+    private FuturePredictionState simulateFuturePredictionState(PhysicsUtil.PositionState[] ourStates,
+                                                                long trajectoryStartTime,
+                                                                PredictedOpponentState opponentStart,
+                                                                OpponentDriveSimulator.Instruction opponentInstruction,
+                                                                List<Wave> initialPredictedWaves,
+                                                                int startTickOffset,
+                                                                boolean fireOnStartState) {
         PhysicsUtil.PositionState opponentState = opponentStart != null ? opponentStart.toPositionState() : null;
         double opponentGunHeat = opponentStart != null ? Math.max(0.0, opponentStart.gunHeat) : 0.0;
         double opponentEnergy = opponentStart != null ? Math.max(0.0, opponentStart.energy) : 0.0;
         double opponentLastDetectedBulletPower = opponentStart != null ? opponentStart.lastDetectedBulletPower : Double.NaN;
-        List<Wave> predictedEnemyWaves = new ArrayList<>();
+        List<Wave> predictedEnemyWaves = new ArrayList<>(initialPredictedWaves);
         double bfWidth = getBattlefieldWidth();
         double bfHeight = getBattlefieldHeight();
         double[] opponentMoveInstruction = new double[2];
-        for (int tick = 0; tick < ourStates.length; tick++) {
+        for (int tick = startTickOffset; tick < ourStates.length; tick++) {
             long time = trajectoryStartTime + tick;
             PhysicsUtil.PositionState ourState = ourStates[tick];
-            if (opponentState != null && opponentEnergy >= 0.1 && opponentGunHeat <= 1e-9) {
+            if ((tick > startTickOffset || fireOnStartState)
+                    && opponentState != null
+                    && opponentEnergy >= 0.1
+                    && opponentGunHeat <= 1e-9) {
                 double firePower = Double.isNaN(opponentLastDetectedBulletPower)
                         ? Math.min(3.0, opponentEnergy)
                         : Math.min(opponentLastDetectedBulletPower, opponentEnergy);
@@ -1210,6 +1264,21 @@ public class MovementEngine implements MovementController {
                 prefixEndState.x,
                 prefixEndState.y,
                 prefixEndTime);
+        List<Wave> prefixWaves = new ArrayList<>(info.getEnemyWaves());
+        prefixWaves.addAll(prefixFuture.allPredictedWaves);
+        Map<Wave, List<BulletShadowUtil.ShadowInterval>> prefixShadowCache =
+                waveShadowCacheBuilder.buildBaseShadowCache(prefixWaves);
+        Map<Wave, PrecomputedWaveData> prefixPrecomputedWaveData =
+                waveShadowCacheBuilder.buildPrecomputedWaveData(prefixWaves, prefixShadowCache);
+        PathDangerMetrics prefixMetrics = evaluatePathDangerMetrics(
+                committedPrefix,
+                prefixStartTime,
+                prefixWaves,
+                prefixShadowCache,
+                prefixPrecomputedWaveData,
+                0,
+                committedPrefix.length() - 1,
+                false);
 
         List<PathLeg> bestTailLegs = Collections.emptyList();
         double bestDanger = Double.POSITIVE_INFINITY;
@@ -1290,9 +1359,13 @@ public class MovementEngine implements MovementController {
             }
             PhysicsUtil.Trajectory fullTrajectory = new PhysicsUtil.Trajectory(fullStates);
 
-            // Simulate opponent along the full trajectory
-            FuturePredictionState fullFuture = simulateFuturePredictionState(
-                    fullTrajectory, prefixStartTime, opponentStart, opponentInstruction);
+            // Continue opponent simulation from the committed prefix end instead of replaying it.
+            FuturePredictionState fullFuture = continueFuturePredictionState(
+                    fullStates,
+                    prefixStartTime,
+                    committedPrefix.length() - 1,
+                    prefixFuture,
+                    opponentInstruction);
 
             // Score danger against all waves (real + all virtual, no depth limit)
             List<Wave> allWaves = new ArrayList<>(info.getEnemyWaves());
@@ -1301,9 +1374,16 @@ public class MovementEngine implements MovementController {
                     waveShadowCacheBuilder.buildBaseShadowCache(allWaves);
             Map<Wave, PrecomputedWaveData> precomputedWaveData =
                     waveShadowCacheBuilder.buildPrecomputedWaveData(allWaves, shadowCache);
-            PathDangerMetrics metrics = evaluatePathDangerMetrics(
-                    fullTrajectory, prefixStartTime, allWaves, shadowCache, precomputedWaveData);
-            double danger = metrics.expectedBulletDamageTaken;
+            PathDangerMetrics tailMetrics = evaluatePathDangerMetrics(
+                    fullTrajectory,
+                    prefixStartTime,
+                    allWaves,
+                    shadowCache,
+                    precomputedWaveData,
+                    committedPrefix.length(),
+                    fullTrajectory.length() - 1,
+                    true);
+            double danger = prefixMetrics.expectedBulletDamageTaken + tailMetrics.expectedBulletDamageTaken;
 
             // Distance from opponent as tiebreaker when danger is equal
             double opponentDistance = 0.0;

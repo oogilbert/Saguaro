@@ -98,7 +98,7 @@ public final class BotConfig {
         public static final double PATH_WALL_SMOOTHING_ANGLE_STEP_RADIANS = Math.toRadians(2.0);
 
         // Number of random tails considered when extending a committed perfect-prediction path.
-        public static final int RANDOM_TAIL_CANDIDATE_COUNT = 50;
+        public static final int RANDOM_TAIL_CANDIDATE_COUNT = 15;
         // Furthest random tail-leg target from the current committed endpoint.
         public static final double MAX_TAIL_SEGMENT_TARGET_DISTANCE = 150.0;
         // Longest random tail leg explored for perfect-prediction carry-forward tails.

@@ -28,6 +28,26 @@ final class WaveIntersectionAnalyzer {
             List<Wave> wavesToScore,
             Map<Wave, List<BulletShadowUtil.ShadowInterval>> shadowCache,
             Map<Wave, MovementEngine.PrecomputedWaveData> precomputedWaveData) {
+        return evaluatePathDangerMetrics(
+                trajectory,
+                startTime,
+                wavesToScore,
+                shadowCache,
+                precomputedWaveData,
+                0,
+                trajectory.length() - 1,
+                true);
+    }
+
+    MovementEngine.PathDangerMetrics evaluatePathDangerMetrics(
+            PhysicsUtil.Trajectory trajectory,
+            long startTime,
+            List<Wave> wavesToScore,
+            Map<Wave, List<BulletShadowUtil.ShadowInterval>> shadowCache,
+            Map<Wave, MovementEngine.PrecomputedWaveData> precomputedWaveData,
+            int startStateIndex,
+            int endStateIndex,
+            boolean includeStationaryTail) {
         double totalDanger = 0.0;
         double totalEnemyEnergyGain = 0.0;
         List<PathWaveIntersection> intersections = new ArrayList<>();
@@ -40,7 +60,10 @@ final class WaveIntersectionAnalyzer {
                     startTime,
                     MovementEngine.shadowCacheForWave(shadowCache, wave),
                     wavePrecomputed,
-                    wavesToScore);
+                    wavesToScore,
+                    startStateIndex,
+                    endStateIndex,
+                    includeStationaryTail);
             totalDanger += waveAnalysis.dangerMetrics.expectedBulletDamageTaken;
             totalEnemyEnergyGain += waveAnalysis.dangerMetrics.expectedEnemyEnergyGain;
             if (waveAnalysis.intersection != null) {
@@ -68,7 +91,10 @@ final class WaveIntersectionAnalyzer {
                     path.startTime,
                     MovementEngine.shadowCacheForWave(context.shadowCache, wave),
                     null,
-                    context.wavesToScore).intersection;
+                    context.wavesToScore,
+                    0,
+                    path.trajectory.length() - 1,
+                    true).intersection;
             if (intersection != null) {
                 intersections.add(intersection);
             }
@@ -95,7 +121,10 @@ final class WaveIntersectionAnalyzer {
             long startTime,
             List<BulletShadowUtil.ShadowInterval> waveShadows,
             MovementEngine.PrecomputedWaveData precomputed,
-            List<Wave> wavesToScore) {
+            List<Wave> wavesToScore,
+            int startStateIndex,
+            int endStateIndex,
+            boolean includeStationaryTail) {
         double referenceBearing;
         double mea;
         List<BulletShadowUtil.WeightedGfInterval> mergedShadowGfIntervals;
@@ -172,7 +201,7 @@ final class WaveIntersectionAnalyzer {
         PhysicsUtil.PositionState[] states = trajectory.states;
         int stateCount = states.length;
 
-        for (int i = 0; i < stateCount; i++) {
+        for (int i = startStateIndex; i <= endStateIndex; i++) {
             PhysicsUtil.PositionState state = states[i];
             long time = startTime + i;
             double startRadius = wave.getRadius(time);
@@ -197,23 +226,25 @@ final class WaveIntersectionAnalyzer {
                     minDistance, maxDistance);
         }
 
-        PhysicsUtil.PositionState lastState = states[stateCount - 1];
-        long extraStartTime = startTime + stateCount;
-        double minOverlapRadius = wave.minDistanceToBody(lastState.x, lastState.y);
-        double maxOverlapRadius = wave.maxDistanceToBody(lastState.x, lastState.y);
-        long overlapStartTime = (long) Math.ceil(minOverlapRadius / wave.speed + wave.fireTime);
-        long overlapEndTime = (long) Math.floor(maxOverlapRadius / wave.speed + wave.fireTime);
-        long extraOverlapStartTime = Math.max(extraStartTime, overlapStartTime);
-        if (extraOverlapStartTime <= overlapEndTime) {
-            if (extraOverlapStartTime < firstContactTime) {
-                firstContactTime = extraOverlapStartTime;
+        if (includeStationaryTail && endStateIndex == stateCount - 1) {
+            PhysicsUtil.PositionState lastState = states[stateCount - 1];
+            long extraStartTime = startTime + stateCount;
+            double minOverlapRadius = wave.minDistanceToBody(lastState.x, lastState.y);
+            double maxOverlapRadius = wave.maxDistanceToBody(lastState.x, lastState.y);
+            long overlapStartTime = (long) Math.ceil(minOverlapRadius / wave.speed + wave.fireTime);
+            long overlapEndTime = (long) Math.floor(maxOverlapRadius / wave.speed + wave.fireTime);
+            long extraOverlapStartTime = Math.max(extraStartTime, overlapStartTime);
+            if (extraOverlapStartTime <= overlapEndTime) {
+                if (extraOverlapStartTime < firstContactTime) {
+                    firstContactTime = extraOverlapStartTime;
+                }
+                double remainingStartRadius = Math.max(0.0, wave.getRadius(extraOverlapStartTime));
+                addWaveIntersectionInterval(
+                        baseIntervals, wave, lastState,
+                        remainingStartRadius, maxOverlapRadius,
+                        referenceBearing, mea,
+                        minOverlapRadius, maxOverlapRadius);
             }
-            double remainingStartRadius = Math.max(0.0, wave.getRadius(extraOverlapStartTime));
-            addWaveIntersectionInterval(
-                    baseIntervals, wave, lastState,
-                    remainingStartRadius, maxOverlapRadius,
-                    referenceBearing, mea,
-                    minOverlapRadius, maxOverlapRadius);
         }
 
         List<double[]> mergedBaseIntervals = BulletShadowUtil.mergeAndClipIntervals(baseIntervals, -1.0, 1.0);

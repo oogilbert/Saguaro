@@ -10,6 +10,7 @@ import oog.mega.saguaro.mode.perfectprediction.AntiMirrorPredictor;
 import oog.mega.saguaro.mode.perfectprediction.CopyAntiMirrorPredictor;
 import oog.mega.saguaro.mode.perfectprediction.PerpendicularAntiMirrorPredictor;
 import oog.mega.saguaro.mode.perfectprediction.PrecisePredictionProfile;
+import oog.mega.saguaro.mode.perfectprediction.RamPredictors;
 import oog.mega.saguaro.mode.perfectprediction.ReactiveOpponentPredictor;
 import oog.mega.saguaro.mode.perfectprediction.ReactivePredictorId;
 
@@ -165,6 +166,18 @@ public final class PrecisePredictionTracker {
         }
         if (predictorId == ReactivePredictorId.ANTI_MIRROR_COPY) {
             return CopyAntiMirrorPredictor.predictor();
+        }
+        if (predictorId == ReactivePredictorId.RAM_DIRECT) {
+            return RamPredictors.directPredictor();
+        }
+        if (predictorId == ReactivePredictorId.RAM_DIRECT_BACK_AS_FRONT) {
+            return RamPredictors.directBackAsFrontPredictor();
+        }
+        if (predictorId == ReactivePredictorId.RAM_LINEAR) {
+            return RamPredictors.linearPredictor();
+        }
+        if (predictorId == ReactivePredictorId.RAM_LINEAR_BACK_AS_FRONT) {
+            return RamPredictors.linearBackAsFrontPredictor();
         }
         throw new IllegalArgumentException("Unsupported precise-prediction predictor " + predictorId);
     }
