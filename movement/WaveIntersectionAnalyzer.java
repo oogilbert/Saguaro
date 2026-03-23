@@ -57,7 +57,7 @@ final class WaveIntersectionAnalyzer {
             CandidatePath path,
             PathIntersectionContext context) {
         List<PathWaveIntersection> intersections = new ArrayList<>();
-        if (path == null || path.trajectory == null || path.trajectory.length() == 0) {
+        if (path.trajectory.length() == 0) {
             return intersections;
         }
 
@@ -159,7 +159,7 @@ final class WaveIntersectionAnalyzer {
                     referenceX - wave.originX,
                     referenceY - wave.originY);
             mea = MathUtils.maxEscapeAngle(wave.speed);
-            if (waveShadows == null || waveShadows.isEmpty()) {
+            if (waveShadows.isEmpty()) {
                 mergedShadowGfIntervals = java.util.Collections.emptyList();
             } else {
                 mergedShadowGfIntervals = BulletShadowUtil.mergeAndClipWeightedIntervals(
