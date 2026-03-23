@@ -24,7 +24,6 @@ public final class CandidatePath {
     public final double firstWaveSafeSpotX;
     public final double firstWaveSafeSpotY;
     public final Wave firstWave;
-    public final WaveStrategy firstWaveStrategy;
     public final int firstWaveSafeSpotTick;
     public final int firstLegDurationTicks;
     public final List<PathWaveIntersection> pathIntersections;
@@ -48,15 +47,11 @@ public final class CandidatePath {
                          double firstWaveSafeSpotX,
                          double firstWaveSafeSpotY,
                          Wave firstWave,
-                         WaveStrategy firstWaveStrategy,
                          int firstWaveSafeSpotTick,
                          int firstLegDurationTicks,
                          List<PathWaveIntersection> pathIntersections,
                          List<PathLeg> segmentLegs,
                          long familyId) {
-        if (firstWaveStrategy == null) {
-            throw new IllegalArgumentException("CandidatePath requires a non-null first-wave strategy");
-        }
         this.trajectory = trajectory;
         this.startTime = startTime;
         this.scoringWaves = scoringWaves == null ? Collections.<Wave>emptyList() : scoringWaves;
@@ -74,7 +69,6 @@ public final class CandidatePath {
         this.firstWaveSafeSpotX = firstWaveSafeSpotX;
         this.firstWaveSafeSpotY = firstWaveSafeSpotY;
         this.firstWave = firstWave;
-        this.firstWaveStrategy = firstWaveStrategy;
         this.firstWaveSafeSpotTick = firstWaveSafeSpotTick;
         this.firstLegDurationTicks = firstLegDurationTicks;
         this.pathIntersections = pathIntersections;

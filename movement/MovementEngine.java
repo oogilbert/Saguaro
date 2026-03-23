@@ -396,7 +396,7 @@ public class MovementEngine implements MovementController {
                     traj, currentTime, scoringWaves, shadowCache,
                     targetX, targetY,
                     Double.NaN, Double.NaN, Double.NaN,
-                    null, WaveStrategy.NONE, -1, 1, precomputedWaveData,
+                    null, -1, 1, precomputedWaveData,
                     Collections.<PathLeg>emptyList(),
                     fallbackFamilyId(currentTime, i, targetX, targetY)));
         }
@@ -599,9 +599,9 @@ public class MovementEngine implements MovementController {
         int ticks = Math.max(1, ticksUntilArrival);
 
         double initialTangentialVelocity = state.velocity * FastTrig.sin(state.heading - currentBearing);
-        double cwDisplacement = PathSegmentPlanner.simulateDisplacement(
+        double cwDisplacement = TangentialDisplacement.simulate(
                 initialTangentialVelocity, 1, ticks);
-        double ccwDisplacement = PathSegmentPlanner.simulateDisplacement(
+        double ccwDisplacement = TangentialDisplacement.simulate(
                 initialTangentialVelocity, -1, ticks);
 
         double maxCwWallDistance = maxDistanceInField(
@@ -738,7 +738,6 @@ public class MovementEngine implements MovementController {
                                      double firstWaveSafeSpotX,
                                      double firstWaveSafeSpotY,
                                      Wave firstWave,
-                                     WaveStrategy firstWaveStrategy,
                                      int firstWaveSafeSpotTick,
                                      int firstLegDurationTicks,
                                      Map<Wave, PrecomputedWaveData> precomputedWaveData) {
@@ -753,7 +752,6 @@ public class MovementEngine implements MovementController {
                 firstWaveSafeSpotX,
                 firstWaveSafeSpotY,
                 firstWave,
-                firstWaveStrategy,
                 firstWaveSafeSpotTick,
                 firstLegDurationTicks,
                 precomputedWaveData,
@@ -769,7 +767,6 @@ public class MovementEngine implements MovementController {
                                      double firstWaveSafeSpotX,
                                      double firstWaveSafeSpotY,
                                      Wave firstWave,
-                                     WaveStrategy firstWaveStrategy,
                                      int firstWaveSafeSpotTick,
                                      int firstLegDurationTicks,
                                      Map<Wave, PrecomputedWaveData> precomputedWaveData,
@@ -798,7 +795,6 @@ public class MovementEngine implements MovementController {
                 firstWaveSafeSpotX,
                 firstWaveSafeSpotY,
                 firstWave,
-                firstWaveStrategy,
                 firstWaveSafeSpotTick,
                 firstLegDurationTicks,
                 metrics.intersections,
@@ -903,24 +899,6 @@ public class MovementEngine implements MovementController {
         return Math.max(margin, Math.min(fieldSize - margin, value));
     }
 
-    static double[][] buildPrefireTargets(double centerX, double centerY, double bearingFromOpponent) {
-        double tangentCwX = FastTrig.cos(bearingFromOpponent);
-        double tangentCwY = -FastTrig.sin(bearingFromOpponent);
-        double tangentCcwX = -tangentCwX;
-        double tangentCcwY = -tangentCwY;
-        double radialOutX = FastTrig.sin(bearingFromOpponent);
-        double radialOutY = FastTrig.cos(bearingFromOpponent);
-        double radialInX = -radialOutX;
-        double radialInY = -radialOutY;
-
-        return new double[][]{
-                {centerX + tangentCwX * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE, centerY + tangentCwY * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE},   // max CW
-                {centerX + tangentCcwX * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE, centerY + tangentCcwY * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE}, // max CCW
-                {centerX + radialInX * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE, centerY + radialInY * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE},     // close
-                {centerX + radialOutX * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE, centerY + radialOutY * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE}    // far
-        };
-    }
-
     static List<Wave> buildPlanningWavesForState(List<Wave> scoringWaves,
                                                  double x,
                                                  double y,
@@ -949,7 +927,6 @@ public class MovementEngine implements MovementController {
                 Double.NaN,
                 Double.NaN,
                 null,
-                WaveStrategy.NONE,
                 firstSegmentEndTick,
                 firstSegmentEndTick,
                 precomputedWaveData));
