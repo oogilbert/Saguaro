@@ -20,7 +20,7 @@ final class PathTreePlanner {
             throw new IllegalArgumentException("PathTreePlanner requires non-null movement");
         }
         this.movement = movement;
-        this.pathSegmentPlanner = new PathSegmentPlanner(movement);
+        this.pathSegmentPlanner = new PathSegmentPlanner();
     }
 
     void buildPathTree(PhysicsUtil.PositionState state, long stateTime,

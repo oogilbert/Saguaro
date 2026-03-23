@@ -2,7 +2,6 @@ package oog.mega.saguaro.movement;
 
 import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.math.FastTrig;
-import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.PhysicsUtil;
 
 final class PathSegmentPlanner {
@@ -11,8 +10,6 @@ final class PathSegmentPlanner {
     private static final int FIXED_RUNWAY_TICKS = 8;
     // Distance covered accelerating from 0 to 8 over 8 ticks: 1+2+...+8.
     private static final double FIXED_RUNWAY_DISTANCE = 36.0;
-
-    private final MovementEngine movement;
 
     static final class SegmentPlan {
         public final PhysicsUtil.Trajectory segment;
@@ -63,13 +60,6 @@ final class PathSegmentPlanner {
         }
     }
 
-    PathSegmentPlanner(MovementEngine movement) {
-        if (movement == null) {
-            throw new IllegalArgumentException("PathSegmentPlanner requires non-null movement");
-        }
-        this.movement = movement;
-    }
-
     SegmentPlan buildStrategySegmentPlan(Wave wave,
                                          PhysicsUtil.PositionState state,
                                          long stateTime,
@@ -114,7 +104,6 @@ final class PathSegmentPlanner {
                 directPlan.targetY,
                 directPlan.segment.length() - 1);
     }
-
 
     private DirectSegmentPlan buildDirectStrategyPlan(Wave wave,
                                                       PhysicsUtil.PositionState state,
@@ -276,5 +265,3 @@ final class PathSegmentPlanner {
         return Math.max(min, Math.min(max, value));
     }
 }
-
-
