@@ -640,7 +640,7 @@ final class PathGenerator {
         }
         int durationTicks = Math.max(1, ticksUntilWavePasses(planningWave, state, currentTime));
         if (anchorMovement == AnchorMovement.CENTER) {
-            return new PathLeg(state.x, state.y, durationTicks);
+            return new PathLeg(state.x, state.y, durationTicks, PhysicsUtil.SteeringMode.DIRECT);
         }
 
         double currentBearing = Math.atan2(state.x - planningWave.originX, state.y - planningWave.originY);
@@ -659,7 +659,7 @@ final class PathGenerator {
                 state.y + FastTrig.cos(travelAngle) * maxDistance,
                 context.bfHeight,
                 false);
-        return new PathLeg(targetX, targetY, durationTicks);
+        return new PathLeg(targetX, targetY, durationTicks, steeringModeForAnchorMovement(anchorMovement));
     }
 
     private PathBuildResult buildPathFromLegs(
@@ -689,7 +689,14 @@ final class PathGenerator {
             if (firstLegDurationTicks < 0) {
                 firstTargetX = leg.targetX;
                 firstTargetY = leg.targetY;
-                firstTargetAngle = Math.atan2(leg.targetX - currentState.x, leg.targetY - currentState.y);
+                firstTargetAngle = PhysicsUtil.computeTravelAngle(
+                        currentState.x,
+                        currentState.y,
+                        leg.targetX,
+                        leg.targetY,
+                        leg.steeringMode,
+                        context.bfWidth,
+                        context.bfHeight);
                 firstLegDurationTicks = replay.segmentTicks;
             }
             currentState = replay.endState;
@@ -710,7 +717,14 @@ final class PathGenerator {
             if (firstLegDurationTicks < 0) {
                 firstTargetX = leg.targetX;
                 firstTargetY = leg.targetY;
-                firstTargetAngle = Math.atan2(leg.targetX - currentState.x, leg.targetY - currentState.y);
+                firstTargetAngle = PhysicsUtil.computeTravelAngle(
+                        currentState.x,
+                        currentState.y,
+                        leg.targetX,
+                        leg.targetY,
+                        leg.steeringMode,
+                        context.bfWidth,
+                        context.bfHeight);
                 firstLegDurationTicks = replay.segmentTicks;
             }
             currentState = replay.endState;
@@ -742,6 +756,7 @@ final class PathGenerator {
                 null,
                 currentTime + leg.durationTicks,
                 PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                leg.steeringMode,
                 bfWidth,
                 bfHeight);
         appendTrajectoryStates(pathStates, segment);
@@ -765,7 +780,11 @@ final class PathGenerator {
                 remainingTicks -= leg.durationTicks;
                 continue;
             }
-            remainingLegs.add(new PathLeg(leg.targetX, leg.targetY, leg.durationTicks - remainingTicks));
+            remainingLegs.add(new PathLeg(
+                    leg.targetX,
+                    leg.targetY,
+                    leg.durationTicks - remainingTicks,
+                    leg.steeringMode));
             remainingTicks = 0;
             keepingRemainder = true;
         }
@@ -811,7 +830,7 @@ final class PathGenerator {
                 * BotConfig.Movement.MAX_MUTATION_TARGET_WIGGLE;
         double targetX = clampToReachableEdge(leg.targetX + FastTrig.sin(angle) * distance, bfWidth);
         double targetY = clampToReachableEdge(leg.targetY + FastTrig.cos(angle) * distance, bfHeight);
-        return new PathLeg(targetX, targetY, leg.durationTicks);
+        return new PathLeg(targetX, targetY, leg.durationTicks, leg.steeringMode);
     }
 
     private static PathLeg mutateLegDuration(PathLeg leg, Random mutationRandom) {
@@ -823,7 +842,7 @@ final class PathGenerator {
         if (mutatedDuration == leg.durationTicks) {
             mutatedDuration = leg.durationTicks + 1;
         }
-        return new PathLeg(leg.targetX, leg.targetY, mutatedDuration);
+        return new PathLeg(leg.targetX, leg.targetY, mutatedDuration, leg.steeringMode);
     }
 
     private static int randomNonZeroDurationDelta(Random mutationRandom) {
@@ -892,7 +911,16 @@ final class PathGenerator {
         } while (!PhysicsUtil.isWithinBattlefield(targetX, targetY, bfWidth, bfHeight));
 
         int durationTicks = 1 + pathRandom.nextInt(BotConfig.Movement.MAX_SEGMENT_DURATION_TICKS);
-        return new PathLeg(targetX, targetY, durationTicks);
+        return new PathLeg(targetX, targetY, durationTicks, PhysicsUtil.SteeringMode.DIRECT);
+    }
+
+    private static PhysicsUtil.SteeringMode steeringModeForAnchorMovement(AnchorMovement anchorMovement) {
+        if (anchorMovement == AnchorMovement.CENTER) {
+            return PhysicsUtil.SteeringMode.DIRECT;
+        }
+        return anchorMovement == AnchorMovement.CW
+                ? PhysicsUtil.SteeringMode.WALL_SMOOTHED_CW
+                : PhysicsUtil.SteeringMode.WALL_SMOOTHED_CCW;
     }
 
     private static double clampToReachableEdge(double value, double fieldSize) {

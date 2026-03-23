@@ -390,14 +390,21 @@ public class MovementEngine implements MovementController {
                 targetY = y + (random.nextDouble() * 100 - 50);
             } while (!PhysicsUtil.isWithinBattlefield(targetX, targetY, bfWidth, bfHeight));
 
+            PathLeg leg = new PathLeg(targetX, targetY, 1, PhysicsUtil.SteeringMode.DIRECT);
             PhysicsUtil.Trajectory traj = PhysicsUtil.simulateTrajectory(
-                    startState, targetX, targetY, 1, bfWidth, bfHeight);
+                    startState,
+                    leg.targetX,
+                    leg.targetY,
+                    1,
+                    leg.steeringMode,
+                    bfWidth,
+                    bfHeight);
             results.add(buildCandidatePath(
                     traj, currentTime, scoringWaves, shadowCache,
                     targetX, targetY,
                     Double.NaN, Double.NaN, Double.NaN,
                     null, -1, 1, precomputedWaveData,
-                    Collections.<PathLeg>emptyList(),
+                    Collections.singletonList(leg),
                     fallbackFamilyId(currentTime, i, targetX, targetY)));
         }
     }
@@ -1234,6 +1241,7 @@ public class MovementEngine implements MovementController {
                         null,
                         currentTime + leg.durationTicks,
                         PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                        leg.steeringMode,
                         bfWidth,
                         bfHeight);
                 for (int s = 1; s < segment.states.length; s++) {
@@ -1260,6 +1268,7 @@ public class MovementEngine implements MovementController {
                             null,
                             currentTime + leg.durationTicks,
                             PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                            leg.steeringMode,
                             bfWidth,
                             bfHeight);
                     for (int s = 1; s < segment.states.length; s++) {
@@ -1330,7 +1339,7 @@ public class MovementEngine implements MovementController {
         } while (!PhysicsUtil.isWithinBattlefield(targetX, targetY, bfWidth, bfHeight));
 
         int durationTicks = 1 + random.nextInt(BotConfig.Movement.MAX_TAIL_SEGMENT_DURATION_TICKS);
-        return new PathLeg(targetX, targetY, durationTicks);
+        return new PathLeg(targetX, targetY, durationTicks, PhysicsUtil.SteeringMode.DIRECT);
     }
 
     private static List<PathLeg> generateRandomTailLegs(PhysicsUtil.PositionState startState,
@@ -1354,6 +1363,7 @@ public class MovementEngine implements MovementController {
                     null,
                     currentTime + leg.durationTicks,
                     PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                    leg.steeringMode,
                     bfWidth,
                     bfHeight);
             int segmentTicks = segment.length() - 1;

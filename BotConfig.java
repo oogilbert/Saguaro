@@ -92,6 +92,10 @@ public final class BotConfig {
         public static final double MAX_MUTATION_TARGET_WIGGLE = 10.0;
         // Maximum tick delta applied when mutating an existing family duration.
         public static final int MAX_MUTATION_DURATION_DELTA = 5;
+        // Probe distance used when CW/CCW path legs wall-smooth against the field boundary.
+        public static final double PATH_WALL_SMOOTHING_STICK_LENGTH = 140.0;
+        // Angular step used when rotating a wall-smoothed travel angle back into the field.
+        public static final double PATH_WALL_SMOOTHING_ANGLE_STEP_RADIANS = Math.toRadians(2.0);
 
         // Number of random tails considered when extending a committed perfect-prediction path.
         public static final int RANDOM_TAIL_CANDIDATE_COUNT = 50;

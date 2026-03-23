@@ -2,6 +2,7 @@ package oog.mega.saguaro.math;
 
 import java.util.ArrayList;
 import java.util.List;
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.wave.Wave;
 import robocode.Rules;
 
@@ -21,6 +22,22 @@ public final class PhysicsUtil {
     public enum EndpointBehavior {
         PASS_THROUGH,
         PARK_AND_WAIT
+    }
+
+    public enum SteeringMode {
+        DIRECT(0.0),
+        WALL_SMOOTHED_CW(1.0),
+        WALL_SMOOTHED_CCW(-1.0);
+
+        final double wallSmoothingTurnSign;
+
+        SteeringMode(double wallSmoothingTurnSign) {
+            this.wallSmoothingTurnSign = wallSmoothingTurnSign;
+        }
+
+        boolean usesWallSmoothing() {
+            return this != DIRECT;
+        }
     }
 
     public static class PositionState {
@@ -201,6 +218,28 @@ public final class PhysicsUtil {
         return instruction;
     }
 
+    public static double[] computeMovementInstruction(double x, double y, double heading, double velocity,
+                                                      double targetX, double targetY,
+                                                      EndpointBehavior endpointBehavior,
+                                                      SteeringMode steeringMode,
+                                                      double bfWidth,
+                                                      double bfHeight) {
+        double[] instruction = new double[2];
+        computeMovementInstructionInto(
+                x,
+                y,
+                heading,
+                velocity,
+                targetX,
+                targetY,
+                endpointBehavior,
+                steeringMode,
+                bfWidth,
+                bfHeight,
+                instruction);
+        return instruction;
+    }
+
     /**
      * Writes moveDistance and turnAngle toward (targetX, targetY) into {@code out}.
      * out[0] = moveDistance, out[1] = turnAngle
@@ -214,6 +253,27 @@ public final class PhysicsUtil {
                                                       double targetX, double targetY,
                                                       EndpointBehavior endpointBehavior,
                                                       double[] out) {
+        computeMovementInstructionInto(
+                x,
+                y,
+                heading,
+                velocity,
+                targetX,
+                targetY,
+                endpointBehavior,
+                SteeringMode.DIRECT,
+                Double.NaN,
+                Double.NaN,
+                out);
+    }
+
+    public static void computeMovementInstructionInto(double x, double y, double heading, double velocity,
+                                                      double targetX, double targetY,
+                                                      EndpointBehavior endpointBehavior,
+                                                      SteeringMode steeringMode,
+                                                      double bfWidth,
+                                                      double bfHeight,
+                                                      double[] out) {
         if (endpointBehavior == null) {
             throw new IllegalArgumentException("Endpoint behavior must be non-null");
         }
@@ -224,14 +284,36 @@ public final class PhysicsUtil {
                 out[1] = 0.0;
                 return;
             }
-            computeMovementInstructionInto(x, y, heading, velocity, targetX, targetY, true, out);
+            computeMovementInstructionInto(
+                    x,
+                    y,
+                    heading,
+                    velocity,
+                    targetX,
+                    targetY,
+                    steeringMode,
+                    bfWidth,
+                    bfHeight,
+                    true,
+                    out);
             return;
         }
         if (isAtTarget(state, targetX, targetY)) {
             computePassThroughInstructionInto(state, out);
             return;
         }
-        computeMovementInstructionInto(x, y, heading, velocity, targetX, targetY, true, out);
+        computeMovementInstructionInto(
+                x,
+                y,
+                heading,
+                velocity,
+                targetX,
+                targetY,
+                steeringMode,
+                bfWidth,
+                bfHeight,
+                true,
+                out);
     }
 
     /**
@@ -243,21 +325,37 @@ public final class PhysicsUtil {
     public static void computeMovementInstructionInto(double x, double y, double heading, double velocity,
                                                       double targetX, double targetY, boolean allowReverse,
                                                       double[] out) {
+        computeMovementInstructionInto(
+                x,
+                y,
+                heading,
+                velocity,
+                targetX,
+                targetY,
+                SteeringMode.DIRECT,
+                Double.NaN,
+                Double.NaN,
+                allowReverse,
+                out);
+    }
+
+    private static void computeMovementInstructionInto(double x, double y, double heading, double velocity,
+                                                       double targetX, double targetY,
+                                                       SteeringMode steeringMode,
+                                                       double bfWidth,
+                                                       double bfHeight,
+                                                       boolean allowReverse,
+                                                       double[] out) {
         if (out == null || out.length < 2) {
             throw new IllegalArgumentException("Output buffer must have length >= 2");
         }
 
-        double dx = targetX - x;
-        double dy = targetY - y;
-        double distanceSquared = dx * dx + dy * dy;
-        if (distanceSquared < 1.0) {
+        double desiredHeading = computeTravelAngle(x, y, targetX, targetY, steeringMode, bfWidth, bfHeight);
+        if (!Double.isFinite(desiredHeading)) {
             out[0] = 0.0;
             out[1] = 0.0;
             return;
         }
-
-        // Desired heading to reach target (Robocode convention: 0=north, clockwise)
-        double desiredHeading = Math.atan2(dx, dy);
 
         double forwardTurn = MathUtils.normalizeAngle(desiredHeading - heading);
         if (!allowReverse) {
@@ -274,6 +372,27 @@ public final class PhysicsUtil {
             out[0] = -PASS_THROUGH_COMMAND_DISTANCE;
             out[1] = backwardTurn;
         }
+    }
+
+    public static double computeTravelAngle(double x,
+                                            double y,
+                                            double targetX,
+                                            double targetY,
+                                            SteeringMode steeringMode,
+                                            double bfWidth,
+                                            double bfHeight) {
+        double dx = targetX - x;
+        double dy = targetY - y;
+        double distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared < 1.0) {
+            return Double.NaN;
+        }
+
+        double desiredHeading = Math.atan2(dx, dy);
+        if (!steeringMode.usesWallSmoothing()) {
+            return desiredHeading;
+        }
+        return computeWallSmoothedTravelAngle(x, y, desiredHeading, steeringMode, bfWidth, bfHeight);
     }
 
     /**
@@ -401,6 +520,16 @@ public final class PhysicsUtil {
      */
     public static Trajectory simulateTrajectory(PositionState start, double targetX, double targetY,
                                                  int ticks, double bfWidth, double bfHeight) {
+        return simulateTrajectory(start, targetX, targetY, ticks, SteeringMode.DIRECT, bfWidth, bfHeight);
+    }
+
+    public static Trajectory simulateTrajectory(PositionState start,
+                                                double targetX,
+                                                double targetY,
+                                                int ticks,
+                                                SteeringMode steeringMode,
+                                                double bfWidth,
+                                                double bfHeight) {
         PositionState[] states = new PositionState[ticks + 1];
         states[0] = start;
 
@@ -408,7 +537,17 @@ public final class PhysicsUtil {
         double[] instruction = new double[2];
         for (int i = 0; i < ticks; i++) {
             computeMovementInstructionInto(
-                    current.x, current.y, current.heading, current.velocity, targetX, targetY, instruction);
+                    current.x,
+                    current.y,
+                    current.heading,
+                    current.velocity,
+                    targetX,
+                    targetY,
+                    steeringMode,
+                    bfWidth,
+                    bfHeight,
+                    true,
+                    instruction);
             current = calculateNextTick(
                     current.x, current.y, current.heading, current.velocity,
                     instruction[0], instruction[1], bfWidth, bfHeight);
@@ -441,6 +580,29 @@ public final class PhysicsUtil {
                                                 long startTime, Wave trackedWave, Long stopTime,
                                                 EndpointBehavior endpointBehavior,
                                                 double bfWidth, double bfHeight) {
+        return simulateTrajectory(
+                start,
+                targetX,
+                targetY,
+                startTime,
+                trackedWave,
+                stopTime,
+                endpointBehavior,
+                SteeringMode.DIRECT,
+                bfWidth,
+                bfHeight);
+    }
+
+    public static Trajectory simulateTrajectory(PositionState start,
+                                                double targetX,
+                                                double targetY,
+                                                long startTime,
+                                                Wave trackedWave,
+                                                Long stopTime,
+                                                EndpointBehavior endpointBehavior,
+                                                SteeringMode steeringMode,
+                                                double bfWidth,
+                                                double bfHeight) {
         if (trackedWave == null && stopTime == null) {
             throw new IllegalStateException(
                     "simulateTrajectory requires at least one stop condition (wave or stopTime)");
@@ -471,7 +633,17 @@ public final class PhysicsUtil {
                     instruction[1] = 0.0;
                 } else {
                     computeMovementInstructionInto(
-                            current.x, current.y, current.heading, current.velocity, targetX, targetY, instruction);
+                            current.x,
+                            current.y,
+                            current.heading,
+                            current.velocity,
+                            targetX,
+                            targetY,
+                            endpointBehavior,
+                            steeringMode,
+                            bfWidth,
+                            bfHeight,
+                            instruction);
                 }
             } else {
                 if (!endpointPhase && isAtTarget(current, targetX, targetY)) {
@@ -481,7 +653,17 @@ public final class PhysicsUtil {
                     computePassThroughInstructionInto(current, instruction);
                 } else {
                     computeMovementInstructionInto(
-                            current.x, current.y, current.heading, current.velocity, targetX, targetY, instruction);
+                            current.x,
+                            current.y,
+                            current.heading,
+                            current.velocity,
+                            targetX,
+                            targetY,
+                            endpointBehavior,
+                            steeringMode,
+                            bfWidth,
+                            bfHeight,
+                            instruction);
                 }
             }
 
@@ -636,6 +818,27 @@ public final class PhysicsUtil {
                 ? clampedDamage / 4.0
                 : (clampedDamage + 2.0) / 6.0;
         return Math.max(Rules.MIN_BULLET_POWER, Math.min(Rules.MAX_BULLET_POWER, requiredPower));
+    }
+
+    private static double computeWallSmoothedTravelAngle(double x,
+                                                         double y,
+                                                         double desiredHeading,
+                                                         SteeringMode steeringMode,
+                                                         double bfWidth,
+                                                         double bfHeight) {
+        double wallStick = BotConfig.Movement.PATH_WALL_SMOOTHING_STICK_LENGTH;
+        double angleStep = BotConfig.Movement.PATH_WALL_SMOOTHING_ANGLE_STEP_RADIANS;
+        double smoothedHeading = desiredHeading;
+        int maxIterations = Math.max(1, (int) Math.ceil((2.0 * Math.PI) / angleStep));
+        for (int i = 0; i <= maxIterations; i++) {
+            double probeX = x + FastTrig.sin(smoothedHeading) * wallStick;
+            double probeY = y + FastTrig.cos(smoothedHeading) * wallStick;
+            if (isWithinBattlefield(probeX, probeY, bfWidth, bfHeight)) {
+                return MathUtils.normalizeAngle(smoothedHeading);
+            }
+            smoothedHeading += steeringMode.wallSmoothingTurnSign * angleStep;
+        }
+        return MathUtils.normalizeAngle(smoothedHeading);
     }
 
     private static double clamp(double value, double min, double max) {

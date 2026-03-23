@@ -2249,13 +2249,27 @@ final class ScoreMaxPlanner {
         // First-tick movement commands from path
         double[] instruction = path.segmentLegs.isEmpty()
                 ? PhysicsUtil.computeMovementInstruction(
-                        robotState.x, robotState.y, robotState.heading, robotState.velocity,
-                        path.firstTargetX, path.firstTargetY)
+                        robotState.x,
+                        robotState.y,
+                        robotState.heading,
+                        robotState.velocity,
+                        path.firstTargetX,
+                        path.firstTargetY,
+                        PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                        PhysicsUtil.SteeringMode.DIRECT,
+                        info.getBattlefieldWidth(),
+                        info.getBattlefieldHeight())
                 : PhysicsUtil.computeMovementInstruction(
-                        robotState.x, robotState.y, robotState.heading, robotState.velocity,
+                        robotState.x,
+                        robotState.y,
+                        robotState.heading,
+                        robotState.velocity,
                         path.segmentLegs.get(0).targetX,
                         path.segmentLegs.get(0).targetY,
-                        PhysicsUtil.EndpointBehavior.PARK_AND_WAIT);
+                        PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                        path.segmentLegs.get(0).steeringMode,
+                        info.getBattlefieldWidth(),
+                        info.getBattlefieldHeight());
 
         BattlePlan plan = new BattlePlan(
                 instruction[0], instruction[1],
