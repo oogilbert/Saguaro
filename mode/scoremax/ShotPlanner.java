@@ -6,6 +6,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.gun.GunController;
 import oog.mega.saguaro.gun.ShotSolution;
 import oog.mega.saguaro.info.state.EnemyInfo;
@@ -30,9 +31,6 @@ final class ShotPlanner {
     private static final double SHADOW_GF_SCAN_STEP = 0.04;
     private static final double SHADOW_CANDIDATE_EPS = 1e-9;
     private static final double SHADOW_REACHABILITY_EPSILON = 2.5e-3;
-    private static final int TARGETING_DATA_FULL_CONFIDENCE_SAMPLES = 24;
-    private static final double MIN_TARGETING_DATA_HIT_RATE_SCALE = 0.5;
-
     interface ScoreEvaluator {
         ShotScore scoreShot(CandidatePath path,
                             List<PathWaveIntersection> pathIntersections,
@@ -167,14 +165,11 @@ final class ShotPlanner {
     // option is evaluated. Returns the highest-scoring ShotSelection.
     ShotSelection chooseBestShot(CandidatePath path,
                                  double shooterX, double shooterY,
-                                 double shooterHeading, double shooterVelocity,
                                  EnemyInfo.PredictedPosition enemyAtFireTime,
                                  double expectedBulletDamageTaken,
                                  double expectedEnemyEnergyGain,
-                                 double baseEnergyDelta,
                                  double availableEnergy,
                                  double gunHeadingAtDecision,
-                                 double gunCoolingRate,
                                  double currentOurEnergy,
                                  int ticksUntilFire,
                                  long fireTime,
@@ -225,7 +220,7 @@ final class ShotPlanner {
             return evaluateShotAtPower(
                     path, forcedShot.power, shooterX, shooterY, enemyAtFireTime,
                     expectedBulletDamageTaken, expectedEnemyEnergyGain,
-                    baseEnergyDelta, gunHeadingAtDecision, currentOurEnergy, ticksUntilFire,
+                    gunHeadingAtDecision, currentOurEnergy, ticksUntilFire,
                     fireTime, enemyWavesAtFireTime, pathIntersections,
                     forcedShot.firingAngle, enemyEnergyForScoring, forcedShot.power, false);
         } else {
@@ -243,7 +238,7 @@ final class ShotPlanner {
                     ShotSelection shadowCandidate = evaluateShotAtPower(
                             path, SHADOW_FIRE_POWER, shooterX, shooterY, enemyAtFireTime,
                             expectedBulletDamageTaken, expectedEnemyEnergyGain,
-                            baseEnergyDelta, gunHeadingAtDecision, currentOurEnergy, ticksUntilFire,
+                            gunHeadingAtDecision, currentOurEnergy, ticksUntilFire,
                             fireTime, enemyWavesAtFireTime, pathIntersections,
                             shadowFiringAngle, enemyEnergyForScoring, scoreMaxPower, true);
                     if (shadowCandidate.score > bestSelection.score) {
@@ -256,7 +251,7 @@ final class ShotPlanner {
                 ShotSelection scoreMaxCandidate = evaluateShotAtPower(
                         path, scoreMaxPower, shooterX, shooterY, enemyAtFireTime,
                         expectedBulletDamageTaken, expectedEnemyEnergyGain,
-                        baseEnergyDelta, gunHeadingAtDecision, currentOurEnergy, ticksUntilFire,
+                        gunHeadingAtDecision, currentOurEnergy, ticksUntilFire,
                         fireTime, enemyWavesAtFireTime, pathIntersections,
                         Double.NaN, enemyEnergyForScoring, scoreMaxPower, false);
                 if (scoreMaxCandidate.score > bestSelection.score) {
@@ -268,21 +263,19 @@ final class ShotPlanner {
         return bestSelection;
     }
 
-    double estimateContinuationFirePower(double shooterX,
-                                         double shooterY,
-                                         EnemyInfo.PredictedPosition enemyAtFireTime,
-                                         double availableEnergy,
-                                         double gunCoolingRate,
-                                         double currentOurEnergy,
-                                         double enemyEnergyForScoring) {
+    double estimateContinuationFirePower(double availableEnergy) {
         // Temporary fixed offensive baseline: compare only no-fire, 0.1, and 2.0.
         double fixedPower = Math.min(2.0, Math.min(MAX_FIRE_POWER, availableEnergy));
         return fixedPower >= MIN_FIRE_POWER ? fixedPower : 0.0;
     }
 
     static double targetingDataHitRateScale() {
-        double maturity = Math.min(1.0, WaveLog.getTargetingSampleCount() / (double) TARGETING_DATA_FULL_CONFIDENCE_SAMPLES);
-        return MIN_TARGETING_DATA_HIT_RATE_SCALE + (1.0 - MIN_TARGETING_DATA_HIT_RATE_SCALE) * maturity;
+        double maturity = Math.min(
+                1.0,
+                WaveLog.getTargetingSampleCount()
+                        / (double) BotConfig.Gun.TARGETING_DATA_FULL_CONFIDENCE_SAMPLES);
+        return BotConfig.Gun.MIN_TARGETING_DATA_HIT_RATE_SCALE
+                + (1.0 - BotConfig.Gun.MIN_TARGETING_DATA_HIT_RATE_SCALE) * maturity;
     }
 
     // Evaluates a single shot at a specific power level. Queries the gun for the optimal
@@ -295,7 +288,6 @@ final class ShotPlanner {
                                               EnemyInfo.PredictedPosition enemyAtFireTime,
                                               double expectedBulletDamageTaken,
                                               double expectedEnemyEnergyGain,
-                                              double baseEnergyDelta,
                                               double gunHeadingAtDecision,
                                               double currentOurEnergy,
                                               int ticksUntilFire,
@@ -349,7 +341,7 @@ final class ShotPlanner {
         double expectedDamageDealt = hitProbability * Math.min(bulletDamage, enemyEnergyForScoring);
         double firingEnergyDelta = -power + hitProbability * 3.0 * power;
         long hitTime = fireTime;
-        if (plannedWave != null && enemyAtFireTime != null) {
+        if (plannedWave != null) {
             double distanceToPredictedTarget = Point2D.distance(
                     plannedWave.originX, plannedWave.originY, enemyAtFireTime.x, enemyAtFireTime.y);
             hitTime += (long) Math.ceil(distanceToPredictedTarget / plannedWave.speed);
@@ -593,7 +585,7 @@ final class ShotPlanner {
                                                       double expectedBulletDamageTaken,
                                                       double expectedEnemyEnergyGain) {
         Map<Wave, Double> enemyWaveHitProbabilities = baseWaveHitProbabilities(pathIntersections);
-        if (plannedWave == null || enemyAtFireTime == null || Double.isNaN(plannedWave.heading)) {
+        if (plannedWave == null || Double.isNaN(plannedWave.heading)) {
             return new CollisionEffects(
                     0.0,
                     expectedBulletDamageTaken,

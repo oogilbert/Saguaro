@@ -15,6 +15,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.gun.GunController;
 import oog.mega.saguaro.info.Info;
@@ -49,8 +50,6 @@ public final class BulletShieldMode implements BattleMode {
     private static final int BASE_OPTIONS = 4;
     private static final int OPTION_GROUPS = 3;
     private static final int OPTIONS = BASE_OPTIONS * OPTION_GROUPS;
-    private static final int POWER_SAMPLES = 10;
-    private static final int HISTORY_LIMIT = 6;
     private static final double BODY_HALF_WIDTH = 18.0;
     private static final double BODY_HALF_DIAGONAL = 18.1 * Math.sqrt(2.0);
     private static final double WIGGLE_SIZE = 0.1;
@@ -58,10 +57,6 @@ public final class BulletShieldMode implements BattleMode {
     private static final double MODEL_SCORE_MATCH_EPSILON = 1e-5;
     private static final double WAVE_MATCH_POWER_TOLERANCE = 1e-3;
     private static final double SHARED_WAVE_ORIGIN_TOLERANCE = 0.6;
-    private static final long AGGRESSIVE_SHOT_SHIELD_SAFETY_TICKS = 2L;
-    private static final double AGGRESSIVE_CLOSE_RANGE_RADIUS = 60.0;
-    private static final long EARLY_ROUND_IDLE_AGGRESSION_GUARD_TICKS = 100L;
-    private static final double IDLE_AGGRESSION_GUN_HEAT_MULTIPLIER = 2.0;
     private static final int PERSISTED_BOOTSTRAP_SECTION_VERSION = 1;
     private static final int PERSISTED_BOOTSTRAP_BYTES = 9;
     private static final int[] OPTION_SCORES = new int[OPTIONS];
@@ -444,8 +439,8 @@ public final class BulletShieldMode implements BattleMode {
         }
 
         double scaledEnemyPower = Math.max(0.2, wave.power) * 10.0;
-        double factor = Math.pow(scaledEnemyPower, 1.0 / POWER_SAMPLES);
-        for (int i = 0; i < POWER_SAMPLES; i++) {
+        double factor = Math.pow(scaledEnemyPower, 1.0 / BotConfig.Shield.POWER_SAMPLE_COUNT);
+        for (int i = 0; i < BotConfig.Shield.POWER_SAMPLE_COUNT; i++) {
             double power = 0.1 * Math.pow(factor, i);
             if (power <= maxCandidatePower + 1e-9) {
                 addPower(powers, power, myNow.energy);
@@ -659,7 +654,8 @@ public final class BulletShieldMode implements BattleMode {
         if (aggressivePower < Rules.MIN_BULLET_POWER) {
             return Double.NaN;
         }
-        if (Point2D.distance(myNow.x, myNow.y, latestEnemy.x, latestEnemy.y) <= AGGRESSIVE_CLOSE_RANGE_RADIUS) {
+        if (Point2D.distance(myNow.x, myNow.y, latestEnemy.x, latestEnemy.y)
+                <= BotConfig.Shield.AGGRESSIVE_CLOSE_RANGE_RADIUS) {
             return aggressivePower;
         }
         if (isImmediateShieldingImpossible(myNow)) {
@@ -692,7 +688,7 @@ public final class BulletShieldMode implements BattleMode {
             long nextShieldReadyTime = myNow.time + readyTicks;
             // Be slightly conservative when spending gun heat for a direct attack:
             // keep one extra tick of slack before the latest shieldable fire time.
-            if (nextShieldReadyTime + AGGRESSIVE_SHOT_SHIELD_SAFETY_TICKS <= shieldDeadline) {
+            if (nextShieldReadyTime + BotConfig.Shield.AGGRESSIVE_SHOT_SHIELD_SAFETY_TICKS <= shieldDeadline) {
                 return candidate;
             }
             candidate -= 0.1;
@@ -701,7 +697,7 @@ public final class BulletShieldMode implements BattleMode {
     }
 
     private boolean shouldUseIdleAggressiveShot(Snapshot myNow) {
-        if (myNow.time < EARLY_ROUND_IDLE_AGGRESSION_GUARD_TICKS) {
+        if (myNow.time < BotConfig.Shield.EARLY_ROUND_IDLE_AGGRESSION_GUARD_TICKS) {
             return false;
         }
         if (!(myNow.gunCoolingRate > 0.0)) {
@@ -711,7 +707,7 @@ public final class BulletShieldMode implements BattleMode {
                 ? myNow.time
                 : myNow.time - lastDetectedEnemyShotTime;
         long idleThresholdTicks = (long) Math.ceil(
-                IDLE_AGGRESSION_GUN_HEAT_MULTIPLIER
+                BotConfig.Shield.IDLE_AGGRESSION_GUN_HEAT_MULTIPLIER
                         * Rules.getGunHeat(Rules.MAX_BULLET_POWER)
                         / myNow.gunCoolingRate);
         return ticksSinceLastShot >= Math.max(1L, idleThresholdTicks);
@@ -1017,7 +1013,7 @@ public final class BulletShieldMode implements BattleMode {
 
     private static void pushFront(Deque<Snapshot> history, Snapshot snapshot) {
         history.addFirst(snapshot);
-        while (history.size() > HISTORY_LIMIT) {
+        while (history.size() > BotConfig.Shield.SNAPSHOT_HISTORY_LIMIT) {
             history.removeLast();
         }
     }

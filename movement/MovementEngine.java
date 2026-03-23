@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Random;
 
 import robocode.Rules;
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.state.RobotSnapshot;
 import oog.mega.saguaro.info.wave.BulletShadowUtil;
@@ -24,16 +25,8 @@ import oog.mega.saguaro.mode.perfectprediction.ReactiveOpponentPredictor;
 import oog.mega.saguaro.mode.scripted.OpponentDriveSimulator;
 
 public class MovementEngine implements MovementController {
-    static final int K_SAFE_POINTS = 2;
-    static final int DEFERRED_VIRTUAL_WAVE_SAFE_POINTS = 1;
-    static final int LATER_WAVE_SAFE_POINTS = 1;
-    static final int MAX_WAVE_DEPTH = 2;
-    static final double PRE_FIRE_TARGET_DISTANCE = 1000.0;
     static final double CIRCULAR_WAVE_APPROX_RADIUS = RobotHitbox.HALF_WIDTH;
     private static final double GF_RANGE_OVERLAP_EPSILON = 1e-5;
-    static final double MAX_EFFECTIVE_VIRTUAL_GUN_HEAT = 1.6;
-    // Debug toggle to isolate virtual-wave effects during tuning.
-    static final boolean ENABLE_VIRTUAL_WAVES = true;
     private static final int DISTRIBUTION_CACHE_CAPACITY = 24;
     private static final Random random = new Random();
 
@@ -921,10 +914,10 @@ public class MovementEngine implements MovementController {
         double radialInY = -radialOutY;
 
         return new double[][]{
-                {centerX + tangentCwX * PRE_FIRE_TARGET_DISTANCE, centerY + tangentCwY * PRE_FIRE_TARGET_DISTANCE},   // max CW
-                {centerX + tangentCcwX * PRE_FIRE_TARGET_DISTANCE, centerY + tangentCcwY * PRE_FIRE_TARGET_DISTANCE}, // max CCW
-                {centerX + radialInX * PRE_FIRE_TARGET_DISTANCE, centerY + radialInY * PRE_FIRE_TARGET_DISTANCE},     // close
-                {centerX + radialOutX * PRE_FIRE_TARGET_DISTANCE, centerY + radialOutY * PRE_FIRE_TARGET_DISTANCE}    // far
+                {centerX + tangentCwX * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE, centerY + tangentCwY * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE},   // max CW
+                {centerX + tangentCcwX * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE, centerY + tangentCcwY * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE}, // max CCW
+                {centerX + radialInX * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE, centerY + radialInY * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE},     // close
+                {centerX + radialOutX * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE, centerY + radialOutY * BotConfig.Movement.PRE_FIRE_TARGET_DISTANCE}    // far
         };
     }
 
@@ -969,8 +962,8 @@ public class MovementEngine implements MovementController {
         List<Wave> scoringWaves = new ArrayList<>(activeEnemyWaves);
         scoringWaves.sort(Comparator.comparingInt(
                 w -> PhysicsUtil.waveArrivalTick(w, robotX, robotY, currentTime)));
-        if (scoringWaves.size() > MAX_WAVE_DEPTH) {
-            return new ArrayList<>(scoringWaves.subList(0, MAX_WAVE_DEPTH));
+        if (scoringWaves.size() > BotConfig.Movement.MAX_WAVE_DEPTH) {
+            return new ArrayList<>(scoringWaves.subList(0, BotConfig.Movement.MAX_WAVE_DEPTH));
         }
         return scoringWaves;
     }
@@ -1212,7 +1205,7 @@ public class MovementEngine implements MovementController {
         }
 
         boolean hasCarryForward = carryForwardTail != null && !carryForwardTail.isEmpty();
-        int candidateCount = RANDOM_TAIL_CANDIDATE_COUNT;
+        int candidateCount = BotConfig.Movement.RANDOM_TAIL_CANDIDATE_COUNT;
         double bfWidth = getBattlefieldWidth();
         double bfHeight = getBattlefieldHeight();
         PhysicsUtil.PositionState prefixEndState = committedPrefix.stateAt(committedPrefix.length() - 1);
@@ -1347,22 +1340,19 @@ public class MovementEngine implements MovementController {
         return bestTailLegs;
     }
 
-    private static final int RANDOM_TAIL_CANDIDATE_COUNT = 50;
-    private static final double MAX_TAIL_SEGMENT_TARGET_DISTANCE = 150.0;
-    private static final int MAX_TAIL_SEGMENT_DURATION_TICKS = 30;
-
     private static PathLeg nextRandomTailLeg(PhysicsUtil.PositionState currentState,
                                               double bfWidth,
                                               double bfHeight) {
         double targetX, targetY;
         do {
             double angle = random.nextDouble() * (2.0 * Math.PI);
-            double distance = Math.sqrt(random.nextDouble()) * MAX_TAIL_SEGMENT_TARGET_DISTANCE;
+            double distance = Math.sqrt(random.nextDouble())
+                    * BotConfig.Movement.MAX_TAIL_SEGMENT_TARGET_DISTANCE;
             targetX = currentState.x + FastTrig.sin(angle) * distance;
             targetY = currentState.y + FastTrig.cos(angle) * distance;
         } while (!PhysicsUtil.isWithinBattlefield(targetX, targetY, bfWidth, bfHeight));
 
-        int durationTicks = 1 + random.nextInt(MAX_TAIL_SEGMENT_DURATION_TICKS);
+        int durationTicks = 1 + random.nextInt(BotConfig.Movement.MAX_TAIL_SEGMENT_DURATION_TICKS);
         return new PathLeg(targetX, targetY, durationTicks);
     }
 

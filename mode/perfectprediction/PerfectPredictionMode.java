@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.List;
 
 import robocode.Rules;
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ModeObservationPolicy;
@@ -41,9 +42,11 @@ import oog.mega.saguaro.render.RenderState;
 
 public final class PerfectPredictionMode implements BattleMode {
     private static final int MAX_SEGMENT_ADVANCES_PER_TICK = 64;
-    private static final double FIRE_POWER = 3.0;
-    // Gun cooldown at power 3.0 = ceil((1 + 3.0/5.0) / 0.1) = 16 ticks, * 1.5 for margin
-    private static final int MIN_TAIL_DURATION_TICKS = (int) Math.ceil((1.0 + 3.0 / 5.0) / 0.1 * 1.5);
+    // Gun cooldown at the configured firepower, scaled up to leave extra planning margin.
+    private static final int MIN_TAIL_DURATION_TICKS = (int) Math.ceil(
+            (1.0 + BotConfig.PerfectPrediction.FIRE_POWER / 5.0)
+                    / 0.1
+                    * BotConfig.PerfectPrediction.TAIL_DURATION_GUN_HEAT_MARGIN);
     private static final Color OUR_PATH_COLOR = new Color(40, 200, 255);
     private static final Color TENTATIVE_TAIL_COLOR = new Color(40, 200, 255, 100);
     private static final Color OPPONENT_PATH_COLOR = new Color(255, 80, 80);
@@ -147,7 +150,7 @@ public final class PerfectPredictionMode implements BattleMode {
         double gunTurn = aimSolution != null
                 ? MathUtils.normalizeAngle(aimSolution.firingAngle - myNow.gunHeading)
                 : 0.0;
-        double firePower = shouldFire(myNow, aimSolution) ? FIRE_POWER : 0.0;
+        double firePower = shouldFire(myNow, aimSolution) ? BotConfig.PerfectPrediction.FIRE_POWER : 0.0;
 
         return planState != null
                 ? planState.movementPlan.createExecutionPlan(myNow, gunTurn, firePower)
@@ -265,7 +268,7 @@ public final class PerfectPredictionMode implements BattleMode {
         boolean wavePassed = waveHasFullyPassedOpponent(
                 shooterState.x,
                 shooterState.y,
-                Wave.bulletSpeed(FIRE_POWER),
+                Wave.bulletSpeed(BotConfig.PerfectPrediction.FIRE_POWER),
                 opponentTrajectory);
         if (!wavePassed) {
             return new PredictionResult(null, null, false);
@@ -273,7 +276,7 @@ public final class PerfectPredictionMode implements BattleMode {
         OpponentDriveSimulator.AimSolution aimSolution = OpponentDriveSimulator.solveInterceptFromTrajectory(
                 shooterState.x,
                 shooterState.y,
-                Wave.bulletSpeed(FIRE_POWER),
+                Wave.bulletSpeed(BotConfig.PerfectPrediction.FIRE_POWER),
                 opponentTrajectory);
         PhysicsUtil.Trajectory visibleTrajectory = aimSolution != null
                 ? truncateTrajectory(opponentTrajectory, aimSolution.interceptTick)
@@ -283,7 +286,7 @@ public final class PerfectPredictionMode implements BattleMode {
 
     private boolean shouldFire(RobotSnapshot myNow, OpponentDriveSimulator.AimSolution aimSolution) {
         return aimSolution != null
-                && myNow.energy >= FIRE_POWER
+                && myNow.energy >= BotConfig.PerfectPrediction.FIRE_POWER
                 && myNow.gunHeat == 0.0;
     }
 

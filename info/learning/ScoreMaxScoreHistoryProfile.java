@@ -6,13 +6,13 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.state.RobocodeScoreUtil;
 import oog.mega.saguaro.mode.ModeId;
 import oog.mega.saguaro.mode.ModePerformanceProfile;
 import robocode.Rules;
 
 public final class ScoreMaxScoreHistoryProfile implements RoundOutcomeProfile {
-    private static final double DEFAULT_SCORE_SHARE_PRIOR = 0.5;
     private static final int SECTION_VERSION = 2;
     private static final int SECTION_BYTES = 16;
 
@@ -269,7 +269,7 @@ public final class ScoreMaxScoreHistoryProfile implements RoundOutcomeProfile {
         if (legacyDenominator > 0.0) {
             return persistedOurScore / legacyDenominator;
         }
-        return DEFAULT_SCORE_SHARE_PRIOR;
+        return BotConfig.Learning.DEFAULT_SCORE_SHARE_PRIOR;
     }
 
     private static void validateLoadedTotals(double totalOurScore, double totalOpponentScore) {

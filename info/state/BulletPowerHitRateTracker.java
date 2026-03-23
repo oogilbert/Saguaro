@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.util.IdentityHashMap;
 import java.util.Map;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.wave.Wave;
 
 public final class BulletPowerHitRateTracker {
@@ -16,11 +17,6 @@ public final class BulletPowerHitRateTracker {
     private static final int SECTION_VERSION = 1;
     private static final int FLIGHT_BIN_COUNT = 8;
     private static final int SECTION_BYTES = (FLIGHT_BIN_COUNT + 1) * 2;
-    private static final double GLOBAL_PRIOR_STRENGTH = 10.0;
-    private static final double FLIGHT_PRIOR_STRENGTH = 9.0;
-    private static final double MIN_HIT_RATE = 0.02;
-    private static final double MAX_HIT_RATE = 0.6;
-    private static final double MAX_EFFECTIVE_SHOTS = 256.0;
     private static final double[] FLIGHT_BUCKET_UPPER_BOUNDS = new double[]{
             8.0, 12.0, 16.0, 22.0, 30.0, 40.0, 55.0, Double.POSITIVE_INFINITY
     };
@@ -183,7 +179,7 @@ public final class BulletPowerHitRateTracker {
                 globalHits,
                 globalShots,
                 priorMeanForFlightBucket(flightBucket),
-                GLOBAL_PRIOR_STRENGTH);
+                BotConfig.Learning.ENEMY_HIT_RATE_GLOBAL_PRIOR_STRENGTH);
 
         double flightHits = persistedFlightHits[flightBucket] + currentBattleFlightHits[flightBucket];
         double flightShots = persistedFlightShots[flightBucket] + currentBattleFlightShots[flightBucket];
@@ -191,8 +187,11 @@ public final class BulletPowerHitRateTracker {
                 flightHits,
                 flightShots,
                 globalMean,
-                FLIGHT_PRIOR_STRENGTH);
-        return clamp(flightMean, MIN_HIT_RATE, MAX_HIT_RATE);
+                BotConfig.Learning.ENEMY_HIT_RATE_FLIGHT_PRIOR_STRENGTH);
+        return clamp(
+                flightMean,
+                BotConfig.Learning.ENEMY_HIT_RATE_MIN,
+                BotConfig.Learning.ENEMY_HIT_RATE_MAX);
     }
 
     private void recordOutcome(Wave wave, boolean hit) {
@@ -245,7 +244,10 @@ public final class BulletPowerHitRateTracker {
     }
 
     private static void writeStats(DataOutputStream out, double hits, double shots) throws IOException {
-        double clampedShots = clamp(shots, 0.0, MAX_EFFECTIVE_SHOTS);
+        double clampedShots = clamp(
+                shots,
+                0.0,
+                BotConfig.Learning.BULLET_POWER_MAX_EFFECTIVE_SHOTS);
         double rate = clampedShots > 0.0 ? clamp(hits / shots, 0.0, 1.0) : 0.0;
         out.writeByte(encodeRate(rate));
         out.writeByte(encodeShots(clampedShots));
@@ -267,13 +269,15 @@ public final class BulletPowerHitRateTracker {
     }
 
     private static int encodeShots(double shots) {
-        double normalized = Math.sqrt(clamp(shots, 0.0, MAX_EFFECTIVE_SHOTS) / MAX_EFFECTIVE_SHOTS);
+        double normalized = Math.sqrt(
+                clamp(shots, 0.0, BotConfig.Learning.BULLET_POWER_MAX_EFFECTIVE_SHOTS)
+                        / BotConfig.Learning.BULLET_POWER_MAX_EFFECTIVE_SHOTS);
         return (int) Math.round(normalized * 255.0);
     }
 
     private static double decodeShots(int encodedShots) {
         double normalized = clamp(encodedShots / 255.0, 0.0, 1.0);
-        return normalized * normalized * MAX_EFFECTIVE_SHOTS;
+        return normalized * normalized * BotConfig.Learning.BULLET_POWER_MAX_EFFECTIVE_SHOTS;
     }
 
     private static double posteriorMean(double hits,

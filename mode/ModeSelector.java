@@ -4,17 +4,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.Info;
 
 final class ModeSelector {
-    private static final double MODE_SELECTION_CONFIDENCE_SCALE = 4.0;
-    private static final double POSTERIOR_SCORE_UNIT = 24.0;
-    private static final double MODE_PRIOR_SCORE = 48.0;
-    private static final double MODE_PRIOR_FADE_SCORE = 500.0;
-    private static final double MODE_UNCERTAINTY_PRIOR_ALPHA = 1.0;
-    private static final double MODE_UNCERTAINTY_PRIOR_BETA = 1.0;
     private static final double MODE_UNCERTAINTY_PRIOR_EPSILON = 1e-6;
-    private static final double MODE_SETTLED_CI_WIDTH = 0.10;
 
     private final ModeRoundScoreTracker roundScoreTracker;
     private Info info;
@@ -111,7 +105,7 @@ final class ModeSelector {
                 best = posterior;
             }
         }
-        if (best.upperBound - best.lowerBound >= MODE_SETTLED_CI_WIDTH) {
+        if (best.upperBound - best.lowerBound >= BotConfig.ModeSelection.SETTLED_CI_WIDTH) {
             return false;
         }
         for (ModePosterior posterior : legal) {
@@ -186,27 +180,29 @@ final class ModeSelector {
             throw new IllegalArgumentException("Mode estimate totals must be non-negative");
         }
         double totalScore = totalOurScore + totalOpponentScore;
-        double priorScale = Math.max(0.0, 1.0 - totalScore / MODE_PRIOR_FADE_SCORE);
-        double priorOurScore = MODE_PRIOR_SCORE * priorScale;
+        double priorScale = Math.max(0.0, 1.0 - totalScore / BotConfig.ModeSelection.PRIOR_FADE_SCORE);
+        double priorOurScore = BotConfig.ModeSelection.PRIOR_SCORE * priorScale;
         double effectiveTotalScore = totalScore + priorOurScore;
         double posteriorMean = effectiveTotalScore > 0.0
                 ? (totalOurScore + priorOurScore) / effectiveTotalScore
                 : 1.0;
         double uncertaintyAlpha =
                 MODE_UNCERTAINTY_PRIOR_EPSILON
-                        + MODE_UNCERTAINTY_PRIOR_ALPHA * priorScale
-                        + totalOurScore / POSTERIOR_SCORE_UNIT;
+                        + BotConfig.ModeSelection.UNCERTAINTY_PRIOR_ALPHA * priorScale
+                        + totalOurScore / BotConfig.ModeSelection.POSTERIOR_SCORE_UNIT;
         double uncertaintyBeta =
                 MODE_UNCERTAINTY_PRIOR_EPSILON
-                        + MODE_UNCERTAINTY_PRIOR_BETA * priorScale
-                        + totalOpponentScore / POSTERIOR_SCORE_UNIT;
+                        + BotConfig.ModeSelection.UNCERTAINTY_PRIOR_BETA * priorScale
+                        + totalOpponentScore / BotConfig.ModeSelection.POSTERIOR_SCORE_UNIT;
         double variance = (uncertaintyAlpha * uncertaintyBeta)
                 / ((uncertaintyAlpha + uncertaintyBeta)
                 * (uncertaintyAlpha + uncertaintyBeta)
                 * (uncertaintyAlpha + uncertaintyBeta + 1.0));
         double uncertainty = Math.sqrt(Math.max(0.0, variance));
-        double lowerBound = clampUnitInterval(posteriorMean - MODE_SELECTION_CONFIDENCE_SCALE * uncertainty);
-        double upperBound = clampUnitInterval(posteriorMean + MODE_SELECTION_CONFIDENCE_SCALE * uncertainty);
+        double lowerBound = clampUnitInterval(
+                posteriorMean - BotConfig.ModeSelection.CONFIDENCE_SCALE * uncertainty);
+        double upperBound = clampUnitInterval(
+                posteriorMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * uncertainty);
         boolean hasEvidence = totalScore > 0.0;
         return new ModePosterior(modeId, posteriorMean, uncertainty, lowerBound, upperBound, hasEvidence);
     }

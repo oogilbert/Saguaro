@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.wave.Wave;
@@ -169,15 +170,15 @@ final class MovementWavePlanner {
         planningWaves.removeIf(w -> w.hasHit(x, y, currentTime));
         planningWaves.sort(Comparator.comparingInt(
                 w -> PhysicsUtil.waveArrivalTick(w, x, y, currentTime)));
-        if (planningWaves.size() > MovementEngine.MAX_WAVE_DEPTH) {
-            planningWaves.subList(MovementEngine.MAX_WAVE_DEPTH, planningWaves.size()).clear();
+        if (planningWaves.size() > BotConfig.Movement.MAX_WAVE_DEPTH) {
+            planningWaves.subList(BotConfig.Movement.MAX_WAVE_DEPTH, planningWaves.size()).clear();
         }
         return planningWaves;
     }
 
     static long estimateVirtualFireTime(long currentTime, double opponentGunHeat) {
         double effectiveGunHeat = Math.min(
-                MovementEngine.MAX_EFFECTIVE_VIRTUAL_GUN_HEAT, Math.max(0.0, opponentGunHeat));
+                BotConfig.Movement.MAX_EFFECTIVE_VIRTUAL_GUN_HEAT, Math.max(0.0, opponentGunHeat));
         int ticksUntilGunReady = (int) Math.ceil(effectiveGunHeat / 0.1);
         // Real waves are observed one tick after firing via enemy energy drops.
         // Virtual waves model that pre-drop fire tick directly so origin and
@@ -216,19 +217,19 @@ final class MovementWavePlanner {
         List<Wave> scoringWaves = new ArrayList<>(activeEnemyWaves);
         scoringWaves.sort(Comparator.comparingInt(
                 w -> PhysicsUtil.waveArrivalTick(w, robotX, robotY, currentTime)));
-        if (scoringWaves.size() > MovementEngine.MAX_WAVE_DEPTH) {
-            scoringWaves.subList(MovementEngine.MAX_WAVE_DEPTH, scoringWaves.size()).clear();
+        if (scoringWaves.size() > BotConfig.Movement.MAX_WAVE_DEPTH) {
+            scoringWaves.subList(BotConfig.Movement.MAX_WAVE_DEPTH, scoringWaves.size()).clear();
         }
         if (opponent == null || !opponent.alive || !opponent.seenThisRound) {
             return scoringWaves;
         }
-        if (!MovementEngine.ENABLE_VIRTUAL_WAVES || opponent.energy <= 0.0) {
+        if (!BotConfig.Movement.ENABLE_VIRTUAL_WAVES || opponent.energy <= 0.0) {
             return scoringWaves;
         }
 
         // Keep movement planning/scoring wave sets aligned:
         // 0 real + 1 virtual, 1 real + 1 virtual, or 2 real waves.
-        if (scoringWaves.size() >= MovementEngine.MAX_WAVE_DEPTH) {
+        if (scoringWaves.size() >= BotConfig.Movement.MAX_WAVE_DEPTH) {
             return scoringWaves;
         }
 

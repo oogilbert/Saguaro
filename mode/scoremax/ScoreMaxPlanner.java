@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.gun.GunController;
 import oog.mega.saguaro.gun.ShotSolution;
 import oog.mega.saguaro.info.Info;
@@ -28,28 +29,10 @@ import oog.mega.saguaro.movement.RamEvent;
 import robocode.Rules;
 
 final class ScoreMaxPlanner {
-    private static final int MAX_CARRIED_FORWARD_FAMILIES = 2;
-    private static final int GLOBAL_OFFENSIVE_POWER_SAMPLE_COUNT = 6;
-    private static final double DEFAULT_TRACKING_FIRE_POWER = 2.0;
-    private static final double DEFAULT_PRIOR_WEIGHT_FLOOR = 0.35;
-    private static final double DEFAULT_PRIOR_WEIGHT_EXPONENT = 0.5;
-    private static final double DEFAULT_ENERGY_LEAD_SCALE = 8.0;
-    private static final double DEFAULT_ENERGY_LEAD_OFFSET = 20.0;
-    private static final double DEFAULT_LOW_ENERGY_UNCERTAINTY_SCALE = 30.0;
-    private static final double DEFAULT_READY_TICK_ENERGY_EQUIVALENT = 0.35;
-    private static final int MAX_READY_TICK_LEAD = 8;
-    private static final int MAX_BRANCHED_SHOT_EVENTS = 4;
     private static final double MIN_CONTINUATION_POWER = 0.1;
-    private static final double DEFAULT_ENEMY_CONTINUATION_POWER = 2.0;
     private static final double MIN_TERMINAL_RATE = 1e-6;
     private static final double POWER_SAMPLE_EPSILON = 1e-6;
     private static final double GOLDEN_SECTION_LOCAL_STEP = 0.3819660112501051;
-    // Preserve the end-of-round win-rate EV path behind a single local toggle.
-    private static final boolean ENABLE_END_OF_ROUND_BONUS_EV = true;
-    private static final double MIN_PRIOR_WIN_PROBABILITY = 0.05;
-    private static final double MAX_PRIOR_WIN_PROBABILITY = 0.95;
-    private static final double FIRST_BATTLE_SCOREMAX_PRIOR_TARGET = 0.90;
-    private static final int FIRST_BATTLE_SCOREMAX_PRIOR_ROUNDS = 10;
     private static final double EVENT_TIME_EPSILON = 1e-9;
 
     private Info info;
@@ -92,7 +75,7 @@ final class ScoreMaxPlanner {
         this.lastSelectedWaveDangerRevision = info.getEnemyWaveDangerRevision();
         this.lastSelectedFirePower = 0.0;
         this.lastSelectedShotWasShadow = false;
-        this.retainedOffensivePower = DEFAULT_TRACKING_FIRE_POWER;
+        this.retainedOffensivePower = BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER;
         this.offensivePowerBracketMin = Double.NaN;
         this.offensivePowerBracketMax = Double.NaN;
         this.offensivePowerBracketValid = false;
@@ -577,7 +560,9 @@ final class ScoreMaxPlanner {
                                                  double currentOurEnergy,
                                                  PathIntersectionContext pathIntersectionContext,
                                                  FireWindowContext fireWindowContext) {
-        PlanningBranch activeBranch = branch != null ? branch : createOffensivePowerBranch(DEFAULT_TRACKING_FIRE_POWER);
+        PlanningBranch activeBranch = branch != null
+                ? branch
+                : createOffensivePowerBranch(BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER);
         FireWindowContext activeFireWindow = fireWindowContext != null && fireWindowContext.path == path
                 ? fireWindowContext
                 : buildFireWindowContext(path, firstFiringTickOffset, currentOurEnergy, pathIntersectionContext);
@@ -616,9 +601,9 @@ final class ScoreMaxPlanner {
             // itself is still based on the precomputed movement evaluation.
             ShotPlanner.ShotSelection shotSelection = shotPlanner.chooseBestShot(
                     path,
-                    state.x, state.y, state.heading, state.velocity, activeFireWindow.enemyAtFireTime,
+                    state.x, state.y, activeFireWindow.enemyAtFireTime,
                     activeFireWindow.expectedBulletDamageTaken, activeFireWindow.expectedEnemyEnergyGain,
-                    activeFireWindow.baseEnergyDelta, activeFireWindow.availableEnergy, currentGunHeading, gunCoolingRate,
+                    activeFireWindow.availableEnergy, currentGunHeading,
                     currentOurEnergy, activeFireWindow.tickOffset, activeFireWindow.fireTime,
                     pathIntersections,
                     activeBranch.forcedShot,
@@ -650,7 +635,9 @@ final class ScoreMaxPlanner {
 
         // Even when not firing, keep the gun tracking the best reachable shot
         // from the same future firing state we just evaluated for this path.
-        double aimPower = firstWindowPower > 0 ? firstWindowPower : DEFAULT_TRACKING_FIRE_POWER;
+        double aimPower = firstWindowPower > 0
+                ? firstWindowPower
+                : BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER;
         double firstTickGunTurn;
         if (Double.isFinite(firstWindowFiringAngle)) {
             firstTickGunTurn = MathUtils.normalizeAngle(firstWindowFiringAngle - currentGunHeading);
@@ -720,11 +707,11 @@ final class ScoreMaxPlanner {
 
     private void trimBranchedShotEvents(List<ImmediateEvent> shotEvents,
                                         List<TailShotCredit> tailShots) {
-        if (shotEvents == null || shotEvents.size() <= MAX_BRANCHED_SHOT_EVENTS) {
+        if (shotEvents == null || shotEvents.size() <= BotConfig.ScoreMax.MAX_BRANCHED_SHOT_EVENTS) {
             return;
         }
         sortImmediateEvents(shotEvents);
-        for (int i = MAX_BRANCHED_SHOT_EVENTS; i < shotEvents.size(); i++) {
+        for (int i = BotConfig.ScoreMax.MAX_BRANCHED_SHOT_EVENTS; i < shotEvents.size(); i++) {
             ImmediateEvent event = shotEvents.get(i);
             if (event == null) {
                 continue;
@@ -738,7 +725,7 @@ final class ScoreMaxPlanner {
                     event.requireShooterAlive,
                     1.0);
         }
-        shotEvents.subList(MAX_BRANCHED_SHOT_EVENTS, shotEvents.size()).clear();
+        shotEvents.subList(BotConfig.ScoreMax.MAX_BRANCHED_SHOT_EVENTS, shotEvents.size()).clear();
     }
 
     private static void sortImmediateEvents(List<ImmediateEvent> events) {
@@ -784,7 +771,7 @@ final class ScoreMaxPlanner {
         double windowStartTime = selection.fireTime;
         double nextShotTime = windowStartTime + cadenceTicks;
         while (nextShotTime <= horizonTime + EVENT_TIME_EPSILON
-                && explicitShotCount < MAX_BRANCHED_SHOT_EVENTS) {
+                && explicitShotCount < BotConfig.ScoreMax.MAX_BRANCHED_SHOT_EVENTS) {
             events.add(new ImmediateEvent(
                     nextShotTime,
                     0,
@@ -916,7 +903,7 @@ final class ScoreMaxPlanner {
         int explicitShotCount = 0;
         int actualShotIndex = 0;
         for (; actualShotIndex < plan.actualShots.size()
-                && explicitShotCount < MAX_BRANCHED_SHOT_EVENTS;
+                && explicitShotCount < BotConfig.ScoreMax.MAX_BRANCHED_SHOT_EVENTS;
              actualShotIndex++) {
             EnemyActualShot actualShot = plan.actualShots.get(actualShotIndex);
             events.add(new ImmediateEvent(
@@ -971,7 +958,7 @@ final class ScoreMaxPlanner {
         double cadenceTicks = plan.firstContinuationCadenceTicks;
         double nextShotTime = windowStartTime + cadenceTicks;
         while (nextShotTime <= horizonTime + EVENT_TIME_EPSILON
-                && explicitShotCount < MAX_BRANCHED_SHOT_EVENTS) {
+                && explicitShotCount < BotConfig.ScoreMax.MAX_BRANCHED_SHOT_EVENTS) {
             events.add(new ImmediateEvent(
                     nextShotTime,
                     1,
@@ -1566,15 +1553,8 @@ final class ScoreMaxPlanner {
                 robotState.energy,
                 currentEnemyEnergy,
                 getAssumedWinProbabilityParams());
-        EnemyInfo.PredictedPosition enemyAtCurrentTime = predictEnemyPositionAt(robotState.time);
         double baselineContinuationFirePower = shotPlanner.estimateContinuationFirePower(
-                robotState.x,
-                robotState.y,
-                enemyAtCurrentTime,
-                robotState.energy,
-                robotState.gunCoolingRate,
-                robotState.energy,
-                currentEnemyEnergy);
+                robotState.energy);
         TerminalScoreEstimate currentTerminalEstimate = estimateTerminalScoreAdds(
                 info.getOurCreditedDamageOnEnemyThisRound(),
                 info.getEnemyCreditedDamageOnUsThisRound(),
@@ -1603,10 +1583,10 @@ final class ScoreMaxPlanner {
                                                    double continuationFirePower) {
         boolean bonusEnabled = isEndOfRoundBonusEvEnabledForState();
         int clampedReadyTickLead = Math.max(
-                -MAX_READY_TICK_LEAD,
-                Math.min(MAX_READY_TICK_LEAD, enemyReadyTicks - ourReadyTicks));
+                -BotConfig.ScoreMax.MAX_READY_TICK_LEAD,
+                Math.min(BotConfig.ScoreMax.MAX_READY_TICK_LEAD, enemyReadyTicks - ourReadyTicks));
         double readinessEnergyEquivalent =
-                clampedReadyTickLead * DEFAULT_READY_TICK_ENERGY_EQUIVALENT;
+                clampedReadyTickLead * BotConfig.ScoreMax.DEFAULT_READY_TICK_ENERGY_EQUIVALENT;
         double effectiveOurEnergy = Math.max(0.0, ourEnergy + 0.5 * readinessEnergyEquivalent);
         double effectiveEnemyEnergy = Math.max(0.0, enemyEnergy - 0.5 * readinessEnergyEquivalent);
         if (!bonusEnabled) {
@@ -1636,7 +1616,7 @@ final class ScoreMaxPlanner {
     }
 
     private boolean isEndOfRoundBonusEvEnabledForState() {
-        if (!ENABLE_END_OF_ROUND_BONUS_EV) {
+        if (!BotConfig.ScoreMax.ENABLE_END_OF_ROUND_BONUS_EV) {
             return false;
         }
         EnemyInfo enemy = info.getEnemy();
@@ -1770,7 +1750,7 @@ final class ScoreMaxPlanner {
         double lastDetectedBulletPower = enemy != null ? enemy.lastDetectedBulletPower : Double.NaN;
         double assumedPower = Double.isFinite(lastDetectedBulletPower)
                 ? lastDetectedBulletPower
-                : DEFAULT_ENEMY_CONTINUATION_POWER;
+                : BotConfig.ScoreMax.DEFAULT_ENEMY_CONTINUATION_POWER;
         return Math.min(assumedPower, Math.max(0.0, enemyEnergy));
     }
 
@@ -1784,15 +1764,16 @@ final class ScoreMaxPlanner {
 
     private WinProbabilityModel.Params getAssumedWinProbabilityParams() {
         double survivalPrior = adjustedSurvivalPrior(info.getRoundOutcomeProfile().getSurvivalPrior());
-        double clamped = Math.max(MIN_PRIOR_WIN_PROBABILITY,
-                Math.min(MAX_PRIOR_WIN_PROBABILITY, survivalPrior));
+        double clamped = Math.max(
+                BotConfig.ScoreMax.MIN_PRIOR_WIN_PROBABILITY,
+                Math.min(BotConfig.ScoreMax.MAX_PRIOR_WIN_PROBABILITY, survivalPrior));
         return new WinProbabilityModel.Params(
                 clamped,
-                DEFAULT_PRIOR_WEIGHT_FLOOR,
-                DEFAULT_PRIOR_WEIGHT_EXPONENT,
-                DEFAULT_ENERGY_LEAD_SCALE,
-                DEFAULT_ENERGY_LEAD_OFFSET,
-                DEFAULT_LOW_ENERGY_UNCERTAINTY_SCALE);
+                BotConfig.ScoreMax.DEFAULT_PRIOR_WEIGHT_FLOOR,
+                BotConfig.ScoreMax.DEFAULT_PRIOR_WEIGHT_EXPONENT,
+                BotConfig.ScoreMax.DEFAULT_ENERGY_LEAD_SCALE,
+                BotConfig.ScoreMax.DEFAULT_ENERGY_LEAD_OFFSET,
+                BotConfig.ScoreMax.DEFAULT_LOW_ENERGY_UNCERTAINTY_SCALE);
     }
 
     private double adjustedSurvivalPrior(double survivalPrior) {
@@ -1805,7 +1786,9 @@ final class ScoreMaxPlanner {
         if (scoreMaxSelectedRoundCount <= 0) {
             return survivalPrior;
         }
-        double optimisticTarget = Math.max(survivalPrior, FIRST_BATTLE_SCOREMAX_PRIOR_TARGET);
+        double optimisticTarget = Math.max(
+                survivalPrior,
+                BotConfig.ScoreMax.FIRST_BATTLE_SCOREMAX_PRIOR_TARGET);
         double blend = firstBattleScoreMaxPriorBlend(scoreMaxSelectedRoundCount - 1);
         return survivalPrior + blend * (optimisticTarget - survivalPrior);
     }
@@ -1814,10 +1797,11 @@ final class ScoreMaxPlanner {
         if (scoreMaxRoundIndex <= 0) {
             return 1.0;
         }
-        if (scoreMaxRoundIndex >= FIRST_BATTLE_SCOREMAX_PRIOR_ROUNDS - 1) {
+        if (scoreMaxRoundIndex >= BotConfig.ScoreMax.FIRST_BATTLE_SCOREMAX_PRIOR_ROUNDS - 1) {
             return 0.0;
         }
-        double t = scoreMaxRoundIndex / (double) (FIRST_BATTLE_SCOREMAX_PRIOR_ROUNDS - 1);
+        double t = scoreMaxRoundIndex
+                / (double) (BotConfig.ScoreMax.FIRST_BATTLE_SCOREMAX_PRIOR_ROUNDS - 1);
         double smooth = t * t * (3.0 - 2.0 * t);
         return 1.0 - smooth;
     }
@@ -1917,7 +1901,7 @@ final class ScoreMaxPlanner {
         if (retainedOffensivePower >= ShotPlanner.MIN_FIRE_POWER) {
             return Math.min(maxPower, retainedOffensivePower);
         }
-        return Math.min(maxPower, DEFAULT_TRACKING_FIRE_POWER);
+        return Math.min(maxPower, BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER);
     }
 
     private static void appendUniquePower(List<Double> powers, double power) {
@@ -1948,8 +1932,8 @@ final class ScoreMaxPlanner {
             powers.add(ShotPlanner.MIN_FIRE_POWER);
             return powers;
         }
-        for (int i = 0; i < GLOBAL_OFFENSIVE_POWER_SAMPLE_COUNT; i++) {
-            double fraction = i / (double) (GLOBAL_OFFENSIVE_POWER_SAMPLE_COUNT - 1);
+        for (int i = 0; i < BotConfig.ScoreMax.GLOBAL_OFFENSIVE_POWER_SAMPLE_COUNT; i++) {
+            double fraction = i / (double) (BotConfig.ScoreMax.GLOBAL_OFFENSIVE_POWER_SAMPLE_COUNT - 1);
             double power = ShotPlanner.MIN_FIRE_POWER
                     + (maxPower - ShotPlanner.MIN_FIRE_POWER) * fraction;
             appendUniquePower(powers, power);
@@ -2202,7 +2186,7 @@ final class ScoreMaxPlanner {
         return new BattlePlan(
                 instruction[0],
                 instruction[1],
-                optimalGunTurnFromHeading(DEFAULT_TRACKING_FIRE_POWER, gunHeading),
+                optimalGunTurnFromHeading(BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER, gunHeading),
                 0.0);
     }
 
@@ -2439,13 +2423,15 @@ final class ScoreMaxPlanner {
             selection.bestPlan = new BattlePlan(
                     0.0,
                     0.0,
-                    optimalGunTurnFromHeading(DEFAULT_TRACKING_FIRE_POWER, currentGunHeading),
+                    optimalGunTurnFromHeading(BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER, currentGunHeading),
                     0.0);
         }
 
         BattlePlan bestPlan = selection.bestPlan;
         lastSelectedPath = selection.bestPath;
-        lastSelectedFamilyPaths = selectTopDistinctFamilyPaths(firstPassEvaluations, MAX_CARRIED_FORWARD_FAMILIES);
+        lastSelectedFamilyPaths = selectTopDistinctFamilyPaths(
+                firstPassEvaluations,
+                BotConfig.ScoreMax.MAX_CARRIED_FORWARD_FAMILIES);
         lastSelectedPathIntersections = selection.bestPathIntersections;
         lastSelectedWaveDangerRevision = info.getEnemyWaveDangerRevision();
         lastSelectedFirePower = bestPlan.firePower;

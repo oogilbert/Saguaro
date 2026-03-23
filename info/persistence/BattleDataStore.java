@@ -17,10 +17,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.info.learning.ScoreMaxScoreHistoryProfile;
 import oog.mega.saguaro.info.state.BulletPowerHitRateTracker;
-import oog.mega.saguaro.info.state.PrecisePredictionTracker;
 import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.mode.ModeController;
 import oog.mega.saguaro.mode.ModeId;
@@ -320,13 +320,13 @@ public final class BattleDataStore {
     private static String describePrecisePredictionStatus() {
         ReactivePredictorId bestPredictorId = PrecisePredictionProfile.bestPredictorId(
                 false,
-                PrecisePredictionTracker.MIN_UNLOCK_SAMPLES,
-                PrecisePredictionTracker.MAX_UNLOCK_MEAN_DELTA_ERROR,
-                PrecisePredictionTracker.UNLOCK_CONFIDENCE_SCALE);
+                BotConfig.PerfectPrediction.MIN_UNLOCK_SAMPLES,
+                BotConfig.PerfectPrediction.MAX_UNLOCK_MEAN_DELTA_ERROR,
+                BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
         boolean unlocked = PrecisePredictionProfile.isAnyPredictorUnlocked(
-                PrecisePredictionTracker.MIN_UNLOCK_SAMPLES,
-                PrecisePredictionTracker.MAX_UNLOCK_MEAN_DELTA_ERROR,
-                PrecisePredictionTracker.UNLOCK_CONFIDENCE_SCALE);
+                BotConfig.PerfectPrediction.MIN_UNLOCK_SAMPLES,
+                BotConfig.PerfectPrediction.MAX_UNLOCK_MEAN_DELTA_ERROR,
+                BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
         if (bestPredictorId == null) {
             return "PerfectPrediction detector: " + (unlocked ? "unlocked" : "locked") + ", no samples";
         }
@@ -335,7 +335,7 @@ public final class BattleDataStore {
         double meanError = PrecisePredictionProfile.getCombinedMeanError(bestPredictorId);
         double meanErrorUpperBound = PrecisePredictionProfile.getCombinedMeanErrorUpperBound(
                 bestPredictorId,
-                PrecisePredictionTracker.UNLOCK_CONFIDENCE_SCALE);
+                BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
         if (!(weightedSampleCount > 0.0) || Double.isNaN(meanError)) {
             return "PerfectPrediction detector: " + (unlocked ? "unlocked" : "locked") + ", no samples";
         }

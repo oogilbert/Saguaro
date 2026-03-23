@@ -3,6 +3,7 @@ package oog.mega.saguaro.gun;
 import java.util.ArrayList;
 import java.util.List;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.math.DefaultDistribution;
 import oog.mega.saguaro.math.FastTrig;
 import oog.mega.saguaro.math.GuessFactorDistribution;
@@ -17,9 +18,6 @@ public class TargetingComputer {
     private static final double GRADIENT_STEP = 0.001;
     private static final double CONVERGENCE_THRESHOLD = 1e-6;
     private static final int MAX_ITERATIONS = 100;
-
-    // ~1 degree maximum scan step. Narrower search windows scale this down.
-    private static final double PEAK_SCAN_STEP = 0.02;
 
     /**
      * Represents a potential target with all the information needed for targeting.
@@ -145,7 +143,7 @@ public class TargetingComputer {
 
         // Scan derivative for sign changes (+ to - indicates maximum)
         double searchSpan = Math.max(1e-6, maxAngle - minAngle);
-        double step = Math.min(PEAK_SCAN_STEP, Math.max(1e-4, searchSpan / 8.0));
+        double step = Math.min(BotConfig.Gun.PEAK_SCAN_STEP, Math.max(1e-4, searchSpan / 8.0));
         double prevDeriv = approximateExpectedDamageDerivative(minAngle);
 
         for (double angle = minAngle + step; angle <= maxAngle; angle += step) {

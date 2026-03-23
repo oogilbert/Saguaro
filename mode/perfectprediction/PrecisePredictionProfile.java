@@ -1,7 +1,8 @@
 package oog.mega.saguaro.mode.perfectprediction;
 
+import oog.mega.saguaro.BotConfig;
+
 public final class PrecisePredictionProfile {
-    private static final int MAX_RECENT_SAMPLES = 500;
     private static final ReactivePredictorId[] PREDICTOR_IDS = ReactivePredictorId.values();
 
     private static final int[] rawSampleCounts = new int[PREDICTOR_IDS.length];
@@ -9,9 +10,12 @@ public final class PrecisePredictionProfile {
     private static final double[] totalSampleWeights = new double[PREDICTOR_IDS.length];
     private static final double[] weightedErrorSums = new double[PREDICTOR_IDS.length];
     private static final double[] weightedSquaredErrorSums = new double[PREDICTOR_IDS.length];
-    private static final double[][] sampleWeights = new double[PREDICTOR_IDS.length][MAX_RECENT_SAMPLES];
-    private static final double[][] weightedErrorSamples = new double[PREDICTOR_IDS.length][MAX_RECENT_SAMPLES];
-    private static final double[][] weightedSquaredErrorSamples = new double[PREDICTOR_IDS.length][MAX_RECENT_SAMPLES];
+    private static final double[][] sampleWeights =
+            new double[PREDICTOR_IDS.length][BotConfig.PerfectPrediction.MAX_RECENT_PROFILE_SAMPLES];
+    private static final double[][] weightedErrorSamples =
+            new double[PREDICTOR_IDS.length][BotConfig.PerfectPrediction.MAX_RECENT_PROFILE_SAMPLES];
+    private static final double[][] weightedSquaredErrorSamples =
+            new double[PREDICTOR_IDS.length][BotConfig.PerfectPrediction.MAX_RECENT_PROFILE_SAMPLES];
 
     private PrecisePredictionProfile() {
     }
@@ -32,7 +36,7 @@ public final class PrecisePredictionProfile {
         }
         int index = predictorId.ordinal();
         int slot = nextSampleIndices[index];
-        if (rawSampleCounts[index] == MAX_RECENT_SAMPLES) {
+        if (rawSampleCounts[index] == BotConfig.PerfectPrediction.MAX_RECENT_PROFILE_SAMPLES) {
             totalSampleWeights[index] -= sampleWeights[index][slot];
             weightedErrorSums[index] -= weightedErrorSamples[index][slot];
             weightedSquaredErrorSums[index] -= weightedSquaredErrorSamples[index][slot];
@@ -48,7 +52,7 @@ public final class PrecisePredictionProfile {
         totalSampleWeights[index] += sampleWeight;
         weightedErrorSums[index] += weightedError;
         weightedSquaredErrorSums[index] += weightedSquaredError;
-        nextSampleIndices[index] = (slot + 1) % MAX_RECENT_SAMPLES;
+        nextSampleIndices[index] = (slot + 1) % BotConfig.PerfectPrediction.MAX_RECENT_PROFILE_SAMPLES;
     }
 
     public static int getCombinedRawSampleCount(ReactivePredictorId predictorId) {
@@ -180,7 +184,7 @@ public final class PrecisePredictionProfile {
             totalSampleWeights[i] = 0.0;
             weightedErrorSums[i] = 0.0;
             weightedSquaredErrorSums[i] = 0.0;
-            for (int j = 0; j < MAX_RECENT_SAMPLES; j++) {
+            for (int j = 0; j < BotConfig.PerfectPrediction.MAX_RECENT_PROFILE_SAMPLES; j++) {
                 sampleWeights[i][j] = 0.0;
                 weightedErrorSamples[i][j] = 0.0;
                 weightedSquaredErrorSamples[i][j] = 0.0;

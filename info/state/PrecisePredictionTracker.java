@@ -2,6 +2,7 @@ package oog.mega.saguaro.info.state;
 
 import java.util.Locale;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.PhysicsUtil;
@@ -13,10 +14,6 @@ import oog.mega.saguaro.mode.perfectprediction.ReactiveOpponentPredictor;
 import oog.mega.saguaro.mode.perfectprediction.ReactivePredictorId;
 
 public final class PrecisePredictionTracker {
-    public static final int MIN_UNLOCK_SAMPLES = 500;
-    public static final double MAX_UNLOCK_MEAN_DELTA_ERROR = 0.20;
-    public static final double UNLOCK_CONFIDENCE_SCALE = 2.5;
-
     private static final double MIN_ACTIVITY_WEIGHT = 0.1;
     private static final double DELTA_ERROR_SCALE = 1.0 / Math.sqrt(2.0);
 
@@ -74,9 +71,9 @@ public final class PrecisePredictionTracker {
     public ReactiveOpponentPredictor createBestPredictor() {
         ReactivePredictorId predictorId = PrecisePredictionProfile.bestPredictorId(
                 false,
-                MIN_UNLOCK_SAMPLES,
-                MAX_UNLOCK_MEAN_DELTA_ERROR,
-                UNLOCK_CONFIDENCE_SCALE);
+                BotConfig.PerfectPrediction.MIN_UNLOCK_SAMPLES,
+                BotConfig.PerfectPrediction.MAX_UNLOCK_MEAN_DELTA_ERROR,
+                BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
         ReactiveOpponentPredictor predictor = buildPredictor(predictorId);
         return predictor != null ? predictor : AntiMirrorPredictor.predictor();
     }
@@ -84,9 +81,9 @@ public final class PrecisePredictionTracker {
     public ReactivePredictorId getBestPredictorId() {
         return PrecisePredictionProfile.bestPredictorId(
                 false,
-                MIN_UNLOCK_SAMPLES,
-                MAX_UNLOCK_MEAN_DELTA_ERROR,
-                UNLOCK_CONFIDENCE_SCALE);
+                BotConfig.PerfectPrediction.MIN_UNLOCK_SAMPLES,
+                BotConfig.PerfectPrediction.MAX_UNLOCK_MEAN_DELTA_ERROR,
+                BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
     }
 
     private void evaluatePredictors(PhysicsUtil.PositionState actualNextEnemyState) {
@@ -108,9 +105,9 @@ public final class PrecisePredictionTracker {
         if (!perfectPredictionUnlocked) {
             ReactivePredictorId unlockedPredictorId = PrecisePredictionProfile.bestPredictorId(
                     true,
-                    MIN_UNLOCK_SAMPLES,
-                    MAX_UNLOCK_MEAN_DELTA_ERROR,
-                    UNLOCK_CONFIDENCE_SCALE);
+                    BotConfig.PerfectPrediction.MIN_UNLOCK_SAMPLES,
+                    BotConfig.PerfectPrediction.MAX_UNLOCK_MEAN_DELTA_ERROR,
+                    BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
             if (unlockedPredictorId != null) {
                 perfectPredictionUnlocked = true;
                 announceUnlock(unlockedPredictorId);
@@ -181,7 +178,9 @@ public final class PrecisePredictionTracker {
                 "PrecisePrediction unlocked via %s: rolling mean weighted delta error %.2f, upper bound %.2f over %.1f weighted samples (%d raw)",
                 predictorId.displayName(),
                 PrecisePredictionProfile.getCombinedMeanError(predictorId),
-                PrecisePredictionProfile.getCombinedMeanErrorUpperBound(predictorId, UNLOCK_CONFIDENCE_SCALE),
+                PrecisePredictionProfile.getCombinedMeanErrorUpperBound(
+                        predictorId,
+                        BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE),
                 PrecisePredictionProfile.getCombinedWeightedSampleCount(predictorId),
                 PrecisePredictionProfile.getCombinedRawSampleCount(predictorId)));
     }

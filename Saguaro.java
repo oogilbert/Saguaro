@@ -31,7 +31,7 @@ public class Saguaro extends AdvancedRobot {
 
             BattlePlan plan = mode.getPlan();
             RenderState renderState = mode.getRenderState();
-            Graphics2D graphics = BotConfig.ENABLE_WAVE_RENDERING ? getGraphics() : null;
+            Graphics2D graphics = BotConfig.Debug.ENABLE_WAVE_RENDERING ? getGraphics() : null;
 
             info.updateWaves(
                     graphics,

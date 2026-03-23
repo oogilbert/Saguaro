@@ -6,32 +6,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.wave.BulletShadowUtil;
 import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.math.FastTrig;
 import oog.mega.saguaro.math.PhysicsUtil;
 
 final class PathGenerator {
-    private static final int SINGLE_WAVE_ANCHOR_FAMILY_COUNT = 3;
-    private static final int DUAL_WAVE_ANCHOR_FAMILY_COUNT = 9;
-    private static final int BASE_RANDOM_FAMILY_COUNT = 4;
-    private static final int REFERENCE_EXTRA_RANDOM_FAMILY_COUNT = 7;
-    private static final int MAX_REUSED_FAMILY_COUNT = 1;
-    private static final int REFERENCE_PRIMARY_FAMILY_OPTIONAL_SLOTS = 4;
-    // Keep the existing counts around a ~400-distance, constant-2.0-fire planning window.
-    private static final double REFERENCE_PLANNING_HORIZON_TICKS = 28.0;
-    private static final double FAMILY_BUDGET_SCALE_EXPONENT = 0.75;
-    private static final double MIN_FAMILY_BUDGET_SCALE = 0.25;
-    private static final double MAX_FAMILY_BUDGET_SCALE = 1.6;
-    private static final double ADDITIONAL_BUDGET_MULTIPLIER = 1.0;
-    private static final long EARLY_TURN_MIN_BUDGET_HOLD_TICK = 25L;
-    private static final long FULL_EARLY_TURN_BUDGET_TICK = 70L;
-    private static final double MIN_EARLY_TURN_BUDGET_MULTIPLIER = 0.5;
-    private static final double EXTRA_PLANNING_WAVE_BUDGET_MULTIPLIER = 0.9;
-    private static final double MAX_SEGMENT_TARGET_DISTANCE = 150.0;
-    private static final int MAX_SEGMENT_DURATION_TICKS = 30;
-    private static final double MAX_MUTATION_TARGET_WIGGLE = 10.0;
-    private static final int MAX_MUTATION_DURATION_DELTA = 5;
     private static final long RANDOM_FAMILY_SALT = 0x1F123BB5E2D7AB4DL;
     private static final long EXACT_CARRY_FORWARD_SALT = 0x61C8864680B583EBL;
     private static final long REBUILD_PATH_SALT = 0x94D049BB133111EBL;
@@ -136,7 +117,7 @@ final class PathGenerator {
             List<CandidatePath> carriedForwardFamilies) {
         int availableReusableFamilyCount = carriedForwardFamilies == null
                 ? 0
-                : Math.min(carriedForwardFamilies.size(), MAX_REUSED_FAMILY_COUNT);
+                : Math.min(carriedForwardFamilies.size(), BotConfig.Movement.MAX_REUSED_FAMILY_COUNT);
         int planningHorizonTicks = estimatePlanningHorizonTicks(context);
         FamilyBudget familyBudget = familyBudgetForContext(context, planningHorizonTicks, availableReusableFamilyCount);
         Wave firstPlanningWave = context.planningWaves.get(0);
@@ -245,20 +226,28 @@ final class PathGenerator {
     private static FamilyBudget familyBudgetForContext(PathGenerationContext context,
                                                        int planningHorizonTicks,
                                                        int availableReusableFamilyCount) {
-        double scale = Math.pow(REFERENCE_PLANNING_HORIZON_TICKS / planningHorizonTicks, FAMILY_BUDGET_SCALE_EXPONENT);
-        scale = Math.max(MIN_FAMILY_BUDGET_SCALE, Math.min(MAX_FAMILY_BUDGET_SCALE, scale));
+        double scale = Math.pow(
+                BotConfig.Movement.REFERENCE_PLANNING_HORIZON_TICKS / planningHorizonTicks,
+                BotConfig.Movement.FAMILY_BUDGET_SCALE_EXPONENT);
+        scale = Math.max(
+                BotConfig.Movement.MIN_FAMILY_BUDGET_SCALE,
+                Math.min(BotConfig.Movement.MAX_FAMILY_BUDGET_SCALE, scale));
         double earlyTurnBudgetMultiplier = earlyTurnBudgetMultiplier(context.currentTime);
         double planningWaveBudgetMultiplier = planningWaveBudgetMultiplier(context.planningWaves.size());
-        int clampedReusableFamilyCount = Math.min(Math.max(0, availableReusableFamilyCount), MAX_REUSED_FAMILY_COUNT);
-        int additionalBudgetReference = REFERENCE_EXTRA_RANDOM_FAMILY_COUNT;
+        int clampedReusableFamilyCount = Math.min(
+                Math.max(0, availableReusableFamilyCount),
+                BotConfig.Movement.MAX_REUSED_FAMILY_COUNT);
+        int additionalBudgetReference = BotConfig.Movement.REFERENCE_EXTRA_RANDOM_FAMILY_COUNT;
         if (clampedReusableFamilyCount >= 1) {
-            additionalBudgetReference += REFERENCE_PRIMARY_FAMILY_OPTIONAL_SLOTS;
+            additionalBudgetReference += BotConfig.Movement.REFERENCE_PRIMARY_FAMILY_OPTIONAL_SLOTS;
         }
-        int baseRandomFamilyCount = Math.max(1, (int) Math.round(BASE_RANDOM_FAMILY_COUNT * earlyTurnBudgetMultiplier));
+        int baseRandomFamilyCount = Math.max(
+                1,
+                (int) Math.round(BotConfig.Movement.BASE_RANDOM_FAMILY_COUNT * earlyTurnBudgetMultiplier));
         int additionalBudget = (int) Math.round(
                 additionalBudgetReference
                         * scale
-                        * ADDITIONAL_BUDGET_MULTIPLIER
+                        * BotConfig.Movement.ADDITIONAL_BUDGET_MULTIPLIER
                         * earlyTurnBudgetMultiplier
                         * planningWaveBudgetMultiplier);
 
@@ -268,8 +257,8 @@ final class PathGenerator {
             extraRandomSlots = additionalBudget;
         } else {
             int[] categoryWeights = new int[]{
-                    REFERENCE_PRIMARY_FAMILY_OPTIONAL_SLOTS,
-                    REFERENCE_EXTRA_RANDOM_FAMILY_COUNT
+                    BotConfig.Movement.REFERENCE_PRIMARY_FAMILY_OPTIONAL_SLOTS,
+                    BotConfig.Movement.REFERENCE_EXTRA_RANDOM_FAMILY_COUNT
             };
             int[] categoryAllocations = apportionSlots(categoryWeights, additionalBudget, 2);
             primaryOptionalSlots = categoryAllocations[0];
@@ -290,8 +279,8 @@ final class PathGenerator {
             throw new IllegalArgumentException("Anchor family count requires a non-null context");
         }
         return context.planningWaves.size() >= 2
-                ? DUAL_WAVE_ANCHOR_FAMILY_COUNT
-                : SINGLE_WAVE_ANCHOR_FAMILY_COUNT;
+                ? BotConfig.Movement.DUAL_WAVE_ANCHOR_FAMILY_COUNT
+                : BotConfig.Movement.SINGLE_WAVE_ANCHOR_FAMILY_COUNT;
     }
 
     private static int minimumRandomFamilyCountForContext(PathGenerationContext context) {
@@ -325,25 +314,26 @@ final class PathGenerator {
     }
 
     private static double earlyTurnBudgetMultiplier(long currentTime) {
-        if (currentTime <= EARLY_TURN_MIN_BUDGET_HOLD_TICK) {
-            return MIN_EARLY_TURN_BUDGET_MULTIPLIER;
+        if (currentTime <= BotConfig.Movement.EARLY_TURN_MIN_BUDGET_HOLD_TICK) {
+            return BotConfig.Movement.MIN_EARLY_TURN_BUDGET_MULTIPLIER;
         }
         double progress = Math.max(
                 0.0,
                 Math.min(
                         1.0,
-                        (currentTime - EARLY_TURN_MIN_BUDGET_HOLD_TICK)
-                                / (double) (FULL_EARLY_TURN_BUDGET_TICK - EARLY_TURN_MIN_BUDGET_HOLD_TICK)));
+                        (currentTime - BotConfig.Movement.EARLY_TURN_MIN_BUDGET_HOLD_TICK)
+                                / (double) (BotConfig.Movement.FULL_EARLY_TURN_BUDGET_TICK
+                                - BotConfig.Movement.EARLY_TURN_MIN_BUDGET_HOLD_TICK)));
         double easedProgress = progress;
-        return MIN_EARLY_TURN_BUDGET_MULTIPLIER
-                + (1.0 - MIN_EARLY_TURN_BUDGET_MULTIPLIER) * easedProgress;
+        return BotConfig.Movement.MIN_EARLY_TURN_BUDGET_MULTIPLIER
+                + (1.0 - BotConfig.Movement.MIN_EARLY_TURN_BUDGET_MULTIPLIER) * easedProgress;
     }
 
     private static double planningWaveBudgetMultiplier(int planningWaveCount) {
         if (planningWaveCount <= 1) {
             return 1.0;
         }
-        return Math.pow(EXTRA_PLANNING_WAVE_BUDGET_MULTIPLIER, planningWaveCount - 1);
+        return Math.pow(BotConfig.Movement.EXTRA_PLANNING_WAVE_BUDGET_MULTIPLIER, planningWaveCount - 1);
     }
 
     private static int[] apportionSlots(int[] weights, int slotCount, int categoryCount) {
@@ -822,7 +812,8 @@ final class PathGenerator {
                                            double bfHeight,
                                            Random mutationRandom) {
         double angle = mutationRandom.nextDouble() * (2.0 * Math.PI);
-        double distance = Math.sqrt(mutationRandom.nextDouble()) * MAX_MUTATION_TARGET_WIGGLE;
+        double distance = Math.sqrt(mutationRandom.nextDouble())
+                * BotConfig.Movement.MAX_MUTATION_TARGET_WIGGLE;
         double targetX = clampToReachableEdge(leg.targetX + FastTrig.sin(angle) * distance, bfWidth);
         double targetY = clampToReachableEdge(leg.targetY + FastTrig.cos(angle) * distance, bfHeight);
         return new PathLeg(targetX, targetY, leg.durationTicks);
@@ -843,8 +834,8 @@ final class PathGenerator {
     private static int randomNonZeroDurationDelta(Random mutationRandom) {
         int durationDelta = 0;
         while (durationDelta == 0) {
-            durationDelta = mutationRandom.nextInt(MAX_MUTATION_DURATION_DELTA * 2 + 1)
-                    - MAX_MUTATION_DURATION_DELTA;
+            durationDelta = mutationRandom.nextInt(BotConfig.Movement.MAX_MUTATION_DURATION_DELTA * 2 + 1)
+                    - BotConfig.Movement.MAX_MUTATION_DURATION_DELTA;
         }
         return durationDelta;
     }
@@ -899,12 +890,13 @@ final class PathGenerator {
         double targetX, targetY;
         do {
             double angle = pathRandom.nextDouble() * (2.0 * Math.PI);
-            double distance = Math.sqrt(pathRandom.nextDouble()) * MAX_SEGMENT_TARGET_DISTANCE;
+            double distance = Math.sqrt(pathRandom.nextDouble())
+                    * BotConfig.Movement.MAX_SEGMENT_TARGET_DISTANCE;
             targetX = currentState.x + FastTrig.sin(angle) * distance;
             targetY = currentState.y + FastTrig.cos(angle) * distance;
         } while (!PhysicsUtil.isWithinBattlefield(targetX, targetY, bfWidth, bfHeight));
 
-        int durationTicks = 1 + pathRandom.nextInt(MAX_SEGMENT_DURATION_TICKS);
+        int durationTicks = 1 + pathRandom.nextInt(BotConfig.Movement.MAX_SEGMENT_DURATION_TICKS);
         return new PathLeg(targetX, targetY, durationTicks);
     }
 

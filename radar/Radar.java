@@ -1,14 +1,12 @@
 package oog.mega.saguaro.radar;
 
 import oog.mega.saguaro.Saguaro;
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import robocode.util.Utils;
 
 public class Radar {
-    private static final double SCAN_WIDTH = Math.PI / 32.0;
-    private static final int REVERSALS_BEFORE_SWEEP = 3;
-
     private int radarTurnDirection = 1;
     private int radarReversals = 0;
 
@@ -26,13 +24,13 @@ public class Radar {
             double radarTurn = Utils.normalRelativeAngle(enemy.absoluteBearing - robot.getRadarHeadingRadians());
             int direction = nonZeroSign(radarTurn, radarTurnDirection);
             radarTurnDirection = direction;
-            robot.setTurnRadarRightRadians(radarTurn + direction * SCAN_WIDTH);
+            robot.setTurnRadarRightRadians(radarTurn + direction * BotConfig.Radar.SCAN_WIDTH);
             return;
         }
 
         // If scan was missed (for example due skipped turns), sweep back through the last known bearing
         // a few times before falling back to a continuous full sweep.
-        if (radarReversals < REVERSALS_BEFORE_SWEEP) {
+        if (radarReversals < BotConfig.Radar.REVERSALS_BEFORE_SWEEP) {
             double radarTurn = Utils.normalRelativeAngle(enemy.absoluteBearing - robot.getRadarHeadingRadians());
             int newDirection = nonZeroSign(radarTurn, radarTurnDirection);
             if (newDirection != radarTurnDirection) {

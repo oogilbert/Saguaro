@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.wave.BulletShadowUtil;
 import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.math.GuessFactorDistribution;
@@ -11,8 +12,6 @@ import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.RobotHitbox;
 
 final class GuessFactorDangerAnalyzer {
-    private static final double MIN_GF_SEPARATION_FRACTION = 0.15;
-    private static final int GF_EXTREMA_SCAN_STEPS = 16;
     private static final double GF_DUPLICATE_EPS = 1e-3;
 
     private static final class CandidateDanger {
@@ -125,11 +124,13 @@ final class GuessFactorDangerAnalyzer {
             appendUniqueByEpsilon(minima, (gapCursor + clampedMax) * 0.5, GF_DUPLICATE_EPS);
         }
 
-        double scanStep = (clampedMax - clampedMin) / GF_EXTREMA_SCAN_STEPS;
+        double scanStep = (clampedMax - clampedMin) / BotConfig.Movement.GF_EXTREMA_SCAN_STEPS;
         double prevGf = clampedMin;
         double prevDerivative = dangerDerivativeAtGf(dangerContext, prevGf);
-        for (int i = 1; i <= GF_EXTREMA_SCAN_STEPS; i++) {
-            double gf = (i == GF_EXTREMA_SCAN_STEPS) ? clampedMax : clampedMin + i * scanStep;
+        for (int i = 1; i <= BotConfig.Movement.GF_EXTREMA_SCAN_STEPS; i++) {
+            double gf = (i == BotConfig.Movement.GF_EXTREMA_SCAN_STEPS)
+                    ? clampedMax
+                    : clampedMin + i * scanStep;
             double derivative = dangerDerivativeAtGf(dangerContext, gf);
 
             // Negative->positive derivative crossing indicates a local minimum.
@@ -240,7 +241,9 @@ final class GuessFactorDangerAnalyzer {
 
     private static double minimumGfSeparation(DangerCurveContext context) {
         double reachableWidth = Math.max(0.0, context.maxGf - context.minGf);
-        return Math.max(GF_DUPLICATE_EPS, MIN_GF_SEPARATION_FRACTION * reachableWidth);
+        return Math.max(
+                GF_DUPLICATE_EPS,
+                BotConfig.Movement.MIN_GF_SEPARATION_FRACTION * reachableWidth);
     }
 
     private void appendFallbackCandidates(List<Double> selected,
@@ -354,4 +357,3 @@ final class GuessFactorDangerAnalyzer {
         values.add(candidate);
     }
 }
-

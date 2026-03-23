@@ -12,6 +12,7 @@ import java.util.Locale;
 import ags.utils.dataStructures.MaxHeap;
 import ags.utils.dataStructures.trees.thirdGenKD.KdTree;
 import ags.utils.dataStructures.trees.thirdGenKD.WeightedSquareEuclideanDistanceFunction;
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.math.GuessFactorDistribution;
 import oog.mega.saguaro.math.IntervalKDEDistribution;
 import oog.mega.saguaro.math.KDEDistribution;
@@ -22,10 +23,6 @@ public class WaveLog {
     static final int CONTEXT_DIMENSIONS = 9;
     private static final int MODEL_CANDIDATE_POOL = 7;
     private static final int PERSISTENCE_SECTION_VERSION = 3;
-    private static final double DEFAULT_TARGETING_CONTEXT_WEIGHT_SIGMA = 0.4;
-    private static final double DEFAULT_MOVEMENT_CONTEXT_WEIGHT_SIGMA = 0.55;
-    private static final double DEFAULT_TARGETING_KDE_BANDWIDTH = 0.36;
-    private static final double DEFAULT_MOVEMENT_KDE_BANDWIDTH = 0.36;
     private static final double MAX_LATERAL_VELOCITY = 8.0;
     private static final double FLIGHT_TICKS_SCALE = Wave.nominalFlightTicks(
             Math.hypot(
@@ -39,22 +36,11 @@ public class WaveLog {
     private static final double MIN_INTERVAL_WIDTH = 1e-9;
     private static final double SQRT_2PI = Math.sqrt(2.0 * Math.PI);
     private static final double MIN_PROBABILITY_MASS = 1e-12;
-    private static final double WEIGHT_LEARNING_RATE = 0.035;
-    private static final double LOG_PARAMETER_LEARNING_RATE = 0.02;
-    private static final double MODEL_DEFAULT_PULL_RATE = 0.0;
-    private static final double WEIGHT_GRADIENT_CLIP = 4.0;
-    private static final double LOG_PARAMETER_GRADIENT_CLIP = 3.0;
     private static final double WEIGHT_ZERO_EPSILON = 1e-6;
-    private static final double MIN_KDE_BANDWIDTH = 0.08;
-    private static final double MAX_KDE_BANDWIDTH = 0.75;
-    private static final double MIN_CONTEXT_WEIGHT_SIGMA = 0.12;
-    private static final double MAX_CONTEXT_WEIGHT_SIGMA = 1.25;
     private static final int MODEL_VALUE_COUNT = (CONTEXT_DIMENSIONS + 2) * 2;
     private static final int MODEL_SECTION_BYTES = MODEL_VALUE_COUNT * Short.BYTES;
     private static final double MODEL_EPSILON = 1e-9;
     private static final double PERSISTED_UINT16_MAX = 65535.0;
-    private static final int MIN_TARGETING_SAMPLE_COUNT = 2;
-    private static final int MIN_MOVEMENT_SAMPLE_COUNT = 2;
     private static final double[] DEFAULT_TARGETING_DISTANCE_WEIGHTS = new double[]{
             1.78602584312953,
             0.57528534102562,
@@ -80,18 +66,17 @@ public class WaveLog {
     private static final ModelSpec DEFAULT_TARGETING_MODEL = new ModelSpec(
             "lat1p79-adv0p58-flight0p33-accel0p15-reversal0p13-decel0p22-wallAhead4p12-wallReverse0p63-currentGf1p05-bw0p36-k7-s0p40",
             DEFAULT_TARGETING_DISTANCE_WEIGHTS,
-            DEFAULT_TARGETING_KDE_BANDWIDTH,
-            DEFAULT_TARGETING_CONTEXT_WEIGHT_SIGMA);
+            BotConfig.Learning.DEFAULT_TARGETING_KDE_BANDWIDTH,
+            BotConfig.Learning.DEFAULT_TARGETING_CONTEXT_WEIGHT_SIGMA);
     private static final ModelSpec DEFAULT_MOVEMENT_MODEL = new ModelSpec(
             "lat7p12-adv0p12-flight0p06-accel0p07-reversal0p09-decel0p21-wallAhead0p68-wallReverse0p43-currentGf0p22-bw0p36-k7-s0p55",
             DEFAULT_MOVEMENT_DISTANCE_WEIGHTS,
-            DEFAULT_MOVEMENT_KDE_BANDWIDTH,
-            DEFAULT_MOVEMENT_CONTEXT_WEIGHT_SIGMA);
+            BotConfig.Learning.DEFAULT_MOVEMENT_KDE_BANDWIDTH,
+            BotConfig.Learning.DEFAULT_MOVEMENT_CONTEXT_WEIGHT_SIGMA);
     // Nearest-neighbor lookups use Rednaxela's third-gen KD-tree implementation.
     private static final SegmentLog gunSegment = new SegmentLog("targeting", DEFAULT_TARGETING_MODEL, true);
     private static final SegmentLog movementSegment = new SegmentLog("surfing", DEFAULT_MOVEMENT_MODEL, false);
     // Stack-trace source tagging was added for KD-tree diagnostics and is too expensive for normal logging.
-    private static final boolean ENABLE_TRACE_SOURCE_CAPTURE = false;
     private static final int TRACE_BUFFER_CAPACITY = 80;
     private static final int TRACE_DUMP_LINES_ON_FAILURE = 24;
     private static final Object TRACE_LOCK = new Object();
@@ -201,8 +186,8 @@ public class WaveLog {
         final WeightedSquareEuclideanDistanceFunction distanceFunction =
                 new WeightedSquareEuclideanDistanceFunction(kdTreeDistanceWeights);
         final double defaultWeightMass;
-        double kdeBandwidth = DEFAULT_TARGETING_KDE_BANDWIDTH;
-        double contextWeightSigma = DEFAULT_TARGETING_CONTEXT_WEIGHT_SIGMA;
+        double kdeBandwidth = BotConfig.Learning.DEFAULT_TARGETING_KDE_BANDWIDTH;
+        double contextWeightSigma = BotConfig.Learning.DEFAULT_TARGETING_CONTEXT_WEIGHT_SIGMA;
 
         SegmentLog(String label, ModelSpec defaultModel, boolean intervalSamples) {
             this.label = label;
@@ -238,9 +223,15 @@ public class WaveLog {
             }
             normalizeWeightMass(contextDistanceWeights, defaultWeightMass);
             syncDistanceFunctionWeights();
-            this.kdeBandwidth = clamp(kdeBandwidth, MIN_KDE_BANDWIDTH, MAX_KDE_BANDWIDTH);
+            this.kdeBandwidth = clamp(
+                    kdeBandwidth,
+                    BotConfig.Learning.MIN_KDE_BANDWIDTH,
+                    BotConfig.Learning.MAX_KDE_BANDWIDTH);
             this.contextWeightSigma =
-                    clamp(contextWeightSigma, MIN_CONTEXT_WEIGHT_SIGMA, MAX_CONTEXT_WEIGHT_SIGMA);
+                    clamp(
+                            contextWeightSigma,
+                            BotConfig.Learning.MIN_CONTEXT_WEIGHT_SIGMA,
+                            BotConfig.Learning.MAX_CONTEXT_WEIGHT_SIGMA);
         }
 
         private void syncDistanceFunctionWeights() {
@@ -366,7 +357,7 @@ public class WaveLog {
      * or null if no data is available.
      */
     public static GuessFactorDistribution createGunDistribution(WaveContextFeatures.WaveContext context) {
-        if (gunSegment.log.size() < MIN_TARGETING_SAMPLE_COUNT) {
+        if (gunSegment.log.size() < BotConfig.Learning.MIN_TARGETING_SAMPLE_COUNT) {
             return null;
         }
         return createDistribution(gunSegment, context);
@@ -377,7 +368,7 @@ public class WaveLog {
      * or null if no data is available.
      */
     public static GuessFactorDistribution createMovementDistribution(WaveContextFeatures.WaveContext context) {
-        if (movementSegment.log.size() < MIN_MOVEMENT_SAMPLE_COUNT) {
+        if (movementSegment.log.size() < BotConfig.Learning.MIN_MOVEMENT_SAMPLE_COUNT) {
             return null;
         }
         return createDistribution(movementSegment, context);
@@ -400,7 +391,7 @@ public class WaveLog {
             updateModelFromObservation(segment, contextPoint, canonicalGfMin, canonicalGfMax);
         }
         DataPoint dataPoint = new DataPoint(contextPoint, canonicalGfMin, canonicalGfMax);
-        String source = ENABLE_TRACE_SOURCE_CAPTURE ? inferLogSource() : "disabled";
+        String source = BotConfig.Debug.ENABLE_TRACE_SOURCE_CAPTURE ? inferLogSource() : "disabled";
         int sizeBefore = segment.log.size();
         addTrace("before", segment.label, source, sizeBefore);
         try {
@@ -533,9 +524,11 @@ public class WaveLog {
     private static void applyGradient(SegmentLog segment, GradientStep gradient) {
         double[] updatedWeights = segment.contextDistanceWeights.clone();
         for (int i = 0; i < updatedWeights.length; i++) {
-            double gradientStep = clip(gradient.distanceWeightGradients[i], WEIGHT_GRADIENT_CLIP);
-            updatedWeights[i] -= WEIGHT_LEARNING_RATE * gradientStep;
-            updatedWeights[i] += MODEL_DEFAULT_PULL_RATE
+            double gradientStep = clip(
+                    gradient.distanceWeightGradients[i],
+                    BotConfig.Learning.WEIGHT_GRADIENT_CLIP);
+            updatedWeights[i] -= BotConfig.Learning.WEIGHT_LEARNING_RATE * gradientStep;
+            updatedWeights[i] += BotConfig.Learning.MODEL_DEFAULT_PULL_RATE
                     * (segment.defaultModel.contextDistanceWeights[i] - updatedWeights[i]);
             if (updatedWeights[i] < WEIGHT_ZERO_EPSILON) {
                 updatedWeights[i] = 0.0;
@@ -552,19 +545,26 @@ public class WaveLog {
 
         double logBandwidth = Math.log(segment.kdeBandwidth);
         double bandwidthLogGradient = segment.kdeBandwidth * gradient.bandwidthGradient;
-        logBandwidth -= LOG_PARAMETER_LEARNING_RATE * clip(bandwidthLogGradient, LOG_PARAMETER_GRADIENT_CLIP);
-        logBandwidth += MODEL_DEFAULT_PULL_RATE
+        logBandwidth -= BotConfig.Learning.LOG_PARAMETER_LEARNING_RATE
+                * clip(bandwidthLogGradient, BotConfig.Learning.LOG_PARAMETER_GRADIENT_CLIP);
+        logBandwidth += BotConfig.Learning.MODEL_DEFAULT_PULL_RATE
                 * (Math.log(segment.defaultModel.kdeBandwidth) - logBandwidth);
-        double updatedBandwidth = clamp(Math.exp(logBandwidth), MIN_KDE_BANDWIDTH, MAX_KDE_BANDWIDTH);
+        double updatedBandwidth = clamp(
+                Math.exp(logBandwidth),
+                BotConfig.Learning.MIN_KDE_BANDWIDTH,
+                BotConfig.Learning.MAX_KDE_BANDWIDTH);
 
         double logContextSigma = Math.log(segment.contextWeightSigma);
         double contextSigmaLogGradient = segment.contextWeightSigma * gradient.contextSigmaGradient;
-        logContextSigma -= LOG_PARAMETER_LEARNING_RATE
-                * clip(contextSigmaLogGradient, LOG_PARAMETER_GRADIENT_CLIP);
-        logContextSigma += MODEL_DEFAULT_PULL_RATE
+        logContextSigma -= BotConfig.Learning.LOG_PARAMETER_LEARNING_RATE
+                * clip(contextSigmaLogGradient, BotConfig.Learning.LOG_PARAMETER_GRADIENT_CLIP);
+        logContextSigma += BotConfig.Learning.MODEL_DEFAULT_PULL_RATE
                 * (Math.log(segment.defaultModel.contextWeightSigma) - logContextSigma);
         double updatedContextSigma =
-                clamp(Math.exp(logContextSigma), MIN_CONTEXT_WEIGHT_SIGMA, MAX_CONTEXT_WEIGHT_SIGMA);
+                clamp(
+                        Math.exp(logContextSigma),
+                        BotConfig.Learning.MIN_CONTEXT_WEIGHT_SIGMA,
+                        BotConfig.Learning.MAX_CONTEXT_WEIGHT_SIGMA);
 
         segment.applyModel(updatedWeights, updatedBandwidth, updatedContextSigma);
     }
@@ -957,8 +957,14 @@ public class WaveLog {
         for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
             out.writeShort(encodeUnsigned16(segment.contextDistanceWeights[i], 0.0, weightMass));
         }
-        out.writeShort(encodeUnsigned16(segment.kdeBandwidth, MIN_KDE_BANDWIDTH, MAX_KDE_BANDWIDTH));
-        out.writeShort(encodeUnsigned16(segment.contextWeightSigma, MIN_CONTEXT_WEIGHT_SIGMA, MAX_CONTEXT_WEIGHT_SIGMA));
+        out.writeShort(encodeUnsigned16(
+                segment.kdeBandwidth,
+                BotConfig.Learning.MIN_KDE_BANDWIDTH,
+                BotConfig.Learning.MAX_KDE_BANDWIDTH));
+        out.writeShort(encodeUnsigned16(
+                segment.contextWeightSigma,
+                BotConfig.Learning.MIN_CONTEXT_WEIGHT_SIGMA,
+                BotConfig.Learning.MAX_CONTEXT_WEIGHT_SIGMA));
     }
 
     private static void loadPersistedPayload(int sectionVersion, byte[] payload) {
@@ -989,11 +995,14 @@ public class WaveLog {
         if (!(sumPositiveWeights(weights) > MODEL_EPSILON)) {
             throw new IllegalStateException("WaveLog weights must contain positive mass");
         }
-        double bandwidth = decodeUnsigned16(in.readUnsignedShort(), MIN_KDE_BANDWIDTH, MAX_KDE_BANDWIDTH);
+        double bandwidth = decodeUnsigned16(
+                in.readUnsignedShort(),
+                BotConfig.Learning.MIN_KDE_BANDWIDTH,
+                BotConfig.Learning.MAX_KDE_BANDWIDTH);
         double contextSigma = decodeUnsigned16(
                 in.readUnsignedShort(),
-                MIN_CONTEXT_WEIGHT_SIGMA,
-                MAX_CONTEXT_WEIGHT_SIGMA);
+                BotConfig.Learning.MIN_CONTEXT_WEIGHT_SIGMA,
+                BotConfig.Learning.MAX_CONTEXT_WEIGHT_SIGMA);
         return new ModelSpec(defaultModel.name, weights, bandwidth, contextSigma);
     }
 

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import oog.mega.saguaro.Saguaro;
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.wave.Wave;
@@ -18,7 +19,6 @@ import oog.mega.saguaro.mode.scripted.OpponentDriveSimulator;
 import robocode.Rules;
 
 public class HitChanceAimer implements GunController {
-    private static final double DEFAULT_OPPONENT_MOVEMENT_BANDWIDTH = 1.0;
     // Keep this narrow: only to absorb tiny planner/execution drift.
     private static final double REACHABILITY_ANGLE_EPSILON = 2.5e-3;
     private static final int OPTIMAL_SHOT_CACHE_CAPACITY = 24;
@@ -86,7 +86,7 @@ public class HitChanceAimer implements GunController {
             return handle.exact();
         }
         if (enemyAtFireTime == null) {
-            return new DefaultDistribution(DEFAULT_OPPONENT_MOVEMENT_BANDWIDTH);
+            return new DefaultDistribution(BotConfig.Gun.DEFAULT_OPPONENT_MOVEMENT_BANDWIDTH);
         }
         return createDefaultGunDistribution(shooterX, shooterY, enemyAtFireTime, bulletSpeed);
     }
@@ -527,7 +527,10 @@ public class HitChanceAimer implements GunController {
                 bearing,
                 aimSolution.firingAngle,
                 MathUtils.maxEscapeAngle(bulletSpeed));
-        return new DefaultDistribution(meanGf, meanGf, DEFAULT_OPPONENT_MOVEMENT_BANDWIDTH);
+        return new DefaultDistribution(
+                meanGf,
+                meanGf,
+                BotConfig.Gun.DEFAULT_OPPONENT_MOVEMENT_BANDWIDTH);
     }
 
     private TargetingFrame buildTargetingFrame(double shooterX,

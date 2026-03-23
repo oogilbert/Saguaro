@@ -3,14 +3,11 @@ package oog.mega.saguaro.info.state;
 import java.util.IdentityHashMap;
 import java.util.Map;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.wave.Wave;
 
 public final class EnemyBulletHitRateTracker {
     private static final int FLIGHT_BIN_COUNT = 8;
-    private static final double GLOBAL_PRIOR_STRENGTH = 10.0;
-    private static final double FLIGHT_PRIOR_STRENGTH = 9.0;
-    private static final double MIN_HIT_RATE = 0.02;
-    private static final double MAX_HIT_RATE = 0.6;
     private static final double[] FLIGHT_BUCKET_UPPER_BOUNDS = new double[]{
             8.0, 12.0, 16.0, 22.0, 30.0, 40.0, 55.0, Double.POSITIVE_INFINITY
     };
@@ -79,13 +76,16 @@ public final class EnemyBulletHitRateTracker {
                 battleGlobalHits,
                 battleGlobalShots,
                 priorMeanForFlightBucket(flightBucket),
-                GLOBAL_PRIOR_STRENGTH);
+                BotConfig.Learning.ENEMY_HIT_RATE_GLOBAL_PRIOR_STRENGTH);
         double flightMean = posteriorMean(
                 battleFlightHits[flightBucket],
                 battleFlightShots[flightBucket],
                 globalMean,
-                FLIGHT_PRIOR_STRENGTH);
-        return clamp(flightMean, MIN_HIT_RATE, MAX_HIT_RATE);
+                BotConfig.Learning.ENEMY_HIT_RATE_FLIGHT_PRIOR_STRENGTH);
+        return clamp(
+                flightMean,
+                BotConfig.Learning.ENEMY_HIT_RATE_MIN,
+                BotConfig.Learning.ENEMY_HIT_RATE_MAX);
     }
 
     private void recordOutcome(Wave wave, boolean hit) {
@@ -115,7 +115,10 @@ public final class EnemyBulletHitRateTracker {
     private static double priorMeanForFlightBucket(int flightBucket) {
         double representativeTicks = FLIGHT_BUCKET_REPRESENTATIVE_TICKS[flightBucket];
         double centeredTicks = representativeTicks - 16.0;
-        return clamp(0.19 - 0.0015 * centeredTicks, MIN_HIT_RATE, MAX_HIT_RATE);
+        return clamp(
+                0.19 - 0.0015 * centeredTicks,
+                BotConfig.Learning.ENEMY_HIT_RATE_MIN,
+                BotConfig.Learning.ENEMY_HIT_RATE_MAX);
     }
 
     private static double posteriorMean(double hits, double shots, double priorMean, double priorStrength) {
