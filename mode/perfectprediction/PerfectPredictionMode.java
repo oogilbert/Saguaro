@@ -42,6 +42,8 @@ import oog.mega.saguaro.render.RenderState;
 
 public final class PerfectPredictionMode implements BattleMode {
     private static final int MAX_SEGMENT_ADVANCES_PER_TICK = 64;
+    private static final int MAX_TAIL_EXTENSION_ATTEMPTS = 5;
+    private static final int TAIL_EXTENSION_STEP_TICKS = 12;
     // Gun cooldown at the configured firepower, scaled up to leave extra planning margin.
     private static final int MIN_TAIL_DURATION_TICKS = (int) Math.ceil(
             (1.0 + BotConfig.PerfectPrediction.FIRE_POWER / 5.0)
@@ -54,6 +56,7 @@ public final class PerfectPredictionMode implements BattleMode {
 
     private final RoundOutcomeProfile roundOutcomeProfile = NoOpLearningProfile.INSTANCE;
     private final List<ScriptedWaypoint> waypoints = new ArrayList<ScriptedWaypoint>();
+    private final List<Long> committedShotImpactTimes = new ArrayList<Long>();
 
     private Info info;
     private MovementController movement;
@@ -86,6 +89,7 @@ public final class PerfectPredictionMode implements BattleMode {
         this.movement = services.movement();
         this.planStartTime = Long.MIN_VALUE;
         this.waypoints.clear();
+        this.committedShotImpactTimes.clear();
         this.tentativeTailLegs = Collections.emptyList();
         this.lastAimSolution = null;
         this.lastPlannedTrajectory = null;
@@ -102,59 +106,69 @@ public final class PerfectPredictionMode implements BattleMode {
         RobotSnapshot myNow = info.captureRobotSnapshot();
         ReactiveOpponentPredictor predictor = currentPredictor();
         advanceWaypointQueue(myNow);
+        pruneExpiredCommittedShotImpactTimes(myNow.time);
+        rebalanceCommittedPath(myNow, requiredCommittedTicks(myNow.time));
 
         EnemyInfo enemy = info.getEnemy();
         PredictedOpponentState opponentStart = buildOpponentStart(enemy, myNow);
-
-        // 1. Ensure committed path is long enough for targeting
-        PlanState planState = null;
+        PlanState planState = currentPlanState(myNow);
         PredictionResult prediction = null;
-        while (true) {
-            planState = currentPlanState(myNow);
-            if (enemy == null || !enemy.alive || !enemy.seenThisRound) {
-                break;
-            }
-            if (planState.ourTrajectory.length() < 2) {
-                commitTailOrGenerate(myNow, opponentStart, predictor);
-                continue;
-            }
-
-            prediction = predictOpponent(myNow, planState.ourTrajectory, predictor);
-            if (prediction == null || prediction.wavePassed) {
-                break;
-            }
-            commitTailOrGenerate(myNow, opponentStart, predictor);
-        }
-
-        // 2. Re-evaluate tentative tail every tick (carry forward previous best)
+        PhysicsUtil.Trajectory effectiveTrajectory = planState.ourTrajectory;
         if (enemy != null && enemy.alive && enemy.seenThisRound) {
-            planState = currentPlanState(myNow);
-            tentativeTailLegs = movement.generateBestRandomTail(
-                    planState.ourTrajectory,
-                    myNow.time,
-                    opponentStart,
-                    predictor,
-                    MIN_TAIL_DURATION_TICKS,
-                    tentativeTailLegs);
-            lastTentativeTailTrajectory = simulateTailTrajectory(
-                    planState.ourTrajectory, tentativeTailLegs);
+            int requiredTailTicks = MIN_TAIL_DURATION_TICKS;
+            for (int attempt = 0; attempt < MAX_TAIL_EXTENSION_ATTEMPTS; attempt++) {
+                tentativeTailLegs = movement.generateBestRandomTail(
+                        planState.ourTrajectory,
+                        myNow.time,
+                        opponentStart,
+                        predictor,
+                        requiredTailTicks,
+                        tentativeTailLegs);
+                lastTentativeTailTrajectory = simulateTailTrajectory(
+                        planState.ourTrajectory, tentativeTailLegs);
+                effectiveTrajectory = buildEffectiveTrajectory(planState.ourTrajectory, lastTentativeTailTrajectory);
+                if (effectiveTrajectory.length() >= 2) {
+                    prediction = predictOpponent(myNow, effectiveTrajectory, predictor);
+                }
+                if (prediction != null && prediction.wavePassed) {
+                    break;
+                }
+                int currentTailTicks = Math.max(0, effectiveTrajectory.length() - planState.ourTrajectory.length());
+                requiredTailTicks = Math.max(requiredTailTicks + TAIL_EXTENSION_STEP_TICKS,
+                        currentTailTicks + TAIL_EXTENSION_STEP_TICKS);
+            }
         } else {
+            tentativeTailLegs = Collections.emptyList();
             lastTentativeTailTrajectory = null;
         }
 
-        lastPlannedTrajectory = planState != null ? planState.ourTrajectory : null;
         OpponentDriveSimulator.AimSolution aimSolution = prediction != null ? prediction.aimSolution : null;
-        lastAimSolution = aimSolution;
-        lastPredictedOpponentTrajectory = prediction != null ? prediction.opponentTrajectory : null;
-
         double gunTurn = aimSolution != null
                 ? MathUtils.normalizeAngle(aimSolution.firingAngle - myNow.gunHeading)
                 : 0.0;
-        double firePower = shouldFire(myNow, aimSolution) ? BotConfig.PerfectPrediction.FIRE_POWER : 0.0;
+        double firePower = prediction != null && prediction.wavePassed && shouldFire(myNow, aimSolution)
+                ? BotConfig.PerfectPrediction.FIRE_POWER
+                : 0.0;
+        if (firePower >= 0.1 && aimSolution != null) {
+            committedShotImpactTimes.add(myNow.time + 1L + aimSolution.interceptTick);
+            rebalanceCommittedPath(myNow, requiredCommittedTicks(myNow.time));
+            planState = currentPlanState(myNow);
+            if (enemy != null && enemy.alive && enemy.seenThisRound) {
+                lastTentativeTailTrajectory = simulateTailTrajectory(planState.ourTrajectory, tentativeTailLegs);
+            }
+        }
 
-        return planState != null
-                ? planState.movementPlan.createExecutionPlan(myNow, gunTurn, firePower)
-                : new BattlePlan(0.0, 0.0, gunTurn, firePower);
+        lastPlannedTrajectory = planState != null ? planState.ourTrajectory : null;
+        lastAimSolution = aimSolution;
+        lastPredictedOpponentTrajectory = prediction != null ? prediction.opponentTrajectory : null;
+
+        if (planState != null && planState.movementPlan.activeWaypoint(myNow.time) != null) {
+            return planState.movementPlan.createExecutionPlan(myNow, gunTurn, firePower);
+        }
+        if (!tentativeTailLegs.isEmpty()) {
+            return createExecutionPlanForLeg(myNow, tentativeTailLegs.get(0), gunTurn, firePower);
+        }
+        return new BattlePlan(0.0, 0.0, gunTurn, firePower);
     }
 
     @Override
@@ -171,34 +185,95 @@ public final class PerfectPredictionMode implements BattleMode {
         robot.setScanColor(new Color(112, 244, 182));
     }
 
-    private void commitTailOrGenerate(RobotSnapshot myNow,
-                                      PredictedOpponentState opponentStart,
-                                      ReactiveOpponentPredictor predictor) {
-        if (!tentativeTailLegs.isEmpty()) {
-            // Commit only the first leg; keep the rest as tentative
-            PathLeg firstLeg = tentativeTailLegs.get(0);
-            waypoints.add(new ScriptedWaypoint(firstLeg.targetX, firstLeg.targetY, firstLeg.durationTicks));
-            tentativeTailLegs = tentativeTailLegs.size() > 1
-                    ? new ArrayList<>(tentativeTailLegs.subList(1, tentativeTailLegs.size()))
-                    : Collections.emptyList();
-        } else {
-            // Generate fresh tail and commit the first leg
-            PlanState planState = currentPlanState(myNow);
-            List<PathLeg> freshLegs = movement.generateBestRandomTail(
-                    planState.ourTrajectory,
-                    myNow.time,
-                    opponentStart,
-                    predictor,
-                    MIN_TAIL_DURATION_TICKS,
-                    Collections.emptyList());
-            if (!freshLegs.isEmpty()) {
-                PathLeg firstLeg = freshLegs.get(0);
-                waypoints.add(new ScriptedWaypoint(firstLeg.targetX, firstLeg.targetY, firstLeg.durationTicks));
-                tentativeTailLegs = freshLegs.size() > 1
-                        ? new ArrayList<>(freshLegs.subList(1, freshLegs.size()))
-                        : Collections.emptyList();
+    private BattlePlan createExecutionPlanForLeg(RobotSnapshot myNow,
+                                                 PathLeg leg,
+                                                 double gunTurn,
+                                                 double firePower) {
+        double[] instruction = PhysicsUtil.computeMovementInstruction(
+                myNow.x,
+                myNow.y,
+                myNow.heading,
+                myNow.velocity,
+                leg.targetX,
+                leg.targetY,
+                PhysicsUtil.EndpointBehavior.PASS_THROUGH,
+                leg.steeringMode,
+                info.getBattlefieldWidth(),
+                info.getBattlefieldHeight());
+        return new BattlePlan(instruction[0], instruction[1], gunTurn, firePower);
+    }
+
+    private void pruneExpiredCommittedShotImpactTimes(long currentTime) {
+        for (int i = committedShotImpactTimes.size() - 1; i >= 0; i--) {
+            if (committedShotImpactTimes.get(i) <= currentTime) {
+                committedShotImpactTimes.remove(i);
             }
         }
+    }
+
+    private int requiredCommittedTicks(long currentTime) {
+        long latestImpactTime = currentTime;
+        for (Long impactTime : committedShotImpactTimes) {
+            if (impactTime != null && impactTime > latestImpactTime) {
+                latestImpactTime = impactTime;
+            }
+        }
+        return (int) Math.max(0L, Math.min(Integer.MAX_VALUE, latestImpactTime - currentTime));
+    }
+
+    private void rebalanceCommittedPath(RobotSnapshot myNow, int requiredCommittedTicks) {
+        List<PathLeg> effectiveLegs = buildEffectiveLegs(myNow);
+        List<ScriptedWaypoint> newCommittedWaypoints = new ArrayList<ScriptedWaypoint>();
+        List<PathLeg> newTentativeTail = new ArrayList<PathLeg>();
+        int remainingCommittedTicks = Math.max(0, requiredCommittedTicks);
+        for (PathLeg leg : effectiveLegs) {
+            if (remainingCommittedTicks <= 0) {
+                newTentativeTail.add(leg);
+                continue;
+            }
+            int committedDuration = Math.min(leg.durationTicks, remainingCommittedTicks);
+            newCommittedWaypoints.add(new ScriptedWaypoint(leg.targetX, leg.targetY, committedDuration));
+            remainingCommittedTicks -= committedDuration;
+            if (committedDuration < leg.durationTicks) {
+                newTentativeTail.add(new PathLeg(
+                        leg.targetX,
+                        leg.targetY,
+                        leg.durationTicks - committedDuration,
+                        leg.steeringMode));
+            }
+        }
+        waypoints.clear();
+        waypoints.addAll(newCommittedWaypoints);
+        tentativeTailLegs = newTentativeTail;
+        planStartTime = myNow.time;
+    }
+
+    private List<PathLeg> buildEffectiveLegs(RobotSnapshot myNow) {
+        List<PathLeg> effectiveLegs = new ArrayList<PathLeg>();
+        List<ScriptedWaypoint> remainingWaypoints = currentPlanState(myNow).movementPlan.remainingWaypoints(myNow.time);
+        for (ScriptedWaypoint waypoint : remainingWaypoints) {
+            effectiveLegs.add(new PathLeg(
+                    waypoint.x,
+                    waypoint.y,
+                    waypoint.durationTicks,
+                    PhysicsUtil.SteeringMode.DIRECT));
+        }
+        effectiveLegs.addAll(tentativeTailLegs);
+        return effectiveLegs;
+    }
+
+    private static PhysicsUtil.Trajectory buildEffectiveTrajectory(PhysicsUtil.Trajectory committedTrajectory,
+                                                                   PhysicsUtil.Trajectory tentativeTailTrajectory) {
+        if (tentativeTailTrajectory == null || tentativeTailTrajectory.length() < 2) {
+            return committedTrajectory;
+        }
+        PhysicsUtil.PositionState[] states =
+                new PhysicsUtil.PositionState[committedTrajectory.length() + tentativeTailTrajectory.length() - 1];
+        System.arraycopy(committedTrajectory.states, 0, states, 0, committedTrajectory.length());
+        for (int i = 1; i < tentativeTailTrajectory.length(); i++) {
+            states[committedTrajectory.length() + i - 1] = tentativeTailTrajectory.stateAt(i);
+        }
+        return new PhysicsUtil.Trajectory(states);
     }
 
     private PredictedOpponentState buildOpponentStart(EnemyInfo enemy, RobotSnapshot myNow) {
@@ -270,9 +345,6 @@ public final class PerfectPredictionMode implements BattleMode {
                 shooterState.y,
                 Wave.bulletSpeed(BotConfig.PerfectPrediction.FIRE_POWER),
                 opponentTrajectory);
-        if (!wavePassed) {
-            return new PredictionResult(null, null, false);
-        }
         OpponentDriveSimulator.AimSolution aimSolution = OpponentDriveSimulator.solveInterceptFromTrajectory(
                 shooterState.x,
                 shooterState.y,
@@ -281,7 +353,7 @@ public final class PerfectPredictionMode implements BattleMode {
         PhysicsUtil.Trajectory visibleTrajectory = aimSolution != null
                 ? truncateTrajectory(opponentTrajectory, aimSolution.interceptTick)
                 : opponentTrajectory;
-        return new PredictionResult(aimSolution, visibleTrajectory, true);
+        return new PredictionResult(aimSolution, visibleTrajectory, wavePassed);
     }
 
     private boolean shouldFire(RobotSnapshot myNow, OpponentDriveSimulator.AimSolution aimSolution) {

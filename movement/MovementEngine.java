@@ -1016,6 +1016,11 @@ public class MovementEngine implements MovementController {
         double bfWidth = getBattlefieldWidth();
         double bfHeight = getBattlefieldHeight();
         double[] opponentMoveInstruction = new double[2];
+        PhysicsUtil.PositionState[] rawOurStates = null;
+        boolean ourPathAdjusted = false;
+        boolean ourTurnLocked = false;
+        boolean opponentTurnLocked = false;
+        double[] ourMoveInstruction = new double[2];
         for (int tick = startTickOffset; tick < ourStates.length; tick++) {
             long time = trajectoryStartTime + tick;
             PhysicsUtil.PositionState ourState = ourStates[tick];
@@ -1057,8 +1062,50 @@ public class MovementEngine implements MovementController {
             if (tick >= ourStates.length - 1) {
                 break;
             }
+
+            // If our path was adjusted by a previous collision, re-simulate our next tick
+            // position toward the original planned target.
+            if (ourPathAdjusted) {
+                ourStates[tick + 1] = RamCollisionUtil.advanceTowardPlannedState(
+                        ourState, rawOurStates[tick + 1], ourTurnLocked,
+                        ourMoveInstruction, bfWidth, bfHeight);
+            }
+            PhysicsUtil.PositionState nextOurState = ourStates[tick + 1];
+            ourTurnLocked = false;
+
+            PhysicsUtil.PositionState opponentAtTick = opponentState;
+
+            // Phase 1: Did our movement to tick+1 collide with opponent at tick?
+            if (opponentState != null
+                    && RamCollisionUtil.robotsOverlap(nextOurState.x, nextOurState.y,
+                            opponentState.x, opponentState.y)
+                    && RamCollisionUtil.isCollisionFault(nextOurState.velocity, nextOurState.heading,
+                            nextOurState.x, nextOurState.y, opponentState.x, opponentState.y)) {
+                if (!ourPathAdjusted) {
+                    rawOurStates = java.util.Arrays.copyOf(ourStates, ourStates.length);
+                    ourPathAdjusted = true;
+                }
+                ourStates[tick + 1] = RamCollisionUtil.rollbackCollision(ourState, nextOurState);
+                nextOurState = ourStates[tick + 1];
+                ourTurnLocked = true;
+            }
+
+            // Advance opponent to tick+1, respecting turn lock from a previous collision.
             if (opponentState != null) {
-                if (opponentInstruction instanceof ReactiveOpponentPredictor) {
+                if (opponentTurnLocked) {
+                    OpponentDriveSimulator.DriveTarget target = opponentInstruction.targetForTick(
+                            tick, ourState, opponentAtTick, bfWidth, bfHeight);
+                    PhysicsUtil.computeMovementInstructionInto(
+                            opponentAtTick.x, opponentAtTick.y,
+                            opponentAtTick.heading, opponentAtTick.velocity,
+                            target.x, target.y, opponentMoveInstruction);
+                    opponentMoveInstruction[1] = 0.0;
+                    opponentState = PhysicsUtil.calculateNextTick(
+                            opponentAtTick.x, opponentAtTick.y,
+                            opponentAtTick.heading, opponentAtTick.velocity,
+                            opponentMoveInstruction[0], opponentMoveInstruction[1],
+                            bfWidth, bfHeight);
+                } else if (opponentInstruction instanceof ReactiveOpponentPredictor) {
                     opponentState = ((ReactiveOpponentPredictor) opponentInstruction).predictNextState(
                             tick,
                             ourState,
@@ -1081,6 +1128,19 @@ public class MovementEngine implements MovementController {
                             opponentMoveInstruction);
                 }
                 opponentGunHeat = Math.max(0.0, opponentGunHeat - 0.1);
+            }
+            opponentTurnLocked = false;
+
+            // Phase 2: Did opponent's movement to tick+1 collide with us at tick+1?
+            if (opponentState != null
+                    && RamCollisionUtil.robotsOverlap(nextOurState.x, nextOurState.y,
+                            opponentState.x, opponentState.y)
+                    && RamCollisionUtil.isCollisionFault(opponentState.velocity, opponentState.heading,
+                            opponentState.x, opponentState.y, nextOurState.x, nextOurState.y)) {
+                opponentState = new PhysicsUtil.PositionState(
+                        opponentAtTick.x, opponentAtTick.y,
+                        opponentState.heading, 0.0);
+                opponentTurnLocked = true;
             }
         }
 
@@ -1246,14 +1306,19 @@ public class MovementEngine implements MovementController {
         int candidateCount = BotConfig.Movement.RANDOM_TAIL_CANDIDATE_COUNT;
         double bfWidth = getBattlefieldWidth();
         double bfHeight = getBattlefieldHeight();
-        PhysicsUtil.PositionState prefixEndState = committedPrefix.stateAt(committedPrefix.length() - 1);
-        long prefixEndTime = prefixStartTime + committedPrefix.length() - 1L;
 
-        // Simulate opponent along committed prefix to get future state
+        // Clone prefix states so collision adjustments don't mutate the shared Trajectory.
+        PhysicsUtil.PositionState[] prefixStates = committedPrefix.states.clone();
+        int prefixLength = prefixStates.length;
+        long prefixEndTime = prefixStartTime + prefixLength - 1L;
+
+        // Simulate opponent along committed prefix (with collision handling) to get future state.
         FuturePredictionState prefixFuture = simulateFuturePredictionState(
-                committedPrefix, prefixStartTime, opponentStart, opponentInstruction);
+                prefixStates, prefixStartTime, opponentStart, opponentInstruction,
+                java.util.Collections.<Wave>emptyList(), 0, true);
+        PhysicsUtil.PositionState prefixEndState = prefixStates[prefixLength - 1];
 
-        // Build planning waves from the prefix end state
+        // Build planning waves from the (collision-adjusted) prefix end state
         List<Wave> baseScoringWaves = selectFutureScoringWaves(
                 prefixFuture.activeEnemyWaves,
                 prefixEndState.x,
@@ -1270,14 +1335,15 @@ public class MovementEngine implements MovementController {
                 waveShadowCacheBuilder.buildBaseShadowCache(prefixWaves);
         Map<Wave, PrecomputedWaveData> prefixPrecomputedWaveData =
                 waveShadowCacheBuilder.buildPrecomputedWaveData(prefixWaves, prefixShadowCache);
+        PhysicsUtil.Trajectory adjustedPrefix = new PhysicsUtil.Trajectory(prefixStates);
         PathDangerMetrics prefixMetrics = evaluatePathDangerMetrics(
-                committedPrefix,
+                adjustedPrefix,
                 prefixStartTime,
                 prefixWaves,
                 prefixShadowCache,
                 prefixPrecomputedWaveData,
                 0,
-                committedPrefix.length() - 1,
+                prefixLength - 1,
                 false);
 
         List<PathLeg> bestTailLegs = Collections.emptyList();
@@ -1350,20 +1416,20 @@ public class MovementEngine implements MovementController {
                 }
             }
 
-            // Build full trajectory: committed prefix + tail
+            // Build full trajectory: collision-adjusted prefix + tail
             PhysicsUtil.PositionState[] fullStates =
-                    new PhysicsUtil.PositionState[committedPrefix.length() + tailStates.size() - 1];
-            System.arraycopy(committedPrefix.states, 0, fullStates, 0, committedPrefix.length());
+                    new PhysicsUtil.PositionState[prefixLength + tailStates.size() - 1];
+            System.arraycopy(prefixStates, 0, fullStates, 0, prefixLength);
             for (int s = 1; s < tailStates.size(); s++) {
-                fullStates[committedPrefix.length() + s - 1] = tailStates.get(s);
+                fullStates[prefixLength + s - 1] = tailStates.get(s);
             }
             PhysicsUtil.Trajectory fullTrajectory = new PhysicsUtil.Trajectory(fullStates);
 
-            // Continue opponent simulation from the committed prefix end instead of replaying it.
+            // Continue opponent simulation (with collision handling) from the prefix end.
             FuturePredictionState fullFuture = continueFuturePredictionState(
                     fullStates,
                     prefixStartTime,
-                    committedPrefix.length() - 1,
+                    prefixLength - 1,
                     prefixFuture,
                     opponentInstruction);
 
@@ -1380,7 +1446,7 @@ public class MovementEngine implements MovementController {
                     allWaves,
                     shadowCache,
                     precomputedWaveData,
-                    committedPrefix.length(),
+                    prefixLength,
                     fullTrajectory.length() - 1,
                     true);
             double danger = prefixMetrics.expectedBulletDamageTaken + tailMetrics.expectedBulletDamageTaken;

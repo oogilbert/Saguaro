@@ -11,7 +11,7 @@ import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.PhysicsUtil;
 
 final class RamSimulator {
-    private static final double ROBOT_HITBOX_SIZE = 36.0;
+    private static final double ROBOT_HITBOX_SIZE = RamCollisionUtil.ROBOT_HITBOX_SIZE;
     private final RobocodeScoreUtil.HitScoreScratch hitScoreScratch = new RobocodeScoreUtil.HitScoreScratch();
     
     static final class Result {
@@ -352,13 +352,7 @@ final class RamSimulator {
 
     private static PhysicsUtil.PositionState rollbackOurCollision(PhysicsUtil.PositionState previousOurState,
                                                                   PhysicsUtil.PositionState collidedOurState) {
-        return new PhysicsUtil.PositionState(
-                previousOurState.x,
-                previousOurState.y,
-                collidedOurState.heading,
-                0.0,
-                collidedOurState.hitWall,
-                collidedOurState.wallHitDamage);
+        return RamCollisionUtil.rollbackCollision(previousOurState, collidedOurState);
     }
 
     private static SimulatedEnemyState rollbackEnemyCollision(SimulatedEnemyState previousEnemyState,
@@ -371,7 +365,7 @@ final class RamSimulator {
     }
 
     private static boolean robotsOverlap(double x1, double y1, double x2, double y2) {
-        return Math.abs(x1 - x2) < ROBOT_HITBOX_SIZE && Math.abs(y1 - y2) < ROBOT_HITBOX_SIZE;
+        return RamCollisionUtil.robotsOverlap(x1, y1, x2, y2);
     }
 
     private static boolean isCollisionFault(double velocity,
@@ -380,16 +374,7 @@ final class RamSimulator {
                                             double y,
                                             double otherX,
                                             double otherY) {
-        if (velocity == 0.0) {
-            return false;
-        }
-        double bearingToOther = Math.atan2(otherX - x, otherY - y);
-        double relativeBearing = MathUtils.normalizeAngle(bearingToOther - heading);
-        double halfPi = Math.PI / 2.0;
-        if (velocity > 0.0) {
-            return relativeBearing > -halfPi && relativeBearing < halfPi;
-        }
-        return relativeBearing < -halfPi || relativeBearing > halfPi;
+        return RamCollisionUtil.isCollisionFault(velocity, heading, x, y, otherX, otherY);
     }
 }
 
