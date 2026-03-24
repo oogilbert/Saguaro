@@ -129,7 +129,11 @@ public final class CommittedWaypointPlan {
     }
 
     public PhysicsUtil.PositionState plannedStateAt(RobotSnapshot currentState, int futureTickOffset) {
-        return simulateRemainingTrajectory(currentState).stateAt(futureTickOffset);
+        PhysicsUtil.Trajectory trajectory = simulateRemainingTrajectory(currentState);
+        if (trajectory == null || futureTickOffset >= trajectory.length()) {
+            return null;
+        }
+        return trajectory.stateAt(futureTickOffset);
     }
 
     public PhysicsUtil.Trajectory simulateRemainingTrajectory(RobotSnapshot currentState) {
@@ -142,6 +146,7 @@ public final class CommittedWaypointPlan {
         }
         return buildTrajectory(
                 toPositionState(currentState),
+                currentState.time,
                 remaining,
                 battlefieldWidth,
                 battlefieldHeight);
@@ -167,7 +172,8 @@ public final class CommittedWaypointPlan {
                 currentState.heading,
                 currentState.velocity,
                 waypoint.x,
-                waypoint.y);
+                waypoint.y,
+                PhysicsUtil.EndpointBehavior.PASS_THROUGH);
         return new BattlePlan(instruction[0], instruction[1], gunTurnAngle, firePower);
     }
 
@@ -201,6 +207,7 @@ public final class CommittedWaypointPlan {
     }
 
     private static PhysicsUtil.Trajectory buildTrajectory(PhysicsUtil.PositionState startState,
+                                                          long startTime,
                                                           List<ScriptedWaypoint> waypoints,
                                                           double battlefieldWidth,
                                                           double battlefieldHeight) {
@@ -208,17 +215,24 @@ public final class CommittedWaypointPlan {
         states.add(startState);
 
         PhysicsUtil.PositionState currentState = startState;
+        long currentTime = startTime;
         for (int i = 0; i < waypoints.size(); i++) {
             ScriptedWaypoint waypoint = waypoints.get(i);
             PhysicsUtil.Trajectory segment = PhysicsUtil.simulateTrajectory(
                     currentState,
                     waypoint.x,
                     waypoint.y,
-                    waypoint.durationTicks,
+                    currentTime,
+                    null,
+                    currentTime + waypoint.durationTicks,
+                    PhysicsUtil.EndpointBehavior.PASS_THROUGH,
+                    PhysicsUtil.SteeringMode.DIRECT,
                     battlefieldWidth,
                     battlefieldHeight);
             appendSegmentStates(states, segment);
-            currentState = segment.stateAt(waypoint.durationTicks);
+            int segmentTicks = segment.length() - 1;
+            currentState = segment.stateAt(segmentTicks);
+            currentTime += segmentTicks;
         }
         return new PhysicsUtil.Trajectory(states.toArray(new PhysicsUtil.PositionState[0]));
     }

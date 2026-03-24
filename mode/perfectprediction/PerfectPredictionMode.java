@@ -387,17 +387,27 @@ public final class PerfectPredictionMode implements BattleMode {
         double bfWidth = info.getBattlefieldWidth();
         double bfHeight = info.getBattlefieldHeight();
         PhysicsUtil.PositionState currentState = committedTrajectory.stateAt(committedTrajectory.length() - 1);
-        long currentTime = 0L;
+        long currentTime = planStartTime + committedTrajectory.length() - 1L;
         List<PhysicsUtil.PositionState> states = new ArrayList<>();
         states.add(currentState);
         for (PathLeg leg : tailLegs) {
             PhysicsUtil.Trajectory segment = PhysicsUtil.simulateTrajectory(
-                    currentState, leg.targetX, leg.targetY, leg.durationTicks, bfWidth, bfHeight);
+                    currentState,
+                    leg.targetX,
+                    leg.targetY,
+                    currentTime,
+                    null,
+                    currentTime + leg.durationTicks,
+                    PhysicsUtil.EndpointBehavior.PASS_THROUGH,
+                    leg.steeringMode,
+                    bfWidth,
+                    bfHeight);
             for (int i = 1; i < segment.states.length; i++) {
                 states.add(segment.states[i]);
             }
-            currentState = segment.stateAt(segment.length() - 1);
-            currentTime += segment.length() - 1;
+            int segmentTicks = segment.length() - 1;
+            currentState = segment.stateAt(segmentTicks);
+            currentTime += segmentTicks;
         }
         return states.size() >= 2
                 ? new PhysicsUtil.Trajectory(states.toArray(new PhysicsUtil.PositionState[0]))

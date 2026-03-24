@@ -1375,7 +1375,7 @@ public class MovementEngine implements MovementController {
                         currentTime,
                         null,
                         currentTime + leg.durationTicks,
-                        PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                        PhysicsUtil.EndpointBehavior.PASS_THROUGH,
                         leg.steeringMode,
                         bfWidth,
                         bfHeight);
@@ -1402,7 +1402,7 @@ public class MovementEngine implements MovementController {
                             currentTime,
                             null,
                             currentTime + leg.durationTicks,
-                            PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                            PhysicsUtil.EndpointBehavior.PASS_THROUGH,
                             leg.steeringMode,
                             bfWidth,
                             bfHeight);
@@ -1508,7 +1508,7 @@ public class MovementEngine implements MovementController {
                     currentTime,
                     null,
                     currentTime + leg.durationTicks,
-                    PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                    PhysicsUtil.EndpointBehavior.PASS_THROUGH,
                     leg.steeringMode,
                     bfWidth,
                     bfHeight);
