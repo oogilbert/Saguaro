@@ -67,6 +67,9 @@ final class ModeSelector {
         if (isPerfectPredictionAdmissible(bulletShieldRetiredForBattle)) {
             posteriors.add(estimateLiveMode(ModeId.PERFECT_PREDICTION));
         }
+        if (isAntiSurferAdmissible(bulletShieldRetiredForBattle)) {
+            posteriors.add(estimateLiveMode(ModeId.ANTI_SURFER));
+        }
         return posteriors.toArray(new ModePosterior[0]);
     }
 
@@ -91,6 +94,30 @@ final class ModeSelector {
             return false;
         }
         return !areLegalModesSettled(bulletShieldRetiredForBattle);
+    }
+
+    private boolean isAntiSurferAdmissible(boolean bulletShieldRetiredForBattle) {
+        if (info == null) {
+            return false;
+        }
+        if (ModePerformanceProfile.hasAnyCombinedSamples(ModeId.ANTI_SURFER)) {
+            return true;
+        }
+        // Admit AntiSurfer only when every other admissible mode has posterior mean below 90%.
+        List<ModePosterior> others = new ArrayList<>();
+        others.add(estimateLiveMode(ModeId.SCORE_MAX));
+        if (!bulletShieldRetiredForBattle) {
+            others.add(estimateLiveMode(ModeId.BULLET_SHIELD));
+        }
+        if (isPerfectPredictionAdmissible(bulletShieldRetiredForBattle)) {
+            others.add(estimateLiveMode(ModeId.PERFECT_PREDICTION));
+        }
+        for (ModePosterior posterior : others) {
+            if (posterior.posteriorMean >= 0.90) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean areLegalModesSettled(boolean bulletShieldRetiredForBattle) {

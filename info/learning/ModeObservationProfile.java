@@ -4,10 +4,17 @@ import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.GuessFactorDistribution;
 
 public final class ModeObservationProfile implements ObservationProfile {
-    private final ObservationProfile delegate;
+    private ObservationProfile delegate;
     private ModeObservationPolicy policy = ModeObservationPolicy.FULL;
 
     public ModeObservationProfile(ObservationProfile delegate) {
+        if (delegate == null) {
+            throw new IllegalArgumentException("Mode observation profile requires a non-null delegate");
+        }
+        this.delegate = delegate;
+    }
+
+    public void setDelegate(ObservationProfile delegate) {
         if (delegate == null) {
             throw new IllegalArgumentException("Mode observation profile requires a non-null delegate");
         }

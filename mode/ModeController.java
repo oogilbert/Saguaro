@@ -11,9 +11,11 @@ import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.info.learning.ScoreMaxLearningProfile;
 import oog.mega.saguaro.info.learning.ScoreMaxScoreHistoryProfile;
 import oog.mega.saguaro.info.persistence.BattleDataStore;
+import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.info.persistence.BulletPowerHitRateDataSet;
 import oog.mega.saguaro.info.persistence.ModePerformanceDataSet;
 import oog.mega.saguaro.info.persistence.WaveLogModelDataSet;
+import oog.mega.saguaro.mode.antisurfer.AntiSurferMode;
 import oog.mega.saguaro.mode.perfectprediction.PerfectPredictionMode;
 import oog.mega.saguaro.mode.perfectprediction.PrecisePredictionProfile;
 import oog.mega.saguaro.mode.scoremax.ScoreMaxMode;
@@ -28,6 +30,7 @@ import robocode.RobotDeathEvent;
 import robocode.ScannedRobotEvent;
 
 public final class ModeController {
+    private final AntiSurferMode antiSurferMode = new AntiSurferMode();
     private final BulletShieldMode bulletShieldMode = new BulletShieldMode();
     private final PerfectPredictionMode perfectPredictionMode = new PerfectPredictionMode();
     private final ScoreMaxMode scoreMaxMode = new ScoreMaxMode();
@@ -80,6 +83,7 @@ public final class ModeController {
         }
         this.info = info;
         modeSelector.setInfo(info);
+        antiSurferMode.init(info, services);
         bulletShieldMode.init(info, services);
         perfectPredictionMode.init(info, services);
         scoreMaxMode.init(info, services);
@@ -203,9 +207,15 @@ public final class ModeController {
         BattleMode nextMode = modeFor(nextModeId);
         activeModeId = nextModeId;
         activeMode = nextMode;
-        ScoreMaxScoreHistoryProfile.INSTANCE.setTrackingEnabled(nextModeId == ModeId.SCORE_MAX);
+        boolean scoreMaxTracking = nextModeId == ModeId.SCORE_MAX || nextModeId == ModeId.ANTI_SURFER;
+        ScoreMaxScoreHistoryProfile.INSTANCE.setTrackingEnabled(scoreMaxTracking);
         if (info != null) {
-            info.setScoreMaxTrackingEnabled(nextModeId == ModeId.SCORE_MAX);
+            info.setScoreMaxTrackingEnabled(scoreMaxTracking);
+        }
+        if (nextModeId == ModeId.ANTI_SURFER) {
+            observationProfile.setDelegate(antiSurferMode.getObservationProfile());
+        } else {
+            observationProfile.setDelegate(ScoreMaxLearningProfile.INSTANCE);
         }
         observationProfile.setPolicy(nextMode.getObservationPolicy());
         modesUsedThisBattle.add(nextMode);
@@ -291,6 +301,9 @@ public final class ModeController {
         if (modeId == ModeId.PERFECT_PREDICTION) {
             return perfectPredictionMode;
         }
+        if (modeId == ModeId.ANTI_SURFER) {
+            return antiSurferMode;
+        }
         throw new IllegalArgumentException("Unsupported mode id " + modeId);
     }
 
@@ -298,8 +311,20 @@ public final class ModeController {
         if (!battleModeAnnouncementPrinted) {
             info.getRobot().out.println("Battle mode: " + toModeId.displayName());
             battleModeAnnouncementPrinted = true;
-            return;
+        } else {
+            info.getRobot().out.println("Mode switch: " + fromModeId.displayName() + " -> " + toModeId.displayName());
         }
-        info.getRobot().out.println("Mode switch: " + fromModeId.displayName() + " -> " + toModeId.displayName());
+        announceWeightsIfApplicable(toModeId);
+    }
+
+    private void announceWeightsIfApplicable(ModeId modeId) {
+        if (modeId == ModeId.SCORE_MAX) {
+            info.getRobot().out.println("Targeting Weights: " + WaveLog.getTargetingModelSummary());
+            info.getRobot().out.println("Movement Weights: " + WaveLog.getMovementModelSummary());
+        } else if (modeId == ModeId.ANTI_SURFER) {
+            info.getRobot().out.println("Targeting Weights: " + WaveLog.getAntiSurferGunModelSummary());
+            info.getRobot().out.println("Movement Weights: " + WaveLog.getAntiSurferMovementModelSummary());
+            info.getRobot().out.println("Flattener Weights: " + WaveLog.getFlattenerModelSummary());
+        }
     }
 }

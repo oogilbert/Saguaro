@@ -166,6 +166,7 @@ public class WaveManager {
         if (isAcceptableEnemyWaveMatch(match, DEFERRED_HIT_BY_BULLET_RADIUS_TOLERANCE)) {
             boolean updatedMovementModel =
                     logEnemyWaveMovementResult(match.wave, pendingEnemyBulletHit.hitX, pendingEnemyBulletHit.hitY);
+            logFlattenerVisitForWave(match.wave, pendingEnemyBulletHit.hitX, pendingEnemyBulletHit.hitY);
             enemyWaves.remove(match.wave);
             if (updatedMovementModel) {
                 refreshEnemyWaveDistributions();
@@ -323,6 +324,21 @@ public class WaveManager {
         }
     }
 
+    private void logFlattenerVisitForWave(Wave wave, double robotX, double robotY) {
+        if (wave.fireTimeContext == null
+                || Double.isNaN(wave.targetX) || Double.isNaN(wave.targetY)) {
+            return;
+        }
+        double referenceBearing = Math.atan2(
+                wave.targetX - wave.originX, wave.targetY - wave.originY);
+        double ourBearing = Math.atan2(
+                robotX - wave.originX, robotY - wave.originY);
+        double mea = MathUtils.maxEscapeAngle(wave.speed);
+        double ourGf = MathUtils.angleToGf(referenceBearing, ourBearing, mea);
+        ourGf = Math.max(-1.0, Math.min(1.0, ourGf));
+        WaveLog.logFlattenerVisit(wave.fireTimeContext, ourGf);
+    }
+
     private void removePassedMyWaves(long time, double maxDistance,
                                      double targetX, double targetY, boolean removeWhenPassedTarget) {
         Iterator<Wave> it = myWaves.iterator();
@@ -351,6 +367,7 @@ public class WaveManager {
                     && wave.hasPassed(robotX, robotY, removalCheckTime);
             if (passedRobot || wave.getRadius(time) > maxDistance) {
                 if (passedRobot) {
+                    logFlattenerVisitForWave(wave, robotX, robotY);
                     info.onEnemyWavePassedRobot(wave);
                 }
                 it.remove();
@@ -383,6 +400,7 @@ public class WaveManager {
                 bullet.getPower(), bullet.getX(), bullet.getY(), e.getTime(), false, false);
         if (isAcceptableEnemyWaveMatch(match, STRICT_ENEMY_WAVE_RADIUS_TOLERANCE)) {
             boolean updatedMovementModel = logEnemyWaveMovementResult(match.wave, bullet.getX(), bullet.getY());
+            logFlattenerVisitForWave(match.wave, bullet.getX(), bullet.getY());
             enemyWaves.remove(match.wave);
             if (updatedMovementModel) {
                 refreshEnemyWaveDistributions();
@@ -408,6 +426,7 @@ public class WaveManager {
         if (match.wave != null) {
             boolean updatedMovementModel =
                     logEnemyWaveMovementResultForBearing(match.wave, bullet.getHeadingRadians());
+            logFlattenerVisitForWave(match.wave, robot.getX(), robot.getY());
             enemyWaves.remove(match.wave);
             if (updatedMovementModel) {
                 refreshEnemyWaveDistributions();

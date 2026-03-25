@@ -22,7 +22,7 @@ import oog.mega.saguaro.movement.PathGenerationContext;
 import oog.mega.saguaro.movement.PathIntersectionContext;
 import oog.mega.saguaro.movement.PathWaveIntersection;
 
-final class ScoreMaxPlanner {
+public final class ScoreMaxPlanner {
     private static final double POWER_SAMPLE_EPSILON = 1e-6;
     private static final double GOLDEN_SECTION_LOCAL_STEP = 0.3819660112501051;
 
@@ -1040,7 +1040,7 @@ final class ScoreMaxPlanner {
         lastSelectedWaveDangerRevision = currentRevision;
     }
 
-    String describeSkippedTurnDiagnostics() {
+    public String describeSkippedTurnDiagnostics() {
         return movement != null
                 ? movement.describeLatestPathPlanningDiagnostics()
                 : "planning=n/a";

@@ -9,7 +9,9 @@ import java.io.IOException;
 public final class ModePerformanceProfile {
     // Opponent mode-performance records are disposable caches. When this layout changes, bump the
     // section version and let BattleDataStore discard stale files instead of maintaining migrations.
-    private static final int SECTION_VERSION = 3;
+    private static final int SECTION_VERSION = 4;
+    private static final int LEGACY_3_MODE_SECTION_VERSION = 3;
+    private static final int LEGACY_3_MODE_BYTES = 16 * 3;
     private static final int MODE_BYTES = 16;
     private static final int SECTION_BYTES = MODE_BYTES * ModeId.values().length;
     private static final double MAX_RETAINED_TOTAL_SCORE = 1_000_000.0;
@@ -149,6 +151,10 @@ public final class ModePerformanceProfile {
     }
 
     private static void loadPersistedPayload(int sectionVersion, byte[] payload) {
+        if (sectionVersion == LEGACY_3_MODE_SECTION_VERSION) {
+            loadLegacy3ModePayload(payload);
+            return;
+        }
         if (sectionVersion != SECTION_VERSION) {
             throw new IllegalStateException("Unsupported mode-performance section version " + sectionVersion);
         }
@@ -168,6 +174,27 @@ public final class ModePerformanceProfile {
             persistedModeStatsLoaded = true;
         } catch (IOException e) {
             throw new IllegalStateException("Unreadable mode-performance payload", e);
+        }
+    }
+
+    private static void loadLegacy3ModePayload(byte[] payload) {
+        if (payload.length != LEGACY_3_MODE_BYTES) {
+            throw new IllegalStateException("Unexpected legacy 3-mode payload length");
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
+            ModeId[] allModes = ModeId.values();
+            for (int i = 0; i < 3; i++) {
+                double totalOurScore = in.readDouble();
+                double totalOpponentScore = in.readDouble();
+                validateLoadedStats(allModes[i], totalOurScore, totalOpponentScore);
+                persistedStats[allModes[i].ordinal()].set(totalOurScore, totalOpponentScore);
+            }
+            if (in.available() != 0) {
+                throw new IllegalStateException("Legacy 3-mode payload contained trailing bytes");
+            }
+            persistedModeStatsLoaded = true;
+        } catch (IOException e) {
+            throw new IllegalStateException("Unreadable legacy 3-mode payload", e);
         }
     }
 

@@ -280,13 +280,12 @@ public final class BattleDataStore {
                 "PerfectPrediction mode estimate: "
                         + ModeController.describeModeEstimate(ModeId.PERFECT_PREDICTION));
         robot.out.println("ScoreMax mode estimate: " + ModeController.describeModeEstimate(ModeId.SCORE_MAX));
+        robot.out.println("AntiSurfer mode estimate: " + ModeController.describeModeEstimate(ModeId.ANTI_SURFER));
         robot.out.println(describePrecisePredictionStatus());
         double historicalHitRate = BulletPowerHitRateTracker.getPersistedOverallHitRate();
         if (!Double.isNaN(historicalHitRate)) {
             robot.out.println(String.format(Locale.US, "Historical hit rate: %.2f%%", historicalHitRate * 100.0));
         }
-        robot.out.println("Targeting Weights: " + WaveLog.getTargetingModelSummary());
-        robot.out.println("Movement Weights: " + WaveLog.getMovementModelSummary());
         reportSuppressedSaveStatus(robot);
         baselineStatusReportedThisBattle = true;
     }
