@@ -62,6 +62,16 @@ public class WaveManager {
         }
     }
 
+    private static final class MovementObservationResult {
+        final boolean logged;
+        final double gf;
+
+        MovementObservationResult(boolean logged, double gf) {
+            this.logged = logged;
+            this.gf = gf;
+        }
+    }
+
     private Saguaro robot;
     private Info info;
     private final List<Wave> myWaves = new ArrayList<>();
@@ -164,12 +174,15 @@ public class WaveManager {
                 true,
                 true);
         if (isAcceptableEnemyWaveMatch(match, DEFERRED_HIT_BY_BULLET_RADIUS_TOLERANCE)) {
-            boolean updatedMovementModel =
+            MovementObservationResult movementObservation =
                     logEnemyWaveMovementResult(match.wave, pendingEnemyBulletHit.hitX, pendingEnemyBulletHit.hitY);
-            logFlattenerVisitForWave(match.wave, pendingEnemyBulletHit.hitX, pendingEnemyBulletHit.hitY);
             enemyWaves.remove(match.wave);
-            if (updatedMovementModel) {
+            if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
+            }
+            logFlattenerVisitForWave(match.wave, pendingEnemyBulletHit.hitX, pendingEnemyBulletHit.hitY);
+            if (movementObservation.logged) {
+                info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
             }
             pendingEnemyBulletHit = null;
             return match.wave;
@@ -285,18 +298,18 @@ public class WaveManager {
                 wave.allowTargetingModelUpdate);
     }
 
-    private boolean logEnemyWaveMovementResult(Wave wave, double hitX, double hitY) {
+    private MovementObservationResult logEnemyWaveMovementResult(Wave wave, double hitX, double hitY) {
         double hitBearing = Math.atan2(hitX - wave.originX, hitY - wave.originY);
         return logEnemyWaveMovementResultForBearing(wave, hitBearing);
     }
 
-    private boolean logEnemyWaveMovementResultForBearing(Wave wave, double hitBearing) {
+    private MovementObservationResult logEnemyWaveMovementResultForBearing(Wave wave, double hitBearing) {
         if (wave.fireTimeContext == null
                 || Double.isNaN(wave.targetX) || Double.isNaN(wave.targetY)) {
-            return false;
+            return new MovementObservationResult(false, Double.NaN);
         }
         if (!wave.allowMovementObservationLogging) {
-            return false;
+            return new MovementObservationResult(false, Double.NaN);
         }
         double referenceBearing = Math.atan2(
                 wave.targetX - wave.originX, wave.targetY - wave.originY);
@@ -308,7 +321,7 @@ public class WaveManager {
                 gf,
                 true,
                 wave.allowMovementModelUpdate);
-        return wave.allowMovementModelUpdate;
+        return new MovementObservationResult(true, gf);
     }
 
     private void refreshEnemyWaveDistributions() {
@@ -399,11 +412,15 @@ public class WaveManager {
         EnemyWaveMatch match = findBestEnemyWaveMatch(
                 bullet.getPower(), bullet.getX(), bullet.getY(), e.getTime(), false, false);
         if (isAcceptableEnemyWaveMatch(match, STRICT_ENEMY_WAVE_RADIUS_TOLERANCE)) {
-            boolean updatedMovementModel = logEnemyWaveMovementResult(match.wave, bullet.getX(), bullet.getY());
-            logFlattenerVisitForWave(match.wave, bullet.getX(), bullet.getY());
+            MovementObservationResult movementObservation =
+                    logEnemyWaveMovementResult(match.wave, bullet.getX(), bullet.getY());
             enemyWaves.remove(match.wave);
-            if (updatedMovementModel) {
+            if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
+            }
+            logFlattenerVisitForWave(match.wave, bullet.getX(), bullet.getY());
+            if (movementObservation.logged) {
+                info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
             }
             pendingEnemyBulletHit = null;
             return match.wave;
@@ -424,12 +441,15 @@ public class WaveManager {
                 bullet.getY(),
                 e.getTime());
         if (match.wave != null) {
-            boolean updatedMovementModel =
+            MovementObservationResult movementObservation =
                     logEnemyWaveMovementResultForBearing(match.wave, bullet.getHeadingRadians());
-            logFlattenerVisitForWave(match.wave, robot.getX(), robot.getY());
             enemyWaves.remove(match.wave);
-            if (updatedMovementModel) {
+            if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
+            }
+            logFlattenerVisitForWave(match.wave, robot.getX(), robot.getY());
+            if (movementObservation.logged) {
+                info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
             }
             return match.wave;
         }

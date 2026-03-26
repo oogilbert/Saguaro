@@ -201,7 +201,7 @@ public final class PerfectPredictionMode implements BattleMode {
                 myNow.velocity,
                 leg.targetX,
                 leg.targetY,
-                PhysicsUtil.EndpointBehavior.PASS_THROUGH,
+                PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
                 leg.steeringMode,
                 info.getBattlefieldWidth(),
                 info.getBattlefieldHeight());
@@ -432,7 +432,7 @@ public final class PerfectPredictionMode implements BattleMode {
                     currentTime,
                     null,
                     currentTime + leg.durationTicks,
-                    PhysicsUtil.EndpointBehavior.PASS_THROUGH,
+                    PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
                     leg.steeringMode,
                     bfWidth,
                     bfHeight);

@@ -36,7 +36,6 @@ final class AntiSurferObservationProfile implements ObservationProfile {
                                   double gf,
                                   boolean saveObservation) {
         ScoreMaxLearningProfile.INSTANCE.logMovementResult(context, gf, saveObservation);
-        onBulletHitForWeighting(context, gf);
     }
 
     @Override
@@ -45,7 +44,6 @@ final class AntiSurferObservationProfile implements ObservationProfile {
                                   boolean saveObservation,
                                   boolean updateModel) {
         ScoreMaxLearningProfile.INSTANCE.logMovementResult(context, gf, saveObservation, updateModel);
-        onBulletHitForWeighting(context, gf);
     }
 
     @Override
@@ -71,7 +69,9 @@ final class AntiSurferObservationProfile implements ObservationProfile {
         return new BlendedGuessFactorDistribution(surfDist, surfWeight, flatDist, flatWeight);
     }
 
-    private void onBulletHitForWeighting(WaveContextFeatures.WaveContext context, double gf) {
+    @Override
+    public void onResolvedEnemyWaveHit(WaveContextFeatures.WaveContext context,
+                                       double gf) {
         GuessFactorDistribution surfDist = WaveLog.createAntiSurferMovementDistribution(context);
         GuessFactorDistribution flatDist = WaveLog.createFlattenerDistribution(context);
         if (surfDist != null) {

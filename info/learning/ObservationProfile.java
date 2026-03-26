@@ -54,6 +54,14 @@ public interface ObservationProfile {
 
     GuessFactorDistribution createMovementDistribution(WaveContextFeatures.WaveContext context);
 
+    default void onResolvedEnemyWaveHit(WaveContextFeatures.WaveContext context,
+                                        double gf) {
+    }
+
+    default boolean shouldRefreshEnemyWavesAfterResolvedHit() {
+        return shouldUpdateMovementModel();
+    }
+
     default boolean shouldUpdateTargetingModel() {
         return true;
     }

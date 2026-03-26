@@ -9,7 +9,6 @@ import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ModeObservationPolicy;
 import oog.mega.saguaro.info.learning.ObservationProfile;
 import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
-import oog.mega.saguaro.info.learning.ScoreMaxScoreHistoryProfile;
 import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleMode;
 import oog.mega.saguaro.mode.BattleServices;
@@ -26,10 +25,11 @@ public final class AntiSurferMode implements BattleMode {
 
     private final ScoreMaxPlanner planner = new ScoreMaxPlanner();
     private final AntiSurferObservationProfile observationProfile = new AntiSurferObservationProfile();
+    private final RoundOutcomeProfile roundOutcomeProfile = AntiSurferRoundOutcomeProfile.INSTANCE;
 
     @Override
     public RoundOutcomeProfile getRoundOutcomeProfile() {
-        return ScoreMaxScoreHistoryProfile.INSTANCE;
+        return roundOutcomeProfile;
     }
 
     @Override

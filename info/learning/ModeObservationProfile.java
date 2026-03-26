@@ -109,6 +109,17 @@ public final class ModeObservationProfile implements ObservationProfile {
     }
 
     @Override
+    public void onResolvedEnemyWaveHit(WaveContextFeatures.WaveContext context,
+                                       double gf) {
+        delegate.onResolvedEnemyWaveHit(context, gf);
+    }
+
+    @Override
+    public boolean shouldRefreshEnemyWavesAfterResolvedHit() {
+        return policy.updateMovementModel || policy.updateAntiSurferMovementModel;
+    }
+
+    @Override
     public boolean shouldUpdateTargetingModel() {
         return policy.updateTargetingModel;
     }

@@ -173,7 +173,7 @@ public final class CommittedWaypointPlan {
                 currentState.velocity,
                 waypoint.x,
                 waypoint.y,
-                PhysicsUtil.EndpointBehavior.PASS_THROUGH);
+                PhysicsUtil.EndpointBehavior.PARK_AND_WAIT);
         return new BattlePlan(instruction[0], instruction[1], gunTurnAngle, firePower);
     }
 
@@ -225,7 +225,7 @@ public final class CommittedWaypointPlan {
                     currentTime,
                     null,
                     currentTime + waypoint.durationTicks,
-                    PhysicsUtil.EndpointBehavior.PASS_THROUGH,
+                    PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
                     PhysicsUtil.SteeringMode.DIRECT,
                     battlefieldWidth,
                     battlefieldHeight);

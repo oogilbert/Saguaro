@@ -64,6 +64,7 @@ public final class ModeController {
         PrecisePredictionProfile.startBattle();
         startRoundOutcomeProfile(bulletShieldMode.getRoundOutcomeProfile(), null);
         startRoundOutcomeProfile(scoreMaxMode.getRoundOutcomeProfile(), bulletShieldMode.getRoundOutcomeProfile());
+        startRoundOutcomeProfile(antiSurferMode.getRoundOutcomeProfile(), scoreMaxMode.getRoundOutcomeProfile());
         modesUsedThisBattle.clear();
         initializedRound = -1;
         opponentContextLoaded = false;
