@@ -109,6 +109,11 @@ public final class PerfectPredictionMode implements BattleMode {
         pruneExpiredCommittedShotImpactTimes(myNow.time);
         rebalanceCommittedPath(myNow, requiredCommittedTicks(myNow.time));
 
+        BattlePlan ramPlan = buildDisabledRamPlan(myNow);
+        if (ramPlan != null) {
+            return ramPlan;
+        }
+
         EnemyInfo enemy = info.getEnemy();
         PredictedOpponentState opponentStart = buildOpponentStart(enemy, myNow);
         PlanState planState = currentPlanState(myNow);
@@ -354,6 +359,35 @@ public final class PerfectPredictionMode implements BattleMode {
                 ? truncateTrajectory(opponentTrajectory, aimSolution.interceptTick)
                 : opponentTrajectory;
         return new PredictionResult(aimSolution, visibleTrajectory, wavePassed);
+    }
+
+    private BattlePlan buildDisabledRamPlan(RobotSnapshot myNow) {
+        EnemyInfo enemy = info.getEnemy();
+        if (enemy == null || !enemy.alive || !enemy.seenThisRound || enemy.energy > 0.0) {
+            return null;
+        }
+        if (hasActiveRealEnemyWave(myNow.x, myNow.y, myNow.time)) {
+            return null;
+        }
+        if (!committedShotImpactTimes.isEmpty()) {
+            return null;
+        }
+        long nextTick = myNow.time + 1;
+        EnemyInfo.PredictedPosition predictedEnemy = enemy.predictPositionAtTime(
+                nextTick, info.getBattlefieldWidth(), info.getBattlefieldHeight());
+        double[] instruction = PhysicsUtil.computeMovementInstruction(
+                myNow.x, myNow.y, myNow.heading, myNow.velocity,
+                predictedEnemy.x, predictedEnemy.y);
+        return new BattlePlan(instruction[0], instruction[1], 0.0, 0.0);
+    }
+
+    private boolean hasActiveRealEnemyWave(double x, double y, long currentTime) {
+        for (Wave wave : info.getEnemyWaves()) {
+            if (!wave.hasPassed(x, y, currentTime)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean shouldFire(RobotSnapshot myNow, OpponentDriveSimulator.AimSolution aimSolution) {
