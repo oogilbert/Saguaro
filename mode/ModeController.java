@@ -324,7 +324,6 @@ public final class ModeController {
         } else if (modeId == ModeId.ANTI_SURFER) {
             info.getRobot().out.println("Targeting Weights: " + WaveLog.getAntiSurferGunModelSummary());
             info.getRobot().out.println("Movement Weights: " + WaveLog.getAntiSurferMovementModelSummary());
-            info.getRobot().out.println("Flattener Weights: " + WaveLog.getFlattenerModelSummary());
         }
     }
 }

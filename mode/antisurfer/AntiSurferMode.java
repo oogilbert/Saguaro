@@ -34,7 +34,7 @@ public final class AntiSurferMode implements BattleMode {
 
     @Override
     public ModeObservationPolicy getObservationPolicy() {
-        return ModeObservationPolicy.FULL;
+        return ModeObservationPolicy.ANTI_SURFER_FULL;
     }
 
     public ObservationProfile getObservationProfile() {

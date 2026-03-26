@@ -1,6 +1,7 @@
 package oog.mega.saguaro.info.learning;
 
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
+import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.math.GuessFactorDistribution;
 
 public final class ModeObservationProfile implements ObservationProfile {
@@ -26,6 +27,9 @@ public final class ModeObservationProfile implements ObservationProfile {
             throw new IllegalArgumentException("Mode observation profile requires a non-null policy");
         }
         this.policy = policy;
+        WaveLog.setAntiSurferModelUpdatesEnabled(
+                policy.updateAntiSurferTargetingModel,
+                policy.updateAntiSurferMovementModel);
     }
 
     @Override

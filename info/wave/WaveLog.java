@@ -109,6 +109,8 @@ public class WaveLog {
     private static boolean persistedModelLoaded;
     private static double antiSurferMovementBlendWeight = 0.5;
     private static double antiSurferFlattenerBlendWeight = 0.25;
+    private static boolean antiSurferGunModelUpdatesEnabled = false;
+    private static boolean antiSurferMovementModelUpdatesEnabled = false;
     private static final class TraceEntry {
         final long seq;
         final String stage;
@@ -273,6 +275,8 @@ public class WaveLog {
         persistedModelLoaded = false;
         antiSurferMovementBlendWeight = 0.5;
         antiSurferFlattenerBlendWeight = 0.25;
+        antiSurferGunModelUpdatesEnabled = false;
+        antiSurferMovementModelUpdatesEnabled = false;
         gunSegment.resetModelToDefault();
         movementSegment.resetModelToDefault();
         gunSegment.resetBattleState();
@@ -292,6 +296,11 @@ public class WaveLog {
     public static void setAntiSurferBlendWeights(double movementWeight, double flattenerWeight) {
         antiSurferMovementBlendWeight = movementWeight;
         antiSurferFlattenerBlendWeight = flattenerWeight;
+    }
+
+    public static void setAntiSurferModelUpdatesEnabled(boolean gun, boolean movement) {
+        antiSurferGunModelUpdatesEnabled = gun;
+        antiSurferMovementModelUpdatesEnabled = movement;
     }
 
     public static void ensureOpponentBaselineLoaded(String opponentName, int sectionVersion, byte[] payload) {
@@ -377,7 +386,7 @@ public class WaveLog {
                                       boolean saveObservation,
                                       boolean updateModel) {
         logResult(gunSegment, context, gfMin, gfMax, saveObservation, updateModel);
-        logResult(antiSurferGunSegment, context, gfMin, gfMax, saveObservation, updateModel);
+        logResult(antiSurferGunSegment, context, gfMin, gfMax, saveObservation, antiSurferGunModelUpdatesEnabled);
     }
 
     public static void logMovementResult(WaveContextFeatures.WaveContext context, double gf) {
@@ -396,9 +405,11 @@ public class WaveLog {
                                          boolean updateModel) {
         logResult(movementSegment, context, gf, gf, saveObservation, updateModel);
         logResult(antiSurferMovementSegment, context, gf, gf, saveObservation, false);
-        double[] contextPoint = createContextPoint(context);
-        double[] canonicalGfRange = canonicalizeGuessFactorRange(gf, gf, context.lateralDirectionSign);
-        updateCombinedAntiSurferMovementModel(contextPoint, canonicalGfRange[0], canonicalGfRange[1]);
+        if (antiSurferMovementModelUpdatesEnabled) {
+            double[] contextPoint = createContextPoint(context);
+            double[] canonicalGfRange = canonicalizeGuessFactorRange(gf, gf, context.lateralDirectionSign);
+            updateCombinedAntiSurferMovementModel(contextPoint, canonicalGfRange[0], canonicalGfRange[1]);
+        }
     }
 
     /**
@@ -425,9 +436,11 @@ public class WaveLog {
 
     public static void logFlattenerVisit(WaveContextFeatures.WaveContext context, double gf) {
         logResult(flattenerSegment, context, gf, gf, true, false);
-        double[] contextPoint = createContextPoint(context);
-        double[] canonicalGfRange = canonicalizeGuessFactorRange(gf, gf, context.lateralDirectionSign);
-        updateCombinedAntiSurferMovementModel(contextPoint, canonicalGfRange[0], canonicalGfRange[1]);
+        if (antiSurferMovementModelUpdatesEnabled) {
+            double[] contextPoint = createContextPoint(context);
+            double[] canonicalGfRange = canonicalizeGuessFactorRange(gf, gf, context.lateralDirectionSign);
+            updateCombinedAntiSurferMovementModel(contextPoint, canonicalGfRange[0], canonicalGfRange[1]);
+        }
     }
 
     public static GuessFactorDistribution createAntiSurferGunDistribution(WaveContextFeatures.WaveContext context) {
