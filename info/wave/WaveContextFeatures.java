@@ -9,6 +9,17 @@ public final class WaveContextFeatures {
     static final double ROBOT_DIAMETER = 36.0;
 
     public static final class WaveContext {
+        public final double sourceX;
+        public final double sourceY;
+        public final double bulletSpeed;
+        public final double targetX;
+        public final double targetY;
+        public final double targetHeading;
+        public final double targetVelocity;
+        public final double targetHeadingDelta;
+        public final double targetVelocityDelta;
+        public final double battlefieldWidth;
+        public final double battlefieldHeight;
         public final double lateralVelocity;
         public final int lateralDirectionSign;
         public final double advancingVelocity;
@@ -20,7 +31,18 @@ public final class WaveContextFeatures {
         public final double wallReverse;
         public final double currentGF;
 
-        public WaveContext(double lateralVelocity,
+        public WaveContext(double sourceX,
+                           double sourceY,
+                           double bulletSpeed,
+                           double targetX,
+                           double targetY,
+                           double targetHeading,
+                           double targetVelocity,
+                           double targetHeadingDelta,
+                           double targetVelocityDelta,
+                           double battlefieldWidth,
+                           double battlefieldHeight,
+                           double lateralVelocity,
                            int lateralDirectionSign,
                            double advancingVelocity,
                            int flightTicks,
@@ -30,6 +52,17 @@ public final class WaveContextFeatures {
                            double wallAhead,
                            double wallReverse,
                            double currentGF) {
+            this.sourceX = sourceX;
+            this.sourceY = sourceY;
+            this.bulletSpeed = bulletSpeed;
+            this.targetX = targetX;
+            this.targetY = targetY;
+            this.targetHeading = targetHeading;
+            this.targetVelocity = targetVelocity;
+            this.targetHeadingDelta = targetHeadingDelta;
+            this.targetVelocityDelta = targetVelocityDelta;
+            this.battlefieldWidth = battlefieldWidth;
+            this.battlefieldHeight = battlefieldHeight;
             this.lateralVelocity = lateralVelocity;
             this.lateralDirectionSign = lateralDirectionSign;
             this.advancingVelocity = advancingVelocity;
@@ -51,7 +84,18 @@ public final class WaveContextFeatures {
                 return false;
             }
             WaveContext other = (WaveContext) obj;
-            return Double.doubleToLongBits(lateralVelocity) == Double.doubleToLongBits(other.lateralVelocity)
+            return Double.doubleToLongBits(sourceX) == Double.doubleToLongBits(other.sourceX)
+                    && Double.doubleToLongBits(sourceY) == Double.doubleToLongBits(other.sourceY)
+                    && Double.doubleToLongBits(bulletSpeed) == Double.doubleToLongBits(other.bulletSpeed)
+                    && Double.doubleToLongBits(targetX) == Double.doubleToLongBits(other.targetX)
+                    && Double.doubleToLongBits(targetY) == Double.doubleToLongBits(other.targetY)
+                    && Double.doubleToLongBits(targetHeading) == Double.doubleToLongBits(other.targetHeading)
+                    && Double.doubleToLongBits(targetVelocity) == Double.doubleToLongBits(other.targetVelocity)
+                    && Double.doubleToLongBits(targetHeadingDelta) == Double.doubleToLongBits(other.targetHeadingDelta)
+                    && Double.doubleToLongBits(targetVelocityDelta) == Double.doubleToLongBits(other.targetVelocityDelta)
+                    && Double.doubleToLongBits(battlefieldWidth) == Double.doubleToLongBits(other.battlefieldWidth)
+                    && Double.doubleToLongBits(battlefieldHeight) == Double.doubleToLongBits(other.battlefieldHeight)
+                    && Double.doubleToLongBits(lateralVelocity) == Double.doubleToLongBits(other.lateralVelocity)
                     && lateralDirectionSign == other.lateralDirectionSign
                     && Double.doubleToLongBits(advancingVelocity) == Double.doubleToLongBits(other.advancingVelocity)
                     && flightTicks == other.flightTicks
@@ -65,7 +109,18 @@ public final class WaveContextFeatures {
 
         @Override
         public int hashCode() {
-            int result = Long.hashCode(Double.doubleToLongBits(lateralVelocity));
+            int result = Long.hashCode(Double.doubleToLongBits(sourceX));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(sourceY));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(bulletSpeed));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(targetX));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(targetY));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(targetHeading));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(targetVelocity));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(targetHeadingDelta));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(targetVelocityDelta));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(battlefieldWidth));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(battlefieldHeight));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(lateralVelocity));
             result = 31 * result + lateralDirectionSign;
             result = 31 * result + Long.hashCode(Double.doubleToLongBits(advancingVelocity));
             result = 31 * result + flightTicks;
@@ -89,15 +144,17 @@ public final class WaveContextFeatures {
                                                 double targetX,
                                                 double targetY,
                                                 double targetHeading,
-                                                 double targetVelocity,
-                                                 int accelerationSign,
-                                                 int ticksSinceVelocityReversal,
-                                                 int ticksSinceDecel,
-                                                 int lastNonZeroLateralDirectionSign,
-                                                 double battlefieldWidth,
-                                                 double battlefieldHeight,
-                                                 List<Wave> referenceWaves,
-                                                 Wave excludedReferenceWave) {
+                                                double targetVelocity,
+                                                double targetHeadingDelta,
+                                                double targetVelocityDelta,
+                                                int accelerationSign,
+                                                int ticksSinceVelocityReversal,
+                                                int ticksSinceDecel,
+                                                int lastNonZeroLateralDirectionSign,
+                                                double battlefieldWidth,
+                                                double battlefieldHeight,
+                                                List<Wave> referenceWaves,
+                                                Wave excludedReferenceWave) {
         double bearing = Math.atan2(targetX - sourceX, targetY - sourceY);
         double lateralVelocity = targetVelocity * Math.sin(targetHeading - bearing);
         int lateralDirectionSign = resolveLateralDirectionSign(lateralVelocity, lastNonZeroLateralDirectionSign);
@@ -120,6 +177,17 @@ public final class WaveContextFeatures {
                 targetY,
                 currentTime);
         return new WaveContext(
+                sourceX,
+                sourceY,
+                bulletSpeed,
+                targetX,
+                targetY,
+                targetHeading,
+                targetVelocity,
+                targetHeadingDelta,
+                targetVelocityDelta,
+                battlefieldWidth,
+                battlefieldHeight,
                 lateralVelocity,
                 lateralDirectionSign,
                 advancingVelocity,

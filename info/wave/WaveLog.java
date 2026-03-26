@@ -22,8 +22,9 @@ import oog.mega.saguaro.math.MirroredGuessFactorDistribution;
 public class WaveLog {
     static final int CONTEXT_DIMENSIONS = 9;
     private static final int MODEL_CANDIDATE_POOL = 7;
-    private static final int PERSISTENCE_SECTION_VERSION = 4;
+    private static final int PERSISTENCE_SECTION_VERSION = 5;
     private static final int LEGACY_2_MODEL_SECTION_VERSION = 3;
+    private static final int LEGACY_4_MODEL_SECTION_VERSION = 4;
     private static final int LEGACY_MODEL_SECTION_BYTES = (CONTEXT_DIMENSIONS + 2) * 2 * Short.BYTES;
     private static final double MAX_LATERAL_VELOCITY = 8.0;
     private static final double FLIGHT_TICKS_SCALE = Wave.nominalFlightTicks(
@@ -39,7 +40,7 @@ public class WaveLog {
     private static final double SQRT_2PI = Math.sqrt(2.0 * Math.PI);
     private static final double MIN_PROBABILITY_MASS = 1e-12;
     private static final double WEIGHT_ZERO_EPSILON = 1e-6;
-    private static final int MODEL_VALUE_COUNT = (CONTEXT_DIMENSIONS + 2) * 4;
+    private static final int MODEL_VALUE_COUNT = (CONTEXT_DIMENSIONS + 2) * 2;
     private static final int MODEL_SECTION_BYTES = MODEL_VALUE_COUNT * Short.BYTES;
     private static final double MODEL_EPSILON = 1e-9;
     private static final double PERSISTED_UINT16_MAX = 65535.0;
@@ -328,9 +329,7 @@ public class WaveLog {
         return trackedOpponentName != null
                 && (persistedModelLoaded
                 || !isDefaultModel(gunSegment, DEFAULT_TARGETING_MODEL)
-                || !isDefaultModel(movementSegment, DEFAULT_MOVEMENT_MODEL)
-                || !isDefaultModel(antiSurferGunSegment, DEFAULT_ANTI_SURFER_GUN_MODEL)
-                || !isDefaultModel(antiSurferMovementSegment, DEFAULT_FLATTENER_MODEL));
+                || !isDefaultModel(movementSegment, DEFAULT_MOVEMENT_MODEL));
     }
 
     public static boolean isPersistedModelLoaded() {
@@ -350,8 +349,6 @@ public class WaveLog {
              DataOutputStream out = new DataOutputStream(raw)) {
             writeModel(out, gunSegment);
             writeModel(out, movementSegment);
-            writeModel(out, antiSurferGunSegment);
-            writeModel(out, antiSurferMovementSegment);
             out.flush();
             byte[] payload = raw.toByteArray();
             if (payload.length != MODEL_SECTION_BYTES) {
@@ -1149,6 +1146,10 @@ public class WaveLog {
             loadLegacy2ModelPayload(payload);
             return;
         }
+        if (sectionVersion == LEGACY_4_MODEL_SECTION_VERSION) {
+            loadLegacy4ModelPayload(payload);
+            return;
+        }
         if (sectionVersion != PERSISTENCE_SECTION_VERSION) {
             throw new IllegalStateException("Unsupported WaveLog section version " + sectionVersion);
         }
@@ -1158,15 +1159,30 @@ public class WaveLog {
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
             gunSegment.setModel(readModel(in, DEFAULT_TARGETING_MODEL));
             movementSegment.setModel(readModel(in, DEFAULT_MOVEMENT_MODEL));
-            antiSurferGunSegment.setModel(readModel(in, DEFAULT_ANTI_SURFER_GUN_MODEL));
-            antiSurferMovementSegment.setModel(readModel(in, DEFAULT_FLATTENER_MODEL));
-            syncAntiSurferMovementModel();
             if (in.available() != 0) {
                 throw new IllegalStateException("WaveLog model payload contained trailing bytes");
             }
             persistedModelLoaded = true;
         } catch (IOException e) {
             throw new IllegalStateException("Unreadable WaveLog model payload", e);
+        }
+    }
+
+    private static void loadLegacy4ModelPayload(byte[] payload) {
+        if (payload.length != LEGACY_MODEL_SECTION_BYTES * 2) {
+            throw new IllegalStateException("Unexpected legacy 4-model WaveLog payload length");
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
+            gunSegment.setModel(readModel(in, DEFAULT_TARGETING_MODEL));
+            movementSegment.setModel(readModel(in, DEFAULT_MOVEMENT_MODEL));
+            readModel(in, DEFAULT_ANTI_SURFER_GUN_MODEL);
+            readModel(in, DEFAULT_FLATTENER_MODEL);
+            if (in.available() != 0) {
+                throw new IllegalStateException("Legacy 4-model WaveLog payload contained trailing bytes");
+            }
+            persistedModelLoaded = true;
+        } catch (IOException e) {
+            throw new IllegalStateException("Unreadable legacy 4-model WaveLog payload", e);
         }
     }
 

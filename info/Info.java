@@ -107,6 +107,8 @@ public class Info {
         EnemyInfo.UpdateResult result = enemyTracker.onScannedRobot(
                 e,
                 observationProfile,
+                robotMotionTracker.getHeadingDelta(),
+                robotMotionTracker.getVelocityDelta(),
                 robotMotionTracker.getAccelerationSign(),
                 robotMotionTracker.getTicksSinceVelocityReversal(),
                 robotMotionTracker.getTicksSinceDecel(),
@@ -311,12 +313,36 @@ public class Info {
         return robotMotionTracker.getAccelerationSign();
     }
 
+    public double getRobotHeadingDelta() {
+        return robotMotionTracker.getHeadingDelta();
+    }
+
+    public double getRobotVelocityDelta() {
+        return robotMotionTracker.getVelocityDelta();
+    }
+
     public int getRobotTicksSinceVelocityReversal() {
         return robotMotionTracker.getTicksSinceVelocityReversal();
     }
 
     public int getRobotTicksSinceDecel() {
         return robotMotionTracker.getTicksSinceDecel();
+    }
+
+    public int getRobotLastNonZeroVelocitySign() {
+        return robotMotionTracker.getLastNonZeroVelocitySign();
+    }
+
+    public int getRobotMotionHistorySize() {
+        return robotMotionTracker.getMotionHistorySize();
+    }
+
+    public double getRobotMotionHistoryVelocity(int index) {
+        return robotMotionTracker.getMotionHistoryVelocity(index);
+    }
+
+    public double getRobotMotionHistoryHeadingDelta(int index) {
+        return robotMotionTracker.getMotionHistoryHeadingDelta(index);
     }
 
     public boolean isPerfectPredictionUnlocked() {

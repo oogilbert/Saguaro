@@ -121,6 +121,8 @@ public class WaveManager {
                     enemyAtFireTime.y,
                     enemyAtFireTime.heading,
                     enemyAtFireTime.velocity,
+                    enemy.getPredictedHeadingDelta(),
+                    enemy.getPredictedVelocityDelta(),
                     enemyAtFireTime.accelerationSign,
                     enemyAtFireTime.ticksSinceVelocityReversal,
                     enemyAtFireTime.ticksSinceDecel,
@@ -131,6 +133,8 @@ public class WaveManager {
                     null);
             myWave.fireTimeDistributionHandle = GuessFactorDistributionHandle.orNull(
                     info.getObservationProfile().createGunDistribution(myWave.fireTimeContext));
+            myWave.fireTimeRenderGfMarkers =
+                    info.getObservationProfile().createGunRenderGfMarkers(myWave.fireTimeContext);
         }
         myWaves.add(myWave);
         myWaveObservationStates.put(myWave, new MyWaveObservationState(fireTime));
@@ -334,6 +338,8 @@ public class WaveManager {
             }
             wave.fireTimeDistributionHandle = GuessFactorDistributionHandle.orNull(
                     info.getObservationProfile().createMovementDistribution(wave.fireTimeContext));
+            wave.fireTimeRenderGfMarkers =
+                    info.getObservationProfile().createMovementRenderGfMarkers(wave.fireTimeContext);
         }
     }
 

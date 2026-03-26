@@ -1,10 +1,10 @@
 package oog.mega.saguaro.mode.antisurfer;
 
 import java.awt.Color;
-import java.util.Collections;
+import java.util.ArrayList;
+import java.util.List;
 
 import oog.mega.saguaro.Saguaro;
-import oog.mega.saguaro.gun.GunController;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ModeObservationPolicy;
 import oog.mega.saguaro.info.learning.ObservationProfile;
@@ -13,7 +13,6 @@ import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleMode;
 import oog.mega.saguaro.mode.BattleServices;
 import oog.mega.saguaro.mode.scoremax.ScoreMaxPlanner;
-import oog.mega.saguaro.movement.MovementController;
 import oog.mega.saguaro.render.PathOverlay;
 import oog.mega.saguaro.render.RenderState;
 
@@ -26,6 +25,7 @@ public final class AntiSurferMode implements BattleMode {
     private final ScoreMaxPlanner planner = new ScoreMaxPlanner();
     private final AntiSurferObservationProfile observationProfile = new AntiSurferObservationProfile();
     private final RoundOutcomeProfile roundOutcomeProfile = AntiSurferRoundOutcomeProfile.INSTANCE;
+    private Info info;
 
     @Override
     public RoundOutcomeProfile getRoundOutcomeProfile() {
@@ -34,7 +34,7 @@ public final class AntiSurferMode implements BattleMode {
 
     @Override
     public ModeObservationPolicy getObservationPolicy() {
-        return ModeObservationPolicy.ANTI_SURFER_FULL;
+        return ModeObservationPolicy.ANTI_SURFER_EXPERT_ONLY;
     }
 
     public ObservationProfile getObservationProfile() {
@@ -43,6 +43,7 @@ public final class AntiSurferMode implements BattleMode {
 
     @Override
     public void init(Info info, BattleServices services) {
+        this.info = info;
         observationProfile.setInfo(info);
         planner.init(info, services.movement(), services.gun());
     }
@@ -54,6 +55,7 @@ public final class AntiSurferMode implements BattleMode {
 
     @Override
     public RenderState getRenderState() {
+        List<PathOverlay> overlays = new ArrayList<PathOverlay>();
         PathOverlay overlay = PathOverlay.forCandidatePath(
                 planner.getLastSelectedPath(),
                 planner.getLastSelectedPathIntersections(),
@@ -61,10 +63,11 @@ public final class AntiSurferMode implements BattleMode {
                 SELECTED_PATH_NODE_COLOR,
                 SELECTED_PATH_MARKER_COLOR,
                 SELECTED_PATH_STROKE_WIDTH);
+        if (overlay != null) {
+            overlays.add(overlay);
+        }
         return new RenderState(
-                overlay != null
-                        ? Collections.singletonList(overlay)
-                        : Collections.<PathOverlay>emptyList());
+                overlays);
     }
 
     @Override

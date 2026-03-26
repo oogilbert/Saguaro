@@ -410,15 +410,21 @@ public class MovementEngine implements MovementController {
     }
 
     static final class MotionContext {
+        public final double headingDelta;
+        public final double velocityDelta;
         public final int accelerationSign;
         public final int ticksSinceVelocityReversal;
         public final int ticksSinceDecel;
         public final int lastNonZeroVelocitySign;
 
-        MotionContext(int accelerationSign,
+        MotionContext(double headingDelta,
+                      double velocityDelta,
+                      int accelerationSign,
                       int ticksSinceVelocityReversal,
                       int ticksSinceDecel,
                       int lastNonZeroVelocitySign) {
+            this.headingDelta = headingDelta;
+            this.velocityDelta = velocityDelta;
             this.accelerationSign = accelerationSign;
             this.ticksSinceVelocityReversal = ticksSinceVelocityReversal;
             this.ticksSinceDecel = ticksSinceDecel;
@@ -434,6 +440,43 @@ public class MovementEngine implements MovementController {
             return -1;
         }
         return 0;
+    }
+
+    static double deriveHeadingDelta(PhysicsUtil.PositionState[] states, int tickOffset) {
+        return deriveHeadingDelta(states.length, index -> states[index], tickOffset);
+    }
+
+    static double deriveHeadingDelta(List<PhysicsUtil.PositionState> states, int tickOffset) {
+        return deriveHeadingDelta(states.size(), states::get, tickOffset);
+    }
+
+    private static double deriveHeadingDelta(int stateCount,
+                                             java.util.function.IntFunction<PhysicsUtil.PositionState> stateAt,
+                                             int tickOffset) {
+        int boundedTickOffset = Math.max(0, Math.min(tickOffset, stateCount - 1));
+        if (boundedTickOffset <= 0) {
+            return 0.0;
+        }
+        return MathUtils.normalizeAngle(
+                stateAt.apply(boundedTickOffset).heading - stateAt.apply(boundedTickOffset - 1).heading);
+    }
+
+    static double deriveVelocityDelta(PhysicsUtil.PositionState[] states, int tickOffset) {
+        return deriveVelocityDelta(states.length, index -> states[index], tickOffset);
+    }
+
+    static double deriveVelocityDelta(List<PhysicsUtil.PositionState> states, int tickOffset) {
+        return deriveVelocityDelta(states.size(), states::get, tickOffset);
+    }
+
+    private static double deriveVelocityDelta(int stateCount,
+                                              java.util.function.IntFunction<PhysicsUtil.PositionState> stateAt,
+                                              int tickOffset) {
+        int boundedTickOffset = Math.max(0, Math.min(tickOffset, stateCount - 1));
+        if (boundedTickOffset <= 0) {
+            return 0.0;
+        }
+        return stateAt.apply(boundedTickOffset).velocity - stateAt.apply(boundedTickOffset - 1).velocity;
     }
 
     static MotionContext deriveMotionContext(PhysicsUtil.PositionState[] states,
@@ -457,6 +500,8 @@ public class MovementEngine implements MovementController {
                                                      double bfHeight) {
         int boundedTickOffset = Math.max(0, Math.min(tickOffset, stateCount - 1));
         PhysicsUtil.PositionState state = stateAt.apply(boundedTickOffset);
+        double headingDelta = deriveHeadingDelta(stateCount, stateAt, boundedTickOffset);
+        double velocityDelta = deriveVelocityDelta(stateCount, stateAt, boundedTickOffset);
 
         int accelerationSign = 0;
         if (boundedTickOffset > 0) {
@@ -499,6 +544,8 @@ public class MovementEngine implements MovementController {
         }
 
         return new MotionContext(
+                headingDelta,
+                velocityDelta,
                 accelerationSign,
                 ticksSinceVelocityReversal,
                 ticksSinceDecel,
@@ -1048,6 +1095,8 @@ public class MovementEngine implements MovementController {
                         ourState.y,
                         ourState.heading,
                         ourState.velocity,
+                        motionContext.headingDelta,
+                        motionContext.velocityDelta,
                         motionContext.accelerationSign,
                         motionContext.ticksSinceVelocityReversal,
                         motionContext.ticksSinceDecel,
@@ -1202,6 +1251,8 @@ public class MovementEngine implements MovementController {
                                 double targetY,
                                 double targetHeading,
                                 double targetVelocity,
+                                double targetHeadingDelta,
+                                double targetVelocityDelta,
                                 int targetAccelerationSign,
                                 int targetTicksSinceVelocityReversal,
                                 int targetTicksSinceDecel,
@@ -1218,6 +1269,8 @@ public class MovementEngine implements MovementController {
                 targetY,
                 targetHeading,
                 targetVelocity,
+                targetHeadingDelta,
+                targetVelocityDelta,
                 targetAccelerationSign,
                 targetTicksSinceVelocityReversal,
                 targetTicksSinceDecel,

@@ -54,6 +54,8 @@ public final class EnemyTracker {
 
     public EnemyInfo.UpdateResult onScannedRobot(ScannedRobotEvent event,
                                                  ObservationProfile observationProfile,
+                                                 double headingDelta,
+                                                 double velocityDelta,
                                                  int accelerationSign,
                                                  int ticksSinceVelocityReversal,
                                                  int ticksSinceDecel,
@@ -74,6 +76,8 @@ public final class EnemyTracker {
                 robot,
                 event,
                 observationProfile,
+                headingDelta,
+                velocityDelta,
                 accelerationSign,
                 ticksSinceVelocityReversal,
                 ticksSinceDecel,

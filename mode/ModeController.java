@@ -30,6 +30,8 @@ import robocode.RobotDeathEvent;
 import robocode.ScannedRobotEvent;
 
 public final class ModeController {
+    private static final ModeId FORCED_MODE_ID = ModeId.ANTI_SURFER;
+
     private final AntiSurferMode antiSurferMode = new AntiSurferMode();
     private final BulletShieldMode bulletShieldMode = new BulletShieldMode();
     private final PerfectPredictionMode perfectPredictionMode = new PerfectPredictionMode();
@@ -38,8 +40,8 @@ public final class ModeController {
     private final BattleDataStore dataStore = new BattleDataStore();
     private final ModeRoundScoreTracker roundScoreTracker = new ModeRoundScoreTracker();
     private final ModeSelector modeSelector = new ModeSelector(roundScoreTracker);
-    private BattleMode activeMode = scoreMaxMode;
-    private ModeId activeModeId = ModeId.SCORE_MAX;
+    private BattleMode activeMode = antiSurferMode;
+    private ModeId activeModeId = FORCED_MODE_ID;
     private final Set<BattleMode> modesUsedThisBattle = new LinkedHashSet<>();
     private BattleServices services;
     private Info info;
@@ -75,7 +77,7 @@ public final class ModeController {
         colorAppliedRobot = null;
         colorAppliedModeId = null;
         roundScoreTracker.startBattle();
-        setActiveMode(ModeId.SCORE_MAX);
+        setActiveMode(FORCED_MODE_ID);
     }
 
     public void init(Info info) {
@@ -96,10 +98,10 @@ public final class ModeController {
             remainingBulletShieldForgivenHits = 0;
             if (!opponentContextLoaded) {
                 pendingOpponentContextResolution = true;
-                activateModeForRound(ModeId.BULLET_SHIELD);
+                activateModeForRound(FORCED_MODE_ID);
             } else {
                 pendingOpponentContextResolution = false;
-                activateModeForRound(activeModeId);
+                activateModeForRound(FORCED_MODE_ID);
             }
         }
     }
@@ -278,18 +280,17 @@ public final class ModeController {
     }
 
     private ModeId chooseOpeningMode() {
-        return modeSelector.chooseOpeningMode(bulletShieldRetiredForBattle);
+        return FORCED_MODE_ID;
     }
 
     private void maybeReevaluateModeSelection() {
         if (pendingOpponentContextResolution || !opponentContextLoaded) {
             return;
         }
-        ModeId selectedMode = modeSelector.chooseModeForSwitch(activeModeId, bulletShieldRetiredForBattle);
-        if (selectedMode == activeModeId) {
+        if (activeModeId == FORCED_MODE_ID) {
             return;
         }
-        activateModeForRound(selectedMode);
+        activateModeForRound(FORCED_MODE_ID);
     }
 
     private BattleMode modeFor(ModeId modeId) {
@@ -322,10 +323,6 @@ public final class ModeController {
         if (modeId == ModeId.SCORE_MAX) {
             info.getRobot().out.println("Targeting Weights: " + WaveLog.getTargetingModelSummary());
             info.getRobot().out.println("Movement Weights: " + WaveLog.getMovementModelSummary());
-        } else if (modeId == ModeId.ANTI_SURFER) {
-            info.getRobot().out.println("Targeting Weights: " + WaveLog.getAntiSurferGunModelSummary());
-            info.getRobot().out.println("Movement Weights: " + WaveLog.getAntiSurferMovementModelSummary());
-            info.getRobot().out.println("Movement Blend: " + WaveLog.getAntiSurferBlendSummary());
         }
     }
 }

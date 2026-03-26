@@ -54,6 +54,14 @@ public interface ObservationProfile {
 
     GuessFactorDistribution createMovementDistribution(WaveContextFeatures.WaveContext context);
 
+    default double[] createGunRenderGfMarkers(WaveContextFeatures.WaveContext context) {
+        return null;
+    }
+
+    default double[] createMovementRenderGfMarkers(WaveContextFeatures.WaveContext context) {
+        return null;
+    }
+
     default void onResolvedEnemyWaveHit(WaveContextFeatures.WaveContext context,
                                         double gf) {
     }

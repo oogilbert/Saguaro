@@ -1,7 +1,6 @@
 package oog.mega.saguaro.info.learning;
 
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
-import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.math.GuessFactorDistribution;
 
 public final class ModeObservationProfile implements ObservationProfile {
@@ -27,9 +26,6 @@ public final class ModeObservationProfile implements ObservationProfile {
             throw new IllegalArgumentException("Mode observation profile requires a non-null policy");
         }
         this.policy = policy;
-        WaveLog.setAntiSurferModelUpdatesEnabled(
-                policy.updateAntiSurferTargetingModel,
-                policy.updateAntiSurferMovementModel);
     }
 
     @Override
@@ -109,6 +105,22 @@ public final class ModeObservationProfile implements ObservationProfile {
     }
 
     @Override
+    public double[] createGunRenderGfMarkers(WaveContextFeatures.WaveContext context) {
+        if (!policy.useTargetingDistributions) {
+            return null;
+        }
+        return delegate.createGunRenderGfMarkers(context);
+    }
+
+    @Override
+    public double[] createMovementRenderGfMarkers(WaveContextFeatures.WaveContext context) {
+        if (!policy.useMovementDistributions) {
+            return null;
+        }
+        return delegate.createMovementRenderGfMarkers(context);
+    }
+
+    @Override
     public void onResolvedEnemyWaveHit(WaveContextFeatures.WaveContext context,
                                        double gf) {
         delegate.onResolvedEnemyWaveHit(context, gf);
@@ -116,7 +128,7 @@ public final class ModeObservationProfile implements ObservationProfile {
 
     @Override
     public boolean shouldRefreshEnemyWavesAfterResolvedHit() {
-        return policy.updateMovementModel || policy.updateAntiSurferMovementModel;
+        return policy.updateMovementModel;
     }
 
     @Override

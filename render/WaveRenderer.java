@@ -17,9 +17,12 @@ import oog.mega.saguaro.math.MathUtils;
 
 public final class WaveRenderer {
     private static final int ARC_SEGMENTS = 160;
+    private static final int EXPERT_TICK_HALF_LENGTH = 4;
     private static final Color OUTSIDE_PRECISE_MEA_COLOR = new Color(120, 120, 120);
     private static final Color FULL_SHADOW_COLOR = Color.BLACK;
     private static final Color HALF_SHADOW_COLOR = Color.GRAY;
+    private static final Color EXPERT_TICK_OUTLINE_COLOR = Color.BLACK;
+    private static final Color EXPERT_TICK_INNER_COLOR = Color.WHITE;
     private static final List<BulletShadowUtil.WeightedGfInterval> NO_SHADOW_INTERVALS = Collections.emptyList();
     // Debug rendering still needs a visible density band before learning data exists.
     private static final GuessFactorDistribution DEFAULT_RENDER_DISTRIBUTION = new DefaultDistribution();
@@ -99,6 +102,7 @@ public final class WaveRenderer {
                     activeShadowIntervals,
                     samples.values,
                     samples.max);
+            drawExpertTicks(graphics, wave, radius, referenceBearing, mea);
         }
 
         graphics.setStroke(oldStroke);
@@ -218,6 +222,35 @@ public final class WaveRenderer {
         int green = (int) Math.round(start.getGreen() + (end.getGreen() - start.getGreen()) * clampedRatio);
         int blue = (int) Math.round(start.getBlue() + (end.getBlue() - start.getBlue()) * clampedRatio);
         return new Color(red, green, blue);
+    }
+
+    private static void drawExpertTicks(Graphics2D graphics,
+                                        Wave wave,
+                                        double radius,
+                                        double referenceBearing,
+                                        double mea) {
+        if (wave.fireTimeRenderGfMarkers == null || wave.fireTimeRenderGfMarkers.length == 0) {
+            return;
+        }
+        Stroke oldStroke = graphics.getStroke();
+        for (double gf : wave.fireTimeRenderGfMarkers) {
+            double angle = MathUtils.gfToAngle(referenceBearing, gf, mea);
+            double radialX = FastTrig.sin(angle);
+            double radialY = FastTrig.cos(angle);
+            double x = wave.originX + radius * radialX;
+            double y = wave.originY + radius * radialY;
+            int x1 = (int) Math.round(x - radialX * EXPERT_TICK_HALF_LENGTH);
+            int y1 = (int) Math.round(y - radialY * EXPERT_TICK_HALF_LENGTH);
+            int x2 = (int) Math.round(x + radialX * EXPERT_TICK_HALF_LENGTH);
+            int y2 = (int) Math.round(y + radialY * EXPERT_TICK_HALF_LENGTH);
+            graphics.setColor(EXPERT_TICK_OUTLINE_COLOR);
+            graphics.setStroke(new BasicStroke(3f));
+            graphics.drawLine(x1, y1, x2, y2);
+            graphics.setColor(EXPERT_TICK_INNER_COLOR);
+            graphics.setStroke(new BasicStroke(1f));
+            graphics.drawLine(x1, y1, x2, y2);
+        }
+        graphics.setStroke(oldStroke);
     }
 
     private static List<BulletShadowUtil.WeightedGfInterval> activeShadowIntervals(

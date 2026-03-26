@@ -67,6 +67,8 @@ public class EnemyInfo {
     public double lastRobotYAtScan = Double.NaN;
     public double lastRobotHeadingAtScan = Double.NaN;
     public double lastRobotVelocityAtScan = Double.NaN;
+    public double lastRobotHeadingDeltaAtScan = 0.0;
+    public double lastRobotVelocityDeltaAtScan = 0.0;
     public int lastRobotAccelerationSignAtScan = 0;
     public int lastRobotTicksSinceVelocityReversalAtScan = 0;
     public int lastRobotTicksSinceDecelAtScan = 0;
@@ -77,6 +79,7 @@ public class EnemyInfo {
     public int accelerationSign;
     public int ticksSinceVelocityReversal;
     public int ticksSinceDecel;
+    private final RecentMotionHistory motionHistory = new RecentMotionHistory();
     private int lastNonZeroVelocitySign;
     private int lastNonZeroLateralDirectionSign;
     private int lastRobotNonZeroLateralDirectionSignAtScan;
@@ -108,12 +111,20 @@ public class EnemyInfo {
     public UpdateResult update(Saguaro robot,
                                ScannedRobotEvent e,
                                ObservationProfile observationProfile,
+                               double robotHeadingDelta,
+                               double robotVelocityDelta,
                                int robotAccelerationSign,
                                int robotTicksSinceVelocityReversal,
                                int robotTicksSinceDecel,
                                List<Wave> existingEnemyWaves) {
         long currentTime = robot.getTime();
         Wave firedWave = null;
+        double scannedHeading = e.getHeadingRadians();
+        double scannedVelocity = e.getVelocity();
+        double headingDeltaSample =
+                seenThisRound && lastScanTime == currentTime - 1L
+                        ? ConstantDeltaPredictor.estimateHeadingDelta(scannedHeading, heading)
+                        : 0.0;
 
         // Detect enemy shot via energy drop.
         // Timing: Enemy fired at tick T before movement, so they fired from their T-1 position.
@@ -121,7 +132,7 @@ public class EnemyInfo {
         double energyDrop = energy - e.getEnergy();
         if (seenThisRound && energyDrop > 0) {
             double wallDamage = 0.0;
-            if (e.getVelocity() == 0.0) {
+            if (scannedVelocity == 0.0) {
                 double absoluteBearing = robot.getHeadingRadians() + e.getBearingRadians();
                 double distance = e.getDistance();
                 double newX = robot.getX() + Math.sin(absoluteBearing) * distance;
@@ -137,12 +148,12 @@ public class EnemyInfo {
                 if (hitX || hitY) {
                     double attemptedVelocity = 0.0;
                     if (hitX && !hitY) {
-                        double cosH = Math.cos(e.getHeadingRadians());
+                        double cosH = Math.cos(scannedHeading);
                         if (Math.abs(cosH) > 1e-4) {
                             attemptedVelocity = (newY - y) / cosH;
                         }
                     } else if (hitY && !hitX) {
-                        double sinH = Math.sin(e.getHeadingRadians());
+                        double sinH = Math.sin(scannedHeading);
                         if (Math.abs(sinH) > 1e-4) {
                             attemptedVelocity = (newX - x) / sinH;
                         }
@@ -166,12 +177,13 @@ public class EnemyInfo {
                         observationProfile.shouldUpdateMovementModel());
                 firedWave.fireTimeDistributionHandle = GuessFactorDistributionHandle.orNull(
                         observationProfile.createMovementDistribution(firedWave.fireTimeContext));
+                firedWave.fireTimeRenderGfMarkers =
+                        observationProfile.createMovementRenderGfMarkers(firedWave.fireTimeContext);
                 lastDetectedBulletPower = firepower;
                 gunHeat = 1.0 + firepower / 5.0;
             }
         }
 
-        double scannedVelocity = e.getVelocity();
         if (seenThisRound) {
             accelerationSign = signWithEpsilon(scannedVelocity - velocity);
             if (Math.abs(scannedVelocity) < Math.abs(velocity) - 1e-9) {
@@ -235,13 +247,15 @@ public class EnemyInfo {
             previousVelocity = Double.NaN;
             previousScanTime = Long.MIN_VALUE;
         }
-        heading = e.getHeadingRadians();
+        heading = scannedHeading;
         velocity = scannedVelocity;
         lastScanTime = currentTime;
         lastRobotXAtScan = robot.getX();
         lastRobotYAtScan = robot.getY();
         lastRobotHeadingAtScan = robot.getHeadingRadians();
         lastRobotVelocityAtScan = robot.getVelocity();
+        lastRobotHeadingDeltaAtScan = robotHeadingDelta;
+        lastRobotVelocityDeltaAtScan = robotVelocityDelta;
         lastRobotAccelerationSignAtScan = robotAccelerationSign;
         lastRobotTicksSinceVelocityReversalAtScan = robotTicksSinceVelocityReversal;
         lastRobotTicksSinceDecelAtScan = robotTicksSinceDecel;
@@ -267,6 +281,7 @@ public class EnemyInfo {
         }
         alive = true;
         seenThisRound = true;
+        motionHistory.addSample(scannedVelocity, headingDeltaSample);
         predictionCacheTargetTime = Long.MIN_VALUE;
         predictionCacheScanTime = Long.MIN_VALUE;
         predictionCacheValue = null;
@@ -338,6 +353,8 @@ public class EnemyInfo {
                 lastRobotYAtScan,
                 lastRobotHeadingAtScan,
                 lastRobotVelocityAtScan,
+                lastRobotHeadingDeltaAtScan,
+                lastRobotVelocityDeltaAtScan,
                 lastRobotAccelerationSignAtScan,
                 lastRobotTicksSinceVelocityReversalAtScan,
                 lastRobotTicksSinceDecelAtScan,
@@ -469,6 +486,18 @@ public class EnemyInfo {
             return 0.0;
         }
         return ConstantDeltaPredictor.estimateVelocityDelta(velocity, previousVelocity);
+    }
+
+    public int getMotionHistorySize() {
+        return motionHistory.size();
+    }
+
+    public double getMotionHistoryVelocity(int index) {
+        return motionHistory.velocityAt(index);
+    }
+
+    public double getMotionHistoryHeadingDelta(int index) {
+        return motionHistory.headingDeltaAt(index);
     }
 }
 

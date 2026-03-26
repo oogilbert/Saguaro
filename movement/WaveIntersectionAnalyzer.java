@@ -165,6 +165,8 @@ final class WaveIntersectionAnalyzer {
                         fireState.y,
                         fireState.heading,
                         fireState.velocity,
+                        MovementEngine.deriveHeadingDelta(trajectory.states, tickOffset),
+                        MovementEngine.deriveVelocityDelta(trajectory.states, tickOffset),
                         simulatedMotionContext.accelerationSign,
                         simulatedMotionContext.ticksSinceVelocityReversal,
                         simulatedMotionContext.ticksSinceDecel,

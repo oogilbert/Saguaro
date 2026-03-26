@@ -36,6 +36,7 @@ public final class Wave {
     public double fireTimeShooterBodyTurn = Double.NaN;
     public WaveContextFeatures.WaveContext fireTimeContext;
     public GuessFactorDistributionHandle fireTimeDistributionHandle;
+    public double[] fireTimeRenderGfMarkers;
     public boolean allowTargetingModelUpdate;
     public boolean allowMovementModelUpdate;
     public boolean allowMovementObservationLogging;

@@ -554,6 +554,8 @@ public class HitChanceAimer implements GunController {
                 enemyAtFireTime.y,
                 enemyAtFireTime.heading,
                 enemyAtFireTime.velocity,
+                info.getEnemy() != null ? info.getEnemy().getPredictedHeadingDelta() : 0.0,
+                info.getEnemy() != null ? info.getEnemy().getPredictedVelocityDelta() : 0.0,
                 enemyAtFireTime.accelerationSign,
                 enemyAtFireTime.ticksSinceVelocityReversal,
                 enemyAtFireTime.ticksSinceDecel,
