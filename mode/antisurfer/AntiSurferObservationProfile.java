@@ -1,5 +1,6 @@
 package oog.mega.saguaro.mode.antisurfer;
 
+import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ObservationProfile;
 import oog.mega.saguaro.info.learning.ScoreMaxLearningProfile;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
@@ -11,8 +12,13 @@ final class AntiSurferObservationProfile implements ObservationProfile {
     private static final double ROLLING_DECAY = 0.95;
     private static final double MIN_WEIGHT = 0.05;
 
+    private Info info;
     private double hitAvgDensity = 0.5;
     private double flattenerAvgDensity = 0.25;
+
+    void setInfo(Info info) {
+        this.info = info;
+    }
 
     @Override
     public void logGunInterval(WaveContextFeatures.WaveContext context,
@@ -85,5 +91,8 @@ final class AntiSurferObservationProfile implements ObservationProfile {
         WaveLog.setAntiSurferBlendWeights(
                 Math.max(MIN_WEIGHT, hitAvgDensity),
                 Math.max(MIN_WEIGHT, flattenerAvgDensity));
+        if (info != null && info.getRobot() != null) {
+            info.getRobot().out.println("AntiSurfer Blend: " + WaveLog.getAntiSurferBlendSummary());
+        }
     }
 }

@@ -14,7 +14,6 @@ import oog.mega.saguaro.math.DefaultDistribution;
 import oog.mega.saguaro.math.FastTrig;
 import oog.mega.saguaro.math.GuessFactorDistribution;
 import oog.mega.saguaro.math.MathUtils;
-import oog.mega.saguaro.math.RobotHitbox;
 
 public final class WaveRenderer {
     private static final int ARC_SEGMENTS = 160;
@@ -22,7 +21,7 @@ public final class WaveRenderer {
     private static final Color FULL_SHADOW_COLOR = Color.BLACK;
     private static final Color HALF_SHADOW_COLOR = Color.GRAY;
     private static final List<BulletShadowUtil.WeightedGfInterval> NO_SHADOW_INTERVALS = Collections.emptyList();
-    // Debug rendering still needs a visible probability band before learning data exists.
+    // Debug rendering still needs a visible density band before learning data exists.
     private static final GuessFactorDistribution DEFAULT_RENDER_DISTRIBUTION = new DefaultDistribution();
 
     private static final class ProbabilitySamples {
@@ -82,17 +81,13 @@ public final class WaveRenderer {
             double referenceBearing = Math.atan2(refX - wave.originX, refY - wave.originY);
             double mea = MathUtils.maxEscapeAngle(wave.speed);
             double radius = wave.getRadius(time);
-            double dist = Math.hypot(refX - wave.originX, refY - wave.originY);
-            double[] gfIntervalOffsets =
-                    RobotHitbox.guessFactorIntervalOffsets(referenceBearing, dist, mea);
             double[] preciseGfRange = MathUtils.inFieldMaxEscapeGfRange(
                     wave.originX, wave.originY, refX, refY, wave.speed, battlefieldWidth, battlefieldHeight);
             List<BulletShadowUtil.WeightedGfInterval> activeShadowIntervals = renderPersistentShadows
                     ? activeShadowIntervals(wave, referenceBearing, mea)
                     : NO_SHADOW_INTERVALS;
             GuessFactorDistribution distribution = distributionForRender(wave);
-            ProbabilitySamples samples = sampleArcProbabilities(
-                    distribution, gfIntervalOffsets[0], gfIntervalOffsets[1]);
+            ProbabilitySamples samples = sampleArcDensities(distribution);
             drawWaveArcSegments(
                     graphics,
                     wave,
@@ -127,19 +122,17 @@ public final class WaveRenderer {
         return -1.0 + 2.0 * segmentIndex / (ARC_SEGMENTS - 1);
     }
 
-    private static ProbabilitySamples sampleArcProbabilities(GuessFactorDistribution distribution,
-                                                             double gfStartOffset,
-                                                             double gfEndOffset) {
-        double[] hitProbs = new double[ARC_SEGMENTS];
-        double maxHitProb = 0.0;
+    private static ProbabilitySamples sampleArcDensities(GuessFactorDistribution distribution) {
+        double[] densities = new double[ARC_SEGMENTS];
+        double maxDensity = 0.0;
         for (int i = 0; i < ARC_SEGMENTS; i++) {
             double gf = gfForSegment(i);
-            hitProbs[i] = distribution.integrate(gf + gfStartOffset, gf + gfEndOffset);
-            if (hitProbs[i] > maxHitProb) {
-                maxHitProb = hitProbs[i];
+            densities[i] = distribution.density(gf);
+            if (densities[i] > maxDensity) {
+                maxDensity = densities[i];
             }
         }
-        return new ProbabilitySamples(hitProbs, maxHitProb);
+        return new ProbabilitySamples(densities, maxDensity);
     }
 
     private static void drawWaveArcSegments(Graphics2D graphics,
@@ -238,7 +231,7 @@ public final class WaveRenderer {
 
     private static GuessFactorDistribution distributionForRender(Wave wave) {
         return wave.fireTimeDistributionHandle != null
-                ? wave.fireTimeDistributionHandle.query()
+                ? wave.fireTimeDistributionHandle.exact()
                 : DEFAULT_RENDER_DISTRIBUTION;
     }
 

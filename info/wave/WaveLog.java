@@ -1089,6 +1089,21 @@ public class WaveLog {
         return describeModelSummary(flattenerSegment, DEFAULT_FLATTENER_MODEL);
     }
 
+    public static String getAntiSurferBlendSummary() {
+        double movementWeight = Math.max(0.0, antiSurferMovementBlendWeight);
+        double flattenerWeight = Math.max(0.0, antiSurferFlattenerBlendWeight);
+        double totalWeight = movementWeight + flattenerWeight;
+        double movementPercent = totalWeight > 0.0 ? 100.0 * movementWeight / totalWeight : 0.0;
+        double flattenerPercent = totalWeight > 0.0 ? 100.0 * flattenerWeight / totalWeight : 0.0;
+        return String.format(
+                Locale.US,
+                "hitLog=%.3f flattener=%.3f (%.1f%% / %.1f%%)",
+                movementWeight,
+                flattenerWeight,
+                movementPercent,
+                flattenerPercent);
+    }
+
     public static String getMovementModelName() {
         return describeModel(movementSegment, DEFAULT_MOVEMENT_MODEL);
     }

@@ -43,6 +43,7 @@ public final class AntiSurferMode implements BattleMode {
 
     @Override
     public void init(Info info, BattleServices services) {
+        observationProfile.setInfo(info);
         planner.init(info, services.movement(), services.gun());
     }
 
