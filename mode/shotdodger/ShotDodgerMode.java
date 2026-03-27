@@ -9,6 +9,7 @@ import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ModeObservationPolicy;
 import oog.mega.saguaro.info.learning.ObservationProfile;
 import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
+import oog.mega.saguaro.info.persistence.BattleDataStore;
 import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleMode;
 import oog.mega.saguaro.mode.BattleServices;
@@ -26,6 +27,7 @@ public final class ShotDodgerMode implements BattleMode {
     private final ShotDodgerObservationProfile observationProfile = new ShotDodgerObservationProfile();
     private final RoundOutcomeProfile roundOutcomeProfile = ShotDodgerRoundOutcomeProfile.INSTANCE;
     private Info info;
+    private BattleDataStore dataStore;
 
     @Override
     public RoundOutcomeProfile getRoundOutcomeProfile() {
@@ -44,8 +46,16 @@ public final class ShotDodgerMode implements BattleMode {
     @Override
     public void init(Info info, BattleServices services) {
         this.info = info;
+        this.dataStore = services.dataStore();
         observationProfile.setInfo(info);
         planner.init(info, services.movement(), services.gun(), observationProfile);
+    }
+
+    @Override
+    public void onBattleEnded(Saguaro robot) {
+        if (dataStore != null) {
+            dataStore.requestDataSetSave(ShotDodgerDataSet.class);
+        }
     }
 
     @Override

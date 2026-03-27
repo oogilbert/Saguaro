@@ -1,9 +1,15 @@
 package oog.mega.saguaro.mode.shotdodger;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import oog.mega.saguaro.info.Info;
@@ -15,7 +21,7 @@ import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.GuessFactorDistribution;
 import oog.mega.saguaro.math.MathUtils;
 
-final class ShotDodgerObservationProfile implements ObservationProfile {
+public final class ShotDodgerObservationProfile implements ObservationProfile {
     private static final int SNAPSHOT_CACHE_CAPACITY = 256;
     private static final double DEFAULT_EXPERT_SCORE = 0.5;
     private static final double EXACT_GUESS_FACTOR_SIGMA = 0.18;
@@ -23,6 +29,14 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     private static final double MIN_LEARNED_DIVISOR = 4.0;
     private static final double MAX_LEARNED_DIVISOR = 30.0;
     private static final int MAX_AVERAGED_LINEAR_CONSTANT = 100;
+    private static final int PERSISTED_BOOTSTRAP_SECTION_VERSION = 1;
+    private static final int PERSISTED_BOOTSTRAP_BYTES = 9;
+
+    private static ShotDodgerObservationProfile activeInstance;
+    private static boolean persistedBootstrapLoaded;
+    private static boolean currentBattleDataAvailable;
+    private static int persistedBestExpertOrdinal;
+    private static double persistedLearnedConstant;
 
     private static final class PendingPassSample {
         final double[] expertScores;
@@ -57,6 +71,7 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
 
     void setInfo(Info info) {
         this.info = info;
+        activeInstance = this;
         if (info != null && info.getRobot() != null && info.getRobot().getRoundNum() == 0) {
             Arrays.fill(movementScoreSums, 0.0);
             Arrays.fill(movementScoreWeights, 0.0);
@@ -68,6 +83,11 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
             linearConstantDivisorWeight = 0.0;
             linearConstantDivisorNoAdjustSum = 0.0;
             linearConstantDivisorNoAdjustWeight = 0.0;
+            if (persistedBootstrapLoaded) {
+                movementScoreSums[persistedBestExpertOrdinal] = 1.0;
+                movementScoreWeights[persistedBestExpertOrdinal] = 1.0;
+                applyPersistedLearnedConstant();
+            }
         }
         pendingPassSamples.clear();
         Arrays.fill(averagedLinearCandidateValues, 0.0);
@@ -209,6 +229,20 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     @Override
     public void onResolvedEnemyWaveHit(Wave wave,
                                        double gf) {
+        if (persistedBootstrapLoaded && !currentBattleDataAvailable) {
+            Arrays.fill(movementScoreSums, 0.0);
+            Arrays.fill(movementScoreWeights, 0.0);
+            Arrays.fill(averagedLinearCandidateScoreSums, 0.0);
+            Arrays.fill(averagedLinearCandidateScoreWeights, 0.0);
+            Arrays.fill(averagedLinearNoAdjustCandidateScoreSums, 0.0);
+            Arrays.fill(averagedLinearNoAdjustCandidateScoreWeights, 0.0);
+            linearConstantDivisorSum = 0.0;
+            linearConstantDivisorWeight = 0.0;
+            linearConstantDivisorNoAdjustSum = 0.0;
+            linearConstantDivisorNoAdjustWeight = 0.0;
+            movementSnapshotCache.clear();
+        }
+        currentBattleDataAvailable = true;
         double[] exactScores = scoreExactPredictions(centersForWave(wave), gf);
         applyMovementSample(exactScores);
         boolean updated = false;
@@ -675,6 +709,159 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
 
     private static double normalizeAngle(double angle) {
         return MathUtils.normalizeAngle(angle);
+    }
+
+    private void applyPersistedLearnedConstant() {
+        ShotDodgerExpertId expertId = ShotDodgerExpertId.VALUES[persistedBestExpertOrdinal];
+        double constant = persistedLearnedConstant;
+        switch (expertId) {
+            case AVERAGED_LINEAR:
+                if (Double.isFinite(constant)) {
+                    int idx = (int) constant;
+                    if (idx >= 1 && idx <= MAX_AVERAGED_LINEAR_CONSTANT) {
+                        averagedLinearCandidateScoreSums[idx] = 1.0;
+                        averagedLinearCandidateScoreWeights[idx] = 1.0;
+                    }
+                }
+                break;
+            case AVERAGED_LINEAR_NO_GUN_ADJUST:
+                if (Double.isFinite(constant)) {
+                    int idx = (int) constant;
+                    if (idx >= 1 && idx <= MAX_AVERAGED_LINEAR_CONSTANT) {
+                        averagedLinearNoAdjustCandidateScoreSums[idx] = 1.0;
+                        averagedLinearNoAdjustCandidateScoreWeights[idx] = 1.0;
+                    }
+                }
+                break;
+            case LINEAR_CONSTANT_DIVISOR:
+                if (Double.isFinite(constant)) {
+                    linearConstantDivisorSum = constant;
+                    linearConstantDivisorWeight = 1.0;
+                }
+                break;
+            case LINEAR_CONSTANT_DIVISOR_NO_GUN_ADJUST:
+                if (Double.isFinite(constant)) {
+                    linearConstantDivisorNoAdjustSum = constant;
+                    linearConstantDivisorNoAdjustWeight = 1.0;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    static void startBattlePersistence() {
+        activeInstance = null;
+        persistedBootstrapLoaded = false;
+        currentBattleDataAvailable = false;
+        persistedBestExpertOrdinal = 0;
+        persistedLearnedConstant = Double.NaN;
+    }
+
+    static void loadPersistedBootstrap(int sectionVersion, byte[] payload) {
+        if (payload == null) {
+            return;
+        }
+        if (sectionVersion != PERSISTED_BOOTSTRAP_SECTION_VERSION) {
+            throw new IllegalStateException(
+                    "Unsupported shotdodger-bootstrap section version " + sectionVersion);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
+            if (payload.length != PERSISTED_BOOTSTRAP_BYTES) {
+                throw new IllegalStateException("Unexpected shotdodger-bootstrap payload length");
+            }
+            int bestExpertOrdinal = in.readUnsignedByte();
+            if (bestExpertOrdinal < 0 || bestExpertOrdinal >= ShotDodgerExpertId.VALUES.length) {
+                throw new IllegalStateException(
+                        "Invalid shotdodger-bootstrap expert ordinal " + bestExpertOrdinal);
+            }
+            double learnedConstant = in.readDouble();
+            if (!Double.isNaN(learnedConstant) && !Double.isFinite(learnedConstant)) {
+                throw new IllegalStateException(
+                        "shotdodger-bootstrap learned constant must be finite or NaN");
+            }
+            if (in.available() != 0) {
+                throw new IllegalStateException(
+                        "shotdodger-bootstrap payload contained trailing bytes");
+            }
+            persistedBootstrapLoaded = true;
+            persistedBestExpertOrdinal = bestExpertOrdinal;
+            persistedLearnedConstant = learnedConstant;
+        } catch (IOException e) {
+            throw new IllegalStateException("Unreadable shotdodger-bootstrap payload", e);
+        }
+    }
+
+    static boolean hasPersistedBootstrapData() {
+        return currentBattleDataAvailable || persistedBootstrapLoaded;
+    }
+
+    static byte[] createPersistedBootstrapPayload(int maxPayloadBytes,
+                                                   boolean includeCurrentBattleData) {
+        int bestExpertOrdinal;
+        double learnedConstant;
+        if (includeCurrentBattleData && currentBattleDataAvailable && activeInstance != null) {
+            ShotDodgerExpertId bestExpert = activeInstance.currentBestMovementExpertId();
+            bestExpertOrdinal = bestExpert.ordinal();
+            learnedConstant = learnedConstantForExpert(activeInstance, bestExpert);
+        } else if (persistedBootstrapLoaded) {
+            bestExpertOrdinal = persistedBestExpertOrdinal;
+            learnedConstant = persistedLearnedConstant;
+        } else {
+            return null;
+        }
+        if (maxPayloadBytes < PERSISTED_BOOTSTRAP_BYTES) {
+            throw new IllegalStateException(
+                    "Insufficient data quota to save shotdodger bootstrap: payload budget="
+                            + maxPayloadBytes + " bytes");
+        }
+        try (ByteArrayOutputStream raw = new ByteArrayOutputStream();
+             DataOutputStream out = new DataOutputStream(raw)) {
+            out.writeByte(bestExpertOrdinal);
+            out.writeDouble(learnedConstant);
+            out.flush();
+            byte[] payload = raw.toByteArray();
+            if (payload.length > maxPayloadBytes) {
+                throw new IllegalStateException(
+                        "Insufficient data quota to save shotdodger bootstrap: required="
+                                + payload.length + " bytes, available=" + maxPayloadBytes + " bytes");
+            }
+            return payload;
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to build shotdodger-bootstrap payload", e);
+        }
+    }
+
+    public static String describeBootstrapStatus() {
+        if (persistedBootstrapLoaded) {
+            ShotDodgerExpertId expertId = ShotDodgerExpertId.VALUES[persistedBestExpertOrdinal];
+            if (Double.isNaN(persistedLearnedConstant)) {
+                return "ShotDodger baseline: expert=" + expertId.name();
+            }
+            return String.format(Locale.US, "ShotDodger baseline: expert=%s, constant=%.2f",
+                    expertId.name(), persistedLearnedConstant);
+        }
+        return "ShotDodger baseline: none";
+    }
+
+    private static double learnedConstantForExpert(ShotDodgerObservationProfile instance,
+                                                    ShotDodgerExpertId expertId) {
+        switch (expertId) {
+            case AVERAGED_LINEAR:
+                return (double) instance.currentBestAveragedLinearConstant(false);
+            case AVERAGED_LINEAR_NO_GUN_ADJUST:
+                return (double) instance.currentBestAveragedLinearConstant(true);
+            case LINEAR_CONSTANT_DIVISOR:
+                return instance.linearConstantDivisorWeight > 0.0
+                        ? instance.linearConstantDivisorSum / instance.linearConstantDivisorWeight
+                        : Double.NaN;
+            case LINEAR_CONSTANT_DIVISOR_NO_GUN_ADJUST:
+                return instance.linearConstantDivisorNoAdjustWeight > 0.0
+                        ? instance.linearConstantDivisorNoAdjustSum / instance.linearConstantDivisorNoAdjustWeight
+                        : Double.NaN;
+            default:
+                return Double.NaN;
+        }
     }
 
     private static Map<WaveContextFeatures.WaveContext, ShotDodgerExpertSnapshot> createSnapshotCache() {

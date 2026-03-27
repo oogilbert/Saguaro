@@ -18,7 +18,9 @@ import oog.mega.saguaro.info.persistence.WaveLogModelDataSet;
 import oog.mega.saguaro.mode.perfectprediction.PerfectPredictionMode;
 import oog.mega.saguaro.mode.perfectprediction.PrecisePredictionProfile;
 import oog.mega.saguaro.mode.scoremax.ScoreMaxMode;
+import oog.mega.saguaro.mode.shotdodger.ShotDodgerDataSet;
 import oog.mega.saguaro.mode.shotdodger.ShotDodgerMode;
+import oog.mega.saguaro.mode.shotdodger.ShotDodgerObservationProfile;
 import oog.mega.saguaro.mode.shield.BulletShieldDataSet;
 import oog.mega.saguaro.mode.shield.BulletShieldMode;
 import oog.mega.saguaro.render.RenderState;
@@ -54,6 +56,7 @@ public final class ModeController {
 
     public ModeController() {
         dataStore.registerDataSet(new BulletShieldDataSet());
+        dataStore.registerDataSet(new ShotDodgerDataSet());
         dataStore.registerDataSet(new ModePerformanceDataSet());
         dataStore.registerDataSet(new BulletPowerHitRateDataSet());
         dataStore.registerDataSet(new WaveLogModelDataSet());
@@ -322,6 +325,8 @@ public final class ModeController {
         if (modeId == ModeId.SCORE_MAX) {
             info.getRobot().out.println("Targeting Weights: " + WaveLog.getTargetingModelSummary());
             info.getRobot().out.println("Movement Weights: " + WaveLog.getMovementModelSummary());
+        } else if (modeId == ModeId.SHOT_DODGER) {
+            info.getRobot().out.println(ShotDodgerObservationProfile.describeBootstrapStatus());
         }
     }
 }
