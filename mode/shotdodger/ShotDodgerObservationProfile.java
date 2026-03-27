@@ -45,7 +45,6 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
             movementCentersByContext.clear();
         }
         movementSnapshotCache.clear();
-        ShotDodgerPreciseMea.clearCache();
     }
 
     @Override
@@ -89,16 +88,8 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         if (snapshot == null || snapshot.isEmpty()) {
             return null;
         }
-        ExpertPrediction prediction = snapshot.get(currentBestMovementExpertId());
-        if (prediction == null || prediction.distribution == null) {
-            for (ExpertPrediction activePrediction : snapshot.activePredictions()) {
-                if (activePrediction != null && activePrediction.distribution != null) {
-                    return activePrediction.distribution;
-                }
-            }
-            return null;
-        }
-        return prediction.distribution;
+        ExpertPrediction prediction = snapshot.get(ShotDodgerExpertId.HEAD_ON);
+        return prediction != null ? prediction.distribution : null;
     }
 
     @Override
@@ -189,20 +180,7 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     }
 
     ShotDodgerExpertId currentBestMovementExpertId() {
-        ShotDodgerExpertId bestExpertId = ShotDodgerExpertId.COSTANZA;
-        double bestScore = Double.NEGATIVE_INFINITY;
-        double[] scores = currentMovementScoreSnapshot();
-        for (ShotDodgerExpertId expertId : ShotDodgerExpertId.VALUES) {
-            double score = scores[expertId.ordinal()];
-            if (!Double.isFinite(score)) {
-                continue;
-            }
-            if (score > bestScore) {
-                bestScore = score;
-                bestExpertId = expertId;
-            }
-        }
-        return bestExpertId;
+        return ShotDodgerExpertId.HEAD_ON;
     }
 
     private ShotDodgerExpertSnapshot movementSnapshotFor(WaveContextFeatures.WaveContext context) {
@@ -213,7 +191,7 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         if (snapshot != null) {
             return snapshot;
         }
-        snapshot = ShotDodgerSourceExpertCatalog.createMovementAllSnapshot(context, info);
+        snapshot = ShotDodgerSourceExpertCatalog.createMovementSnapshot(context);
         if (snapshot != null) {
             movementSnapshotCache.put(context, snapshot);
             movementCentersByContext.put(context, snapshot.centers());
