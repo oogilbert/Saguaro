@@ -34,6 +34,7 @@ public final class BulletPowerHitRateTracker {
     private static final double[] persistedFlightHits = new double[FLIGHT_BIN_COUNT];
 
     private final Map<Wave, ShotRecord> activeShots = new IdentityHashMap<>();
+    private final LocalHitRateKnnModel localModel = new LocalHitRateKnnModel();
     private final double[] currentBattleFlightShots = new double[FLIGHT_BIN_COUNT];
     private final double[] currentBattleFlightHits = new double[FLIGHT_BIN_COUNT];
     private double currentBattleGlobalShots;
@@ -42,9 +43,11 @@ public final class BulletPowerHitRateTracker {
 
     private static final class ShotRecord {
         final int flightBucket;
+        final double[] featurePoint;
 
-        ShotRecord(int flightBucket) {
+        ShotRecord(int flightBucket, double[] featurePoint) {
             this.flightBucket = flightBucket;
+            this.featurePoint = featurePoint;
         }
     }
 
@@ -152,8 +155,10 @@ public final class BulletPowerHitRateTracker {
         if (!trackingEnabled || wave == null || wave.isEnemy || wave.fireTimeContext == null) {
             return;
         }
-        int flightBucket = flightBucket(wave.fireTimeContext.flightTicks);
-        activeShots.put(wave, new ShotRecord(flightBucket));
+        int flightBucket = LocalHitRateKnnModel.flightBucket(
+                wave.fireTimeContext.flightTicks,
+                FLIGHT_BUCKET_UPPER_BOUNDS);
+        activeShots.put(wave, new ShotRecord(flightBucket, LocalHitRateKnnModel.pointForWave(wave)));
     }
 
     public void onMyWaveHit(Wave wave) {
@@ -171,27 +176,32 @@ public final class BulletPowerHitRateTracker {
     }
 
     public double estimateHitRate(int flightTicks) {
-        int flightBucket = flightBucket(flightTicks);
+        return estimateHitRate(new double[]{
+                clamp(Math.max(1.0, flightTicks) / 70.0, 0.0, 1.0),
+                0.0,
+                1.0
+        }, flightTicks);
+    }
 
-        double globalHits = persistedGlobalHits + currentBattleGlobalHits;
-        double globalShots = persistedGlobalShots + currentBattleGlobalShots;
-        double globalMean = posteriorMean(
-                globalHits,
-                globalShots,
-                priorMeanForFlightBucket(flightBucket),
-                BotConfig.Learning.ENEMY_HIT_RATE_GLOBAL_PRIOR_STRENGTH);
-
-        double flightHits = persistedFlightHits[flightBucket] + currentBattleFlightHits[flightBucket];
-        double flightShots = persistedFlightShots[flightBucket] + currentBattleFlightShots[flightBucket];
-        double flightMean = posteriorMean(
-                flightHits,
-                flightShots,
-                globalMean,
-                BotConfig.Learning.ENEMY_HIT_RATE_FLIGHT_PRIOR_STRENGTH);
-        return clamp(
-                flightMean,
-                BotConfig.Learning.ENEMY_HIT_RATE_MIN,
-                BotConfig.Learning.ENEMY_HIT_RATE_MAX);
+    public double estimateHitRate(double sourceX,
+                                  double sourceY,
+                                  double targetX,
+                                  double targetY,
+                                  double bulletSpeed,
+                                  double battlefieldWidth,
+                                  double battlefieldHeight) {
+        double[] featurePoint = LocalHitRateKnnModel.pointForGeometry(
+                sourceX,
+                sourceY,
+                targetX,
+                targetY,
+                bulletSpeed,
+                battlefieldWidth,
+                battlefieldHeight);
+        int flightTicks = Wave.nominalFlightTicks(
+                Math.hypot(targetX - sourceX, targetY - sourceY),
+                bulletSpeed);
+        return estimateHitRate(featurePoint, flightTicks);
     }
 
     private void recordOutcome(Wave wave, boolean hit) {
@@ -207,6 +217,7 @@ public final class BulletPowerHitRateTracker {
         if (hit) {
             currentBattleFlightHits[record.flightBucket] += 1.0;
         }
+        localModel.addObservation(record.featurePoint, hit);
     }
 
     private void resetCurrentBattle() {
@@ -216,6 +227,7 @@ public final class BulletPowerHitRateTracker {
         trackingEnabled = false;
         clearArray(currentBattleFlightShots);
         clearArray(currentBattleFlightHits);
+        localModel.clear();
     }
 
     private static void loadPersistedPayload(int sectionVersion, byte[] payload) {
@@ -287,20 +299,35 @@ public final class BulletPowerHitRateTracker {
         return (hits + priorMean * priorStrength) / (shots + priorStrength);
     }
 
-    private static int flightBucket(int flightTicks) {
-        double clampedTicks = Math.max(1.0, flightTicks);
-        for (int i = 0; i < FLIGHT_BUCKET_UPPER_BOUNDS.length; i++) {
-            if (clampedTicks <= FLIGHT_BUCKET_UPPER_BOUNDS[i]) {
-                return i;
-            }
-        }
-        return FLIGHT_BIN_COUNT - 1;
-    }
-
     private static double priorMeanForFlightBucket(int flightBucket) {
         double flightTicks = FLIGHT_BUCKET_REPRESENTATIVE_TICKS[flightBucket];
         double prior = 0.72 / Math.sqrt(flightTicks + 4.0);
         return clamp(prior, 0.05, 0.3);
+    }
+
+    private double estimateHitRate(double[] featurePoint, int flightTicks) {
+        int flightBucket = LocalHitRateKnnModel.flightBucket(flightTicks, FLIGHT_BUCKET_UPPER_BOUNDS);
+        double globalHits = persistedGlobalHits + currentBattleGlobalHits;
+        double globalShots = persistedGlobalShots + currentBattleGlobalShots;
+        double globalMean = posteriorMean(
+                globalHits,
+                globalShots,
+                priorMeanForFlightBucket(flightBucket),
+                BotConfig.Learning.ENEMY_HIT_RATE_GLOBAL_PRIOR_STRENGTH);
+
+        double flightHits = persistedFlightHits[flightBucket] + currentBattleFlightHits[flightBucket];
+        double flightShots = persistedFlightShots[flightBucket] + currentBattleFlightShots[flightBucket];
+        double flightMean = posteriorMean(
+                flightHits,
+                flightShots,
+                globalMean,
+                BotConfig.Learning.ENEMY_HIT_RATE_FLIGHT_PRIOR_STRENGTH);
+        return localModel.estimate(
+                featurePoint,
+                flightMean,
+                BotConfig.Learning.ENEMY_HIT_RATE_FLIGHT_PRIOR_STRENGTH,
+                BotConfig.Learning.ENEMY_HIT_RATE_MIN,
+                BotConfig.Learning.ENEMY_HIT_RATE_MAX);
     }
 
     private static double combinedShots(boolean includeCurrentBattleData, double persistedShots, double currentBattleShots) {
