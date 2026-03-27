@@ -4,11 +4,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.gun.GunController;
 import oog.mega.saguaro.gun.ShotSolution;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.state.RobotSnapshot;
+import oog.mega.saguaro.info.wave.Wave;
+import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.PhysicsUtil;
 import oog.mega.saguaro.mode.BattlePlan;
@@ -18,24 +21,34 @@ import oog.mega.saguaro.movement.PathGenerationContext;
 import oog.mega.saguaro.movement.PathWaveIntersection;
 
 final class AntiSurferPlanner {
-    private static final double FIXED_FIRE_POWER = 2.0;
     private static final double MIN_FIRE_POWER = 0.1;
 
     private Info info;
     private MovementController movement;
     private GunController gun;
+    private AntiSurferObservationProfile observationProfile;
+    private AntiSurferPowerScorer powerScorer;
     private CandidatePath lastSelectedPath;
     private List<CandidatePath> lastSelectedFamilyPaths = new ArrayList<CandidatePath>();
     private List<PathWaveIntersection> lastSelectedPathIntersections = new ArrayList<PathWaveIntersection>();
     private long lastSelectedWaveDangerRevision;
 
-    void init(Info info, MovementController movement, GunController gun) {
-        if (info == null || movement == null || gun == null) {
-            throw new IllegalArgumentException("AntiSurferPlanner requires non-null info, movement, and gun");
+    void init(Info info,
+              MovementController movement,
+              GunController gun,
+              AntiSurferObservationProfile observationProfile) {
+        if (info == null || movement == null || gun == null || observationProfile == null) {
+            throw new IllegalArgumentException(
+                    "AntiSurferPlanner requires non-null info, movement, gun, and observationProfile");
         }
         this.info = info;
         this.movement = movement;
         this.gun = gun;
+        this.observationProfile = observationProfile;
+        if (this.powerScorer == null) {
+            this.powerScorer = new AntiSurferPowerScorer();
+        }
+        this.powerScorer.init(info);
         this.lastSelectedPath = null;
         this.lastSelectedFamilyPaths = new ArrayList<CandidatePath>();
         this.lastSelectedPathIntersections = new ArrayList<PathWaveIntersection>();
@@ -60,11 +73,20 @@ final class AntiSurferPlanner {
         lastSelectedFamilyPaths = Collections.singletonList(bestPath);
         lastSelectedPathIntersections = bestPath.pathIntersections != null
                 ? bestPath.pathIntersections
-                : new ArrayList<PathWaveIntersection>();
+                : movement.collectPathWaveIntersections(bestPath, null);
         lastSelectedWaveDangerRevision = info.getEnemyWaveDangerRevision();
 
         double[] movementInstruction = firstTickMovementInstruction(bestPath, robotState);
-        GunInstruction gunInstruction = buildGunInstruction(bestPath, robotState, firstFiringTickOffset);
+        AntiSurferPowerScorer.PowerSelection powerSelection = powerScorer.selectBestPower(
+                bestPath,
+                lastSelectedPathIntersections,
+                robotState,
+                firstFiringTickOffset);
+        GunInstruction gunInstruction = buildGunInstruction(
+                bestPath,
+                robotState,
+                firstFiringTickOffset,
+                powerSelection != null ? powerSelection.firePower : 0.0);
         return new BattlePlan(
                 movementInstruction[0],
                 movementInstruction[1],
@@ -154,9 +176,10 @@ final class AntiSurferPlanner {
 
     private GunInstruction buildGunInstruction(CandidatePath path,
                                                RobotSnapshot robotState,
-                                               int firstFiringTickOffset) {
-        double firePower = selectFirePower(robotState.energy);
-        if (!(firePower >= MIN_FIRE_POWER) || path == null) {
+                                               int firstFiringTickOffset,
+                                               double selectedFirePower) {
+        double firePower = sanitizeFirePower(selectedFirePower, robotState.energy);
+        if (path == null) {
             return new GunInstruction(0.0, 0.0);
         }
 
@@ -167,14 +190,48 @@ final class AntiSurferPlanner {
             return new GunInstruction(0.0, 0.0);
         }
 
-        ShotSolution shot = gun.selectOptimalShotFromPosition(
+        double aimPower = firePower >= MIN_FIRE_POWER
+                ? firePower
+                : Math.min(BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER, robotState.energy);
+        WaveContextFeatures.WaveContext fireContext = WaveContextFeatures.createWaveContext(
+                fireState.x,
+                fireState.y,
+                Wave.bulletSpeed(aimPower),
+                fireTime,
+                enemyAtFireTime.x,
+                enemyAtFireTime.y,
+                enemyAtFireTime.heading,
+                enemyAtFireTime.velocity,
+                info.getEnemy().getPredictedHeadingDelta(),
+                info.getEnemy().getPredictedVelocityDelta(),
+                enemyAtFireTime.accelerationSign,
+                enemyAtFireTime.ticksSinceVelocityReversal,
+                enemyAtFireTime.ticksSinceDecel,
+                enemyAtFireTime.lastNonZeroLateralDirectionSign,
+                info.getBattlefieldWidth(),
+                info.getBattlefieldHeight(),
+                info.getMyWaves(),
+                null);
+        ShotSolution shot = observationProfile.selectBestReachableGunShot(
+                fireContext,
                 fireState.x,
                 fireState.y,
                 enemyAtFireTime.x,
                 enemyAtFireTime.y,
-                firePower,
+                aimPower,
                 robotState.gunHeading,
-                firstFiringTickOffset);
+                firstFiringTickOffset,
+                gun);
+        if (shot == null || !Double.isFinite(shot.firingAngle)) {
+            shot = gun.selectOptimalShotFromPosition(
+                    fireState.x,
+                    fireState.y,
+                    enemyAtFireTime.x,
+                    enemyAtFireTime.y,
+                    aimPower,
+                    robotState.gunHeading,
+                    firstFiringTickOffset);
+        }
         if (shot == null || !Double.isFinite(shot.firingAngle)) {
             return new GunInstruction(0.0, 0.0);
         }
@@ -184,11 +241,11 @@ final class AntiSurferPlanner {
         return new GunInstruction(gunTurnAngle, fireNowPower);
     }
 
-    private static double selectFirePower(double availableEnergy) {
-        if (!(availableEnergy >= MIN_FIRE_POWER)) {
+    private static double sanitizeFirePower(double firePower, double availableEnergy) {
+        if (!(firePower >= MIN_FIRE_POWER) || !(availableEnergy >= MIN_FIRE_POWER)) {
             return 0.0;
         }
-        return Math.min(FIXED_FIRE_POWER, availableEnergy);
+        return Math.min(3.0, Math.min(firePower, availableEnergy));
     }
 
     private EnemyInfo.PredictedPosition predictEnemyPositionAt(long time) {

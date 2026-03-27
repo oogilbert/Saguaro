@@ -3,10 +3,13 @@ package oog.mega.saguaro.mode.antisurfer;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import oog.mega.saguaro.gun.GunController;
+import oog.mega.saguaro.gun.ShotSolution;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ObservationProfile;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.GuessFactorDistribution;
+import oog.mega.saguaro.math.MathUtils;
 
 final class AntiSurferObservationProfile implements ObservationProfile {
     private static final int SNAPSHOT_CACHE_CAPACITY = 256;
@@ -154,6 +157,64 @@ final class AntiSurferObservationProfile implements ObservationProfile {
     @Override
     public boolean shouldUseVirtualMovementWaves() {
         return false;
+    }
+
+    ShotSolution selectBestReachableGunShot(WaveContextFeatures.WaveContext context,
+                                            double shooterX,
+                                            double shooterY,
+                                            double targetX,
+                                            double targetY,
+                                            double firePower,
+                                            double gunHeadingAtDecision,
+                                            int ticksUntilFire,
+                                            GunController gun) {
+        if (context == null || gun == null || !(firePower >= 0.1)) {
+            return null;
+        }
+        double[] combinedWeights = combineWeights(
+                historicalWeighting.createGunWeights(context, info),
+                learnedRecentWeighting.createGunFactors(recentWeighting.createGunWeights(info)));
+        AntiSurferExpertSnapshot snapshot = gunSnapshotFor(context);
+        if (snapshot == null || snapshot.isEmpty()) {
+            return null;
+        }
+
+        double referenceBearing = Math.atan2(targetX - shooterX, targetY - shooterY);
+        double mea = MathUtils.maxEscapeAngle(context.bulletSpeed);
+        ShotSolution bestShot = null;
+        double bestWeight = Double.NEGATIVE_INFINITY;
+        for (AntiSurferExpertId expertId : AntiSurferExpertId.VALUES) {
+            ExpertPrediction prediction = snapshot.get(expertId);
+            if (prediction == null) {
+                continue;
+            }
+            double weight = combinedWeights != null
+                    && expertId.ordinal() < combinedWeights.length
+                    && Double.isFinite(combinedWeights[expertId.ordinal()])
+                    ? Math.max(0.0, combinedWeights[expertId.ordinal()])
+                    : 1.0;
+            if (!(weight > 0.0)) {
+                continue;
+            }
+            double desiredFiringAngle = MathUtils.gfToAngle(referenceBearing, prediction.centerGf, mea);
+            ShotSolution shot = gun.evaluateShotAtAngleFromPosition(
+                    shooterX,
+                    shooterY,
+                    targetX,
+                    targetY,
+                    firePower,
+                    desiredFiringAngle,
+                    gunHeadingAtDecision,
+                    ticksUntilFire);
+            if (shot == null || !Double.isFinite(shot.firingAngle)) {
+                continue;
+            }
+            if (weight > bestWeight) {
+                bestWeight = weight;
+                bestShot = shot;
+            }
+        }
+        return bestShot;
     }
 
     private AntiSurferExpertSnapshot gunSnapshotFor(WaveContextFeatures.WaveContext context) {
