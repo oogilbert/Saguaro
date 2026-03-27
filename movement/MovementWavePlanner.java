@@ -227,7 +227,9 @@ final class MovementWavePlanner {
         if (opponent == null || !opponent.alive || !opponent.seenThisRound) {
             return scoringWaves;
         }
-        if (!BotConfig.Movement.ENABLE_VIRTUAL_WAVES || opponent.energy <= 0.0) {
+        if (!BotConfig.Movement.ENABLE_VIRTUAL_WAVES
+                || !info.getObservationProfile().shouldUseVirtualMovementWaves()
+                || opponent.energy <= 0.0) {
             return scoringWaves;
         }
 

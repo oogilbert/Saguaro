@@ -179,6 +179,7 @@ public class EnemyInfo {
                         observationProfile.createMovementDistribution(firedWave.fireTimeContext));
                 firedWave.fireTimeRenderGfMarkers =
                         observationProfile.createMovementRenderGfMarkers(firedWave.fireTimeContext);
+                firedWave.renderReachableGfInterval = null;
                 lastDetectedBulletPower = firepower;
                 gunHeat = 1.0 + firepower / 5.0;
             }

@@ -82,6 +82,7 @@ public class Info {
                             List<PathOverlay> pathOverlays,
                             boolean renderDefaultWaveGraphics) {
         waveManager.update();
+        observationProfile.prepareWaveRenderState(this, waveManager.getEnemyWaves(), waveManager.getMyWaves());
         if (renderDefaultWaveGraphics) {
             waveRenderer.render(
                     g,

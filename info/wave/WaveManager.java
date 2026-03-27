@@ -52,12 +52,21 @@ public class WaveManager {
         final double power;
         final double hitX;
         final double hitY;
+        final double robotX;
+        final double robotY;
         final long time;
 
-        PendingEnemyBulletHit(double power, double hitX, double hitY, long time) {
+        PendingEnemyBulletHit(double power,
+                              double hitX,
+                              double hitY,
+                              double robotX,
+                              double robotY,
+                              long time) {
             this.power = power;
             this.hitX = hitX;
             this.hitY = hitY;
+            this.robotX = robotX;
+            this.robotY = robotY;
             this.time = time;
         }
     }
@@ -180,11 +189,17 @@ public class WaveManager {
         if (isAcceptableEnemyWaveMatch(match, DEFERRED_HIT_BY_BULLET_RADIUS_TOLERANCE)) {
             MovementObservationResult movementObservation =
                     logEnemyWaveMovementResult(match.wave, pendingEnemyBulletHit.hitX, pendingEnemyBulletHit.hitY);
+            double[] movementInterval = computeEnemyWaveBodyGfInterval(
+                    match.wave,
+                    pendingEnemyBulletHit.robotX,
+                    pendingEnemyBulletHit.robotY,
+                    pendingEnemyBulletHit.time);
             enemyWaves.remove(match.wave);
             if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
             }
             logFlattenerVisitForWave(match.wave, pendingEnemyBulletHit.hitX, pendingEnemyBulletHit.hitY);
+            logResolvedMovementWaveInterval(match.wave, movementInterval);
             if (movementObservation.logged) {
                 info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
             }
@@ -300,6 +315,7 @@ public class WaveManager {
                 gfMax,
                 true,
                 wave.allowTargetingModelUpdate);
+        info.getObservationProfile().onResolvedGunWave(wave, gfMin, gfMax);
     }
 
     private MovementObservationResult logEnemyWaveMovementResult(Wave wave, double hitX, double hitY) {
@@ -326,6 +342,47 @@ public class WaveManager {
                 true,
                 wave.allowMovementModelUpdate);
         return new MovementObservationResult(true, gf);
+    }
+
+    private double[] computeEnemyWaveBodyGfInterval(Wave wave,
+                                                    double robotX,
+                                                    double robotY,
+                                                    long time) {
+        if (wave == null
+                || wave.fireTimeContext == null
+                || Double.isNaN(wave.targetX)
+                || Double.isNaN(wave.targetY)) {
+            return null;
+        }
+        long intervalStartTime = Math.max(wave.fireTime, time - 1L);
+        double innerRadius = wave.getRadius(intervalStartTime);
+        double outerRadius = wave.getRadius(time);
+        double[] angularInterval = RobotHitbox.annulusAngularInterval(
+                wave.originX,
+                wave.originY,
+                innerRadius,
+                outerRadius,
+                robotX,
+                robotY);
+        if (angularInterval == null) {
+            return null;
+        }
+        double referenceBearing = Math.atan2(
+                wave.targetX - wave.originX,
+                wave.targetY - wave.originY);
+        double mea = MathUtils.maxEscapeAngle(wave.speed);
+        return RobotHitbox.toGuessFactorInterval(
+                angularInterval[0],
+                angularInterval[1],
+                referenceBearing,
+                mea);
+    }
+
+    private void logResolvedMovementWaveInterval(Wave wave, double[] gfInterval) {
+        if (gfInterval == null || gfInterval.length < 2) {
+            return;
+        }
+        info.getObservationProfile().onResolvedMovementWave(wave, gfInterval[0], gfInterval[1]);
     }
 
     private void refreshEnemyWaveDistributions() {
@@ -386,8 +443,14 @@ public class WaveManager {
                     && wave.hasPassed(robotX, robotY, removalCheckTime);
             if (passedRobot || wave.getRadius(time) > maxDistance) {
                 if (passedRobot) {
+                    double[] movementInterval = computeEnemyWaveBodyGfInterval(
+                            wave,
+                            robotX,
+                            robotY,
+                            removalCheckTime);
                     logFlattenerVisitForWave(wave, robotX, robotY);
                     info.onEnemyWavePassedRobot(wave);
+                    logResolvedMovementWaveInterval(wave, movementInterval);
                 }
                 it.remove();
             }
@@ -409,6 +472,9 @@ public class WaveManager {
 
     public Wave validateAndRemoveMyWave(BulletHitBulletEvent e) {
         Wave matchedWave = findMyWave(e.getBullet());
+        if (matchedWave != null) {
+            info.getObservationProfile().onInvalidatedGunWave(matchedWave);
+        }
         removeMyWave(matchedWave, "BulletHitBullet");
         return matchedWave;
     }
@@ -420,11 +486,17 @@ public class WaveManager {
         if (isAcceptableEnemyWaveMatch(match, STRICT_ENEMY_WAVE_RADIUS_TOLERANCE)) {
             MovementObservationResult movementObservation =
                     logEnemyWaveMovementResult(match.wave, bullet.getX(), bullet.getY());
+            double[] movementInterval = computeEnemyWaveBodyGfInterval(
+                    match.wave,
+                    robot.getX(),
+                    robot.getY(),
+                    e.getTime());
             enemyWaves.remove(match.wave);
             if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
             }
             logFlattenerVisitForWave(match.wave, bullet.getX(), bullet.getY());
+            logResolvedMovementWaveInterval(match.wave, movementInterval);
             if (movementObservation.logged) {
                 info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
             }
@@ -435,6 +507,8 @@ public class WaveManager {
                 bullet.getPower(),
                 bullet.getX(),
                 bullet.getY(),
+                robot.getX(),
+                robot.getY(),
                 e.getTime());
         return null;
     }
@@ -449,11 +523,17 @@ public class WaveManager {
         if (match.wave != null) {
             MovementObservationResult movementObservation =
                     logEnemyWaveMovementResultForBearing(match.wave, bullet.getHeadingRadians());
+            double[] movementInterval = computeEnemyWaveBodyGfInterval(
+                    match.wave,
+                    robot.getX(),
+                    robot.getY(),
+                    e.getTime());
             enemyWaves.remove(match.wave);
             if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
             }
             logFlattenerVisitForWave(match.wave, robot.getX(), robot.getY());
+            logResolvedMovementWaveInterval(match.wave, movementInterval);
             if (movementObservation.logged) {
                 info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
             }

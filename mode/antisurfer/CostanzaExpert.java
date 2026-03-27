@@ -35,23 +35,39 @@ final class CostanzaExpert {
     static ExpertPrediction createGunPrediction(WaveContextFeatures.WaveContext context,
                                                 EnemyInfo enemy,
                                                 Info info) {
+        return createGunPrediction(
+                context,
+                AntiSurferSourceExpertCatalog.createGunSourceSnapshot(context, enemy, info));
+    }
+
+    static ExpertPrediction createGunPrediction(WaveContextFeatures.WaveContext context,
+                                                AntiSurferExpertSnapshot sourceSnapshot) {
         return createPrediction(
                 context,
-                AntiSurferSourceExpertCatalog.createGunSourcePredictions(context, enemy, info),
+                sourceSnapshot,
                 BotConfig.Learning.DEFAULT_TARGETING_KDE_BANDWIDTH);
     }
 
     static ExpertPrediction createMovementPrediction(WaveContextFeatures.WaveContext context,
                                                      Info info) {
+        return createMovementPrediction(
+                context,
+                AntiSurferSourceExpertCatalog.createMovementSourceSnapshot(context, info));
+    }
+
+    static ExpertPrediction createMovementPrediction(WaveContextFeatures.WaveContext context,
+                                                     AntiSurferExpertSnapshot sourceSnapshot) {
         return createPrediction(
                 context,
-                AntiSurferSourceExpertCatalog.createMovementSourcePredictions(context, info),
+                sourceSnapshot,
                 BotConfig.Learning.DEFAULT_MOVEMENT_KDE_BANDWIDTH);
     }
 
     private static ExpertPrediction createPrediction(WaveContextFeatures.WaveContext context,
-                                                     List<ExpertPrediction> sourcePredictions,
+                                                     AntiSurferExpertSnapshot sourceSnapshot,
                                                      double bandwidth) {
+        List<ExpertPrediction> sourcePredictions =
+                sourceSnapshot != null ? sourceSnapshot.activePredictions() : Collections.<ExpertPrediction>emptyList();
         if (sourcePredictions == null || sourcePredictions.isEmpty()) {
             return null;
         }

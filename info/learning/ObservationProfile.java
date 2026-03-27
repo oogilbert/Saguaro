@@ -1,5 +1,9 @@
 package oog.mega.saguaro.info.learning;
 
+import java.util.List;
+
+import oog.mega.saguaro.info.Info;
+import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.GuessFactorDistribution;
 
@@ -62,6 +66,24 @@ public interface ObservationProfile {
         return null;
     }
 
+    default void onResolvedGunWave(Wave wave,
+                                   double gfMin,
+                                   double gfMax) {
+    }
+
+    default void onInvalidatedGunWave(Wave wave) {
+    }
+
+    default void onResolvedMovementWave(Wave wave,
+                                        double gfMin,
+                                        double gfMax) {
+    }
+
+    default void prepareWaveRenderState(Info info,
+                                        List<Wave> enemyWaves,
+                                        List<Wave> myWaves) {
+    }
+
     default void onResolvedEnemyWaveHit(WaveContextFeatures.WaveContext context,
                                         double gf) {
     }
@@ -75,6 +97,10 @@ public interface ObservationProfile {
     }
 
     default boolean shouldUpdateMovementModel() {
+        return true;
+    }
+
+    default boolean shouldUseVirtualMovementWaves() {
         return true;
     }
 }

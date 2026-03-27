@@ -37,6 +37,7 @@ public final class Wave {
     public WaveContextFeatures.WaveContext fireTimeContext;
     public GuessFactorDistributionHandle fireTimeDistributionHandle;
     public double[] fireTimeRenderGfMarkers;
+    public double[] renderReachableGfInterval;
     public boolean allowTargetingModelUpdate;
     public boolean allowMovementModelUpdate;
     public boolean allowMovementObservationLogging;

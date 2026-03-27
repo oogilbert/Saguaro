@@ -1,8 +1,5 @@
 package oog.mega.saguaro.mode.antisurfer;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
@@ -11,59 +8,63 @@ final class AntiSurferSourceExpertCatalog {
     private AntiSurferSourceExpertCatalog() {
     }
 
-    static List<ExpertPrediction> createGunSourcePredictions(WaveContextFeatures.WaveContext context,
-                                                             EnemyInfo enemy,
-                                                             Info info) {
-        List<ExpertPrediction> predictions = new ArrayList<ExpertPrediction>();
-        addIfPresent(predictions, StateContinuationExpert.createGunPrediction(context));
-        addIfPresent(predictions, MiniPatternRepeaterExpert.createGunPrediction(context, enemy));
-        addIfPresent(predictions, AlternatingMiniPatternRepeaterExpert.createGunPrediction(context, enemy));
-        addIfPresent(predictions, StopAimerExpert.createGunPrediction(context));
-        addIfPresent(predictions, EscapeAheadExpert.createGunPrediction(context));
-        addIfPresent(predictions, EscapeReverseExpert.createGunPrediction(context));
-        addIfPresent(predictions, LastDisplacementExpert.createGunPrediction(context, enemy));
-        addIfPresent(predictions, ReverseLastDisplacementExpert.createGunPrediction(context, enemy));
-        addIfPresent(predictions, HalfAheadExpert.createGunPrediction(context));
-        addIfPresent(predictions, HalfReverseExpert.createGunPrediction(context));
-        addIfPresent(predictions, CenterOfMassExpert.createGunPrediction(context));
-        return predictions;
+    static AntiSurferExpertSnapshot createGunSourceSnapshot(WaveContextFeatures.WaveContext context,
+                                                            EnemyInfo enemy,
+                                                            Info info) {
+        AntiSurferPreciseMea.range(context);
+        AntiSurferExpertSnapshot snapshot = new AntiSurferExpertSnapshot();
+        snapshot.set(AntiSurferExpertId.STATE_CONTINUATION, StateContinuationExpert.createGunPrediction(context));
+        snapshot.set(AntiSurferExpertId.MINI_PATTERN, MiniPatternRepeaterExpert.createGunPrediction(context, enemy));
+        snapshot.set(
+                AntiSurferExpertId.ALTERNATING_MINI_PATTERN,
+                AlternatingMiniPatternRepeaterExpert.createGunPrediction(context, enemy));
+        snapshot.set(AntiSurferExpertId.STOP, StopAimerExpert.createGunPrediction(context));
+        snapshot.set(AntiSurferExpertId.ESCAPE_AHEAD, EscapeAheadExpert.createGunPrediction(context));
+        snapshot.set(AntiSurferExpertId.ESCAPE_REVERSE, EscapeReverseExpert.createGunPrediction(context));
+        snapshot.set(AntiSurferExpertId.LAST_DISPLACEMENT, LastDisplacementExpert.createGunPrediction(context, enemy));
+        snapshot.set(
+                AntiSurferExpertId.REVERSE_LAST_DISPLACEMENT,
+                ReverseLastDisplacementExpert.createGunPrediction(context, enemy));
+        snapshot.set(AntiSurferExpertId.HALF_AHEAD, HalfAheadExpert.createGunPrediction(context));
+        snapshot.set(AntiSurferExpertId.HALF_REVERSE, HalfReverseExpert.createGunPrediction(context));
+        snapshot.set(AntiSurferExpertId.CENTER_OF_MASS, CenterOfMassExpert.createGunPrediction(context));
+        return snapshot;
     }
 
-    static List<ExpertPrediction> createMovementSourcePredictions(WaveContextFeatures.WaveContext context,
-                                                                  Info info) {
-        List<ExpertPrediction> predictions = new ArrayList<ExpertPrediction>();
-        addIfPresent(predictions, StateContinuationExpert.createMovementPrediction(context));
-        addIfPresent(predictions, MiniPatternRepeaterExpert.createMovementPrediction(context, info));
-        addIfPresent(predictions, AlternatingMiniPatternRepeaterExpert.createMovementPrediction(context, info));
-        addIfPresent(predictions, StopAimerExpert.createMovementPrediction(context));
-        addIfPresent(predictions, EscapeAheadExpert.createMovementPrediction(context));
-        addIfPresent(predictions, EscapeReverseExpert.createMovementPrediction(context));
-        addIfPresent(predictions, LastDisplacementExpert.createMovementPrediction(context, info));
-        addIfPresent(predictions, ReverseLastDisplacementExpert.createMovementPrediction(context, info));
-        addIfPresent(predictions, HalfAheadExpert.createMovementPrediction(context));
-        addIfPresent(predictions, HalfReverseExpert.createMovementPrediction(context));
-        addIfPresent(predictions, CenterOfMassExpert.createMovementPrediction(context));
-        return predictions;
+    static AntiSurferExpertSnapshot createMovementSourceSnapshot(WaveContextFeatures.WaveContext context,
+                                                                 Info info) {
+        AntiSurferPreciseMea.range(context);
+        AntiSurferExpertSnapshot snapshot = new AntiSurferExpertSnapshot();
+        snapshot.set(AntiSurferExpertId.STATE_CONTINUATION, StateContinuationExpert.createMovementPrediction(context));
+        snapshot.set(AntiSurferExpertId.MINI_PATTERN, MiniPatternRepeaterExpert.createMovementPrediction(context, info));
+        snapshot.set(
+                AntiSurferExpertId.ALTERNATING_MINI_PATTERN,
+                AlternatingMiniPatternRepeaterExpert.createMovementPrediction(context, info));
+        snapshot.set(AntiSurferExpertId.STOP, StopAimerExpert.createMovementPrediction(context));
+        snapshot.set(AntiSurferExpertId.ESCAPE_AHEAD, EscapeAheadExpert.createMovementPrediction(context));
+        snapshot.set(AntiSurferExpertId.ESCAPE_REVERSE, EscapeReverseExpert.createMovementPrediction(context));
+        snapshot.set(AntiSurferExpertId.LAST_DISPLACEMENT, LastDisplacementExpert.createMovementPrediction(context, info));
+        snapshot.set(
+                AntiSurferExpertId.REVERSE_LAST_DISPLACEMENT,
+                ReverseLastDisplacementExpert.createMovementPrediction(context, info));
+        snapshot.set(AntiSurferExpertId.HALF_AHEAD, HalfAheadExpert.createMovementPrediction(context));
+        snapshot.set(AntiSurferExpertId.HALF_REVERSE, HalfReverseExpert.createMovementPrediction(context));
+        snapshot.set(AntiSurferExpertId.CENTER_OF_MASS, CenterOfMassExpert.createMovementPrediction(context));
+        return snapshot;
     }
 
-    static List<ExpertPrediction> createGunAllPredictions(WaveContextFeatures.WaveContext context,
-                                                          EnemyInfo enemy,
-                                                          Info info) {
-        List<ExpertPrediction> predictions = createGunSourcePredictions(context, enemy, info);
-        addIfPresent(predictions, CostanzaExpert.createGunPrediction(context, enemy, info));
-        return predictions;
+    static AntiSurferExpertSnapshot createGunAllSnapshot(WaveContextFeatures.WaveContext context,
+                                                         EnemyInfo enemy,
+                                                         Info info) {
+        AntiSurferExpertSnapshot snapshot = createGunSourceSnapshot(context, enemy, info);
+        snapshot.set(AntiSurferExpertId.COSTANZA, CostanzaExpert.createGunPrediction(context, snapshot));
+        return snapshot;
     }
 
-    static List<ExpertPrediction> createMovementAllPredictions(WaveContextFeatures.WaveContext context,
-                                                               Info info) {
-        List<ExpertPrediction> predictions = createMovementSourcePredictions(context, info);
-        addIfPresent(predictions, CostanzaExpert.createMovementPrediction(context, info));
-        return predictions;
-    }
-
-    private static void addIfPresent(List<ExpertPrediction> predictions, ExpertPrediction prediction) {
-        if (prediction != null && prediction.trajectory != null) {
-            predictions.add(prediction);
-        }
+    static AntiSurferExpertSnapshot createMovementAllSnapshot(WaveContextFeatures.WaveContext context,
+                                                              Info info) {
+        AntiSurferExpertSnapshot snapshot = createMovementSourceSnapshot(context, info);
+        snapshot.set(AntiSurferExpertId.COSTANZA, CostanzaExpert.createMovementPrediction(context, snapshot));
+        return snapshot;
     }
 }

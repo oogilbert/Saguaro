@@ -1,5 +1,9 @@
 package oog.mega.saguaro.info.learning;
 
+import java.util.List;
+
+import oog.mega.saguaro.info.Info;
+import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.GuessFactorDistribution;
 
@@ -121,6 +125,32 @@ public final class ModeObservationProfile implements ObservationProfile {
     }
 
     @Override
+    public void onResolvedGunWave(Wave wave,
+                                  double gfMin,
+                                  double gfMax) {
+        delegate.onResolvedGunWave(wave, gfMin, gfMax);
+    }
+
+    @Override
+    public void onInvalidatedGunWave(Wave wave) {
+        delegate.onInvalidatedGunWave(wave);
+    }
+
+    @Override
+    public void onResolvedMovementWave(Wave wave,
+                                       double gfMin,
+                                       double gfMax) {
+        delegate.onResolvedMovementWave(wave, gfMin, gfMax);
+    }
+
+    @Override
+    public void prepareWaveRenderState(Info info,
+                                       List<Wave> enemyWaves,
+                                       List<Wave> myWaves) {
+        delegate.prepareWaveRenderState(info, enemyWaves, myWaves);
+    }
+
+    @Override
     public void onResolvedEnemyWaveHit(WaveContextFeatures.WaveContext context,
                                        double gf) {
         delegate.onResolvedEnemyWaveHit(context, gf);
@@ -139,5 +169,10 @@ public final class ModeObservationProfile implements ObservationProfile {
     @Override
     public boolean shouldUpdateMovementModel() {
         return policy.updateMovementModel;
+    }
+
+    @Override
+    public boolean shouldUseVirtualMovementWaves() {
+        return delegate.shouldUseVirtualMovementWaves();
     }
 }

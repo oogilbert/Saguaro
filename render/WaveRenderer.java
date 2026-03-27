@@ -18,9 +18,11 @@ import oog.mega.saguaro.math.MathUtils;
 public final class WaveRenderer {
     private static final int ARC_SEGMENTS = 160;
     private static final int EXPERT_TICK_HALF_LENGTH = 4;
+    private static final int REACHABLE_INTERVAL_SEGMENTS = 48;
     private static final Color OUTSIDE_PRECISE_MEA_COLOR = new Color(120, 120, 120);
     private static final Color FULL_SHADOW_COLOR = Color.BLACK;
     private static final Color HALF_SHADOW_COLOR = Color.GRAY;
+    private static final Color REACHABLE_INTERVAL_COLOR = new Color(120, 220, 255);
     private static final Color EXPERT_TICK_OUTLINE_COLOR = Color.BLACK;
     private static final Color EXPERT_TICK_INNER_COLOR = Color.WHITE;
     private static final List<BulletShadowUtil.WeightedGfInterval> NO_SHADOW_INTERVALS = Collections.emptyList();
@@ -102,6 +104,7 @@ public final class WaveRenderer {
                     activeShadowIntervals,
                     samples.values,
                     samples.max);
+            drawReachableInterval(graphics, wave, radius, referenceBearing, mea);
             drawExpertTicks(graphics, wave, radius, referenceBearing, mea);
         }
 
@@ -234,6 +237,9 @@ public final class WaveRenderer {
         }
         Stroke oldStroke = graphics.getStroke();
         for (double gf : wave.fireTimeRenderGfMarkers) {
+            if (!Double.isFinite(gf)) {
+                continue;
+            }
             double angle = MathUtils.gfToAngle(referenceBearing, gf, mea);
             double radialX = FastTrig.sin(angle);
             double radialY = FastTrig.cos(angle);
@@ -250,6 +256,68 @@ public final class WaveRenderer {
             graphics.setStroke(new BasicStroke(1f));
             graphics.drawLine(x1, y1, x2, y2);
         }
+        graphics.setStroke(oldStroke);
+    }
+
+    private static void drawReachableInterval(Graphics2D graphics,
+                                              Wave wave,
+                                              double radius,
+                                              double referenceBearing,
+                                              double mea) {
+        if (wave.renderReachableGfInterval == null || wave.renderReachableGfInterval.length < 2) {
+            return;
+        }
+        double minGf = wave.renderReachableGfInterval[0];
+        double maxGf = wave.renderReachableGfInterval[1];
+        if (!Double.isFinite(minGf) || !Double.isFinite(maxGf)) {
+            return;
+        }
+        if (Math.abs(maxGf - minGf) <= 1e-9) {
+            drawCollapsedReachableTick(graphics, wave, radius, referenceBearing, mea, minGf);
+            return;
+        }
+        Stroke oldStroke = graphics.getStroke();
+        graphics.setColor(REACHABLE_INTERVAL_COLOR);
+        graphics.setStroke(new BasicStroke(2.5f));
+        double prevAngle = MathUtils.gfToAngle(referenceBearing, minGf, mea);
+        double prevX = wave.originX + radius * FastTrig.sin(prevAngle);
+        double prevY = wave.originY + radius * FastTrig.cos(prevAngle);
+        for (int i = 1; i <= REACHABLE_INTERVAL_SEGMENTS; i++) {
+            double fraction = i / (double) REACHABLE_INTERVAL_SEGMENTS;
+            double gf = minGf + (maxGf - minGf) * fraction;
+            double angle = MathUtils.gfToAngle(referenceBearing, gf, mea);
+            double x = wave.originX + radius * FastTrig.sin(angle);
+            double y = wave.originY + radius * FastTrig.cos(angle);
+            graphics.drawLine(
+                    (int) Math.round(prevX),
+                    (int) Math.round(prevY),
+                    (int) Math.round(x),
+                    (int) Math.round(y));
+            prevX = x;
+            prevY = y;
+        }
+        graphics.setStroke(oldStroke);
+    }
+
+    private static void drawCollapsedReachableTick(Graphics2D graphics,
+                                                   Wave wave,
+                                                   double radius,
+                                                   double referenceBearing,
+                                                   double mea,
+                                                   double gf) {
+        Stroke oldStroke = graphics.getStroke();
+        double angle = MathUtils.gfToAngle(referenceBearing, gf, mea);
+        double radialX = FastTrig.sin(angle);
+        double radialY = FastTrig.cos(angle);
+        double x = wave.originX + radius * radialX;
+        double y = wave.originY + radius * radialY;
+        int x1 = (int) Math.round(x - radialX * (EXPERT_TICK_HALF_LENGTH + 1));
+        int y1 = (int) Math.round(y - radialY * (EXPERT_TICK_HALF_LENGTH + 1));
+        int x2 = (int) Math.round(x + radialX * (EXPERT_TICK_HALF_LENGTH + 1));
+        int y2 = (int) Math.round(y + radialY * (EXPERT_TICK_HALF_LENGTH + 1));
+        graphics.setColor(REACHABLE_INTERVAL_COLOR);
+        graphics.setStroke(new BasicStroke(3f));
+        graphics.drawLine(x1, y1, x2, y2);
         graphics.setStroke(oldStroke);
     }
 
