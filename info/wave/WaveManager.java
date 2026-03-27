@@ -211,7 +211,7 @@ public class WaveManager {
                         movementInterval[1]);
             }
             if (movementObservation.logged) {
-                info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
+                info.getObservationProfile().onResolvedEnemyWaveHit(match.wave, movementObservation.gf);
             }
             pendingEnemyBulletHit = null;
             return match.wave;
@@ -408,7 +408,7 @@ public class WaveManager {
             wave.fireTimeRecentExpertScores =
                     info.getObservationProfile().createMovementRecentPerformanceScores(wave.fireTimeContext);
             wave.fireTimeRenderGfMarkers =
-                    info.getObservationProfile().createMovementRenderGfMarkers(wave.fireTimeContext);
+                    info.getObservationProfile().createMovementRenderGfMarkers(wave);
         }
     }
 
@@ -519,7 +519,7 @@ public class WaveManager {
                         movementInterval[1]);
             }
             if (movementObservation.logged) {
-                info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
+                info.getObservationProfile().onResolvedEnemyWaveHit(match.wave, movementObservation.gf);
             }
             pendingEnemyBulletHit = null;
             return match.wave;
@@ -562,7 +562,7 @@ public class WaveManager {
                         movementInterval[1]);
             }
             if (movementObservation.logged) {
-                info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
+                info.getObservationProfile().onResolvedEnemyWaveHit(match.wave, movementObservation.gf);
             }
             return match.wave;
         }

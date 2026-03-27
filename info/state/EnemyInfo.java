@@ -180,7 +180,7 @@ public class EnemyInfo {
                 firedWave.fireTimeRecentExpertScores =
                         observationProfile.createMovementRecentPerformanceScores(firedWave.fireTimeContext);
                 firedWave.fireTimeRenderGfMarkers =
-                        observationProfile.createMovementRenderGfMarkers(firedWave.fireTimeContext);
+                        observationProfile.createMovementRenderGfMarkers(firedWave);
                 firedWave.fireTimeHistoricalSignaturePoint =
                         observationProfile.createMovementHistoricalSignaturePoint(firedWave.fireTimeContext);
                 firedWave.renderReachableGfInterval = null;

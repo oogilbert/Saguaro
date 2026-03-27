@@ -141,6 +141,14 @@ public final class ModeObservationProfile implements ObservationProfile {
     }
 
     @Override
+    public double[] createMovementRenderGfMarkers(Wave wave) {
+        if (!policy.useMovementDistributions) {
+            return null;
+        }
+        return delegate.createMovementRenderGfMarkers(wave);
+    }
+
+    @Override
     public double[] createGunHistoricalSignaturePoint(WaveContextFeatures.WaveContext context) {
         if (!policy.useTargetingDistributions) {
             return null;
@@ -193,6 +201,12 @@ public final class ModeObservationProfile implements ObservationProfile {
     public void onResolvedEnemyWaveHit(WaveContextFeatures.WaveContext context,
                                        double gf) {
         delegate.onResolvedEnemyWaveHit(context, gf);
+    }
+
+    @Override
+    public void onResolvedEnemyWaveHit(Wave wave,
+                                       double gf) {
+        delegate.onResolvedEnemyWaveHit(wave, gf);
     }
 
     @Override

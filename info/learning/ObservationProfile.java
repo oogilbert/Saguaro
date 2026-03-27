@@ -74,6 +74,10 @@ public interface ObservationProfile {
         return null;
     }
 
+    default double[] createMovementRenderGfMarkers(Wave wave) {
+        return wave != null ? createMovementRenderGfMarkers(wave.fireTimeContext) : null;
+    }
+
     default double[] createGunHistoricalSignaturePoint(WaveContextFeatures.WaveContext context) {
         return null;
     }
@@ -107,6 +111,13 @@ public interface ObservationProfile {
 
     default void onResolvedEnemyWaveHit(WaveContextFeatures.WaveContext context,
                                         double gf) {
+    }
+
+    default void onResolvedEnemyWaveHit(Wave wave,
+                                        double gf) {
+        if (wave != null) {
+            onResolvedEnemyWaveHit(wave.fireTimeContext, gf);
+        }
     }
 
     default boolean shouldRefreshEnemyWavesAfterResolvedHit() {

@@ -30,8 +30,6 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     private Info info;
     private final Map<WaveContextFeatures.WaveContext, ShotDodgerExpertSnapshot> movementSnapshotCache =
             createSnapshotCache();
-    private final Map<WaveContextFeatures.WaveContext, double[]> movementCentersByContext =
-            createCenterCache();
     private final Map<Wave, PendingPassSample> pendingPassSamples = new IdentityHashMap<Wave, PendingPassSample>();
     private final double[] movementScoreSums = new double[ShotDodgerExpertId.VALUES.length];
     private final double[] movementScoreWeights = new double[ShotDodgerExpertId.VALUES.length];
@@ -42,7 +40,6 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
             Arrays.fill(movementScoreSums, 0.0);
             Arrays.fill(movementScoreWeights, 0.0);
             pendingPassSamples.clear();
-            movementCentersByContext.clear();
         }
         movementSnapshotCache.clear();
     }
@@ -103,11 +100,19 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         if (snapshot == null) {
             return null;
         }
-        double[] centers = snapshot.centers();
-        if (context != null) {
-            movementCentersByContext.put(context, centers.clone());
+        return ShotDodgerExpertTransforms.createRenderGfMarkers(snapshot, null);
+    }
+
+    @Override
+    public double[] createMovementRenderGfMarkers(Wave wave) {
+        if (wave == null) {
+            return null;
         }
-        return centers;
+        ShotDodgerExpertSnapshot snapshot = movementSnapshotFor(wave.fireTimeContext);
+        if (snapshot == null) {
+            return null;
+        }
+        return ShotDodgerExpertTransforms.createRenderGfMarkers(snapshot, wave);
     }
 
     @Override
@@ -137,9 +142,9 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     }
 
     @Override
-    public void onResolvedEnemyWaveHit(WaveContextFeatures.WaveContext context,
+    public void onResolvedEnemyWaveHit(Wave wave,
                                        double gf) {
-        double[] exactScores = scoreExactPredictions(centersForContext(context), gf);
+        double[] exactScores = scoreExactPredictions(centersForWave(wave), gf);
         applyMovementSample(exactScores);
     }
 
@@ -180,7 +185,20 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     }
 
     ShotDodgerExpertId currentBestMovementExpertId() {
-        return ShotDodgerExpertId.HEAD_ON;
+        double[] currentScores = currentMovementScoreSnapshot();
+        ShotDodgerExpertId bestExpertId = ShotDodgerExpertId.HEAD_ON;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (ShotDodgerExpertId expertId : ShotDodgerExpertId.VALUES) {
+            double score = currentScores[expertId.ordinal()];
+            if (!Double.isFinite(score)) {
+                continue;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestExpertId = expertId;
+            }
+        }
+        return bestExpertId;
     }
 
     private ShotDodgerExpertSnapshot movementSnapshotFor(WaveContextFeatures.WaveContext context) {
@@ -194,7 +212,6 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         snapshot = ShotDodgerSourceExpertCatalog.createMovementSnapshot(context);
         if (snapshot != null) {
             movementSnapshotCache.put(context, snapshot);
-            movementCentersByContext.put(context, snapshot.centers());
         }
         return snapshot;
     }
@@ -210,15 +227,8 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     }
 
     private double[] centersForContext(WaveContextFeatures.WaveContext context) {
-        if (context == null) {
-            return null;
-        }
-        double[] centers = movementCentersByContext.get(context);
-        if (centers != null) {
-            return centers;
-        }
         ShotDodgerExpertSnapshot snapshot = movementSnapshotFor(context);
-        return snapshot != null ? snapshot.centers() : null;
+        return snapshot != null ? ShotDodgerExpertTransforms.createRenderGfMarkers(snapshot, null) : null;
     }
 
     private void applyMovementSample(double[] sampleScores) {
@@ -312,15 +322,6 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         return new LinkedHashMap<WaveContextFeatures.WaveContext, ShotDodgerExpertSnapshot>(32, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<WaveContextFeatures.WaveContext, ShotDodgerExpertSnapshot> eldest) {
-                return size() > SNAPSHOT_CACHE_CAPACITY;
-            }
-        };
-    }
-
-    private static Map<WaveContextFeatures.WaveContext, double[]> createCenterCache() {
-        return new LinkedHashMap<WaveContextFeatures.WaveContext, double[]>(64, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<WaveContextFeatures.WaveContext, double[]> eldest) {
                 return size() > SNAPSHOT_CACHE_CAPACITY;
             }
         };
