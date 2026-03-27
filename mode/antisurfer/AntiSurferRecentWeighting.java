@@ -10,7 +10,8 @@ import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.wave.Wave;
 
 final class AntiSurferRecentWeighting {
-    private static final int RESOLVED_WINDOW = 8;
+    private static final int GUN_RESOLVED_WINDOW = 8;
+    private static final int MOVEMENT_RESOLVED_WINDOW = 5;
     private static final int IN_FLIGHT_WINDOW = 8;
     private static final double WAVE_DECAY = 0.65;
     private static final double MIN_ACTIVE_WEIGHT = 1e-3;
@@ -19,8 +20,13 @@ final class AntiSurferRecentWeighting {
     private final Deque<WaveScoreRecord> recentGunWaveScores = new ArrayDeque<WaveScoreRecord>();
     private final Deque<WaveScoreRecord> recentMovementWaveScores = new ArrayDeque<WaveScoreRecord>();
 
+    void clear() {
+        recentGunWaveScores.clear();
+        recentMovementWaveScores.clear();
+    }
+
     void onResolvedGunWave(Wave wave, double gfMin, double gfMax) {
-        addWaveScore(recentGunWaveScores, scoreCentersAgainstInterval(wave, gfMin, gfMax));
+        addWaveScore(recentGunWaveScores, scoreCentersAgainstInterval(wave, gfMin, gfMax), GUN_RESOLVED_WINDOW);
     }
 
     void onInvalidatedGunWave(Wave wave, Info info) {
@@ -40,22 +46,22 @@ final class AntiSurferRecentWeighting {
         addWaveScore(recentGunWaveScores, scoreCentersAgainstInterval(
                 wave,
                 reachableInterval[0],
-                reachableInterval[1]));
+                reachableInterval[1]), GUN_RESOLVED_WINDOW);
     }
 
     void onResolvedMovementWave(Wave wave, double gfMin, double gfMax) {
-        addWaveScore(recentMovementWaveScores, scoreCentersAgainstInterval(wave, gfMin, gfMax));
+        addWaveScore(recentMovementWaveScores, scoreCentersAgainstInterval(wave, gfMin, gfMax), MOVEMENT_RESOLVED_WINDOW);
     }
 
     double[] createGunWeights(Info info) {
-        double[] resolvedScores = aggregateRecentScores(recentGunWaveScores, RESOLVED_WINDOW);
+        double[] resolvedScores = aggregateRecentScores(recentGunWaveScores, GUN_RESOLVED_WINDOW);
         double[] inFlightScores = aggregateInFlightGunScores(info);
         return combineScores(resolvedScores, inFlightScores);
     }
 
     double[] createMovementWeights() {
         return combineScores(
-                aggregateRecentScores(recentMovementWaveScores, RESOLVED_WINDOW),
+                aggregateRecentScores(recentMovementWaveScores, MOVEMENT_RESOLVED_WINDOW),
                 null);
     }
 
@@ -119,12 +125,12 @@ final class AntiSurferRecentWeighting {
         return finalizeScores(numerator, denominator);
     }
 
-    private static void addWaveScore(Deque<WaveScoreRecord> queue, double[] scores) {
+    private static void addWaveScore(Deque<WaveScoreRecord> queue, double[] scores, int windowSize) {
         if (scores == null) {
             return;
         }
         queue.addLast(new WaveScoreRecord(scores));
-        while (queue.size() > RESOLVED_WINDOW * 2) {
+        while (queue.size() > windowSize * 2) {
             queue.removeFirst();
         }
     }

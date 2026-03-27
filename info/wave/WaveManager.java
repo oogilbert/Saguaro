@@ -142,6 +142,8 @@ public class WaveManager {
                     null);
             myWave.fireTimeDistributionHandle = GuessFactorDistributionHandle.orNull(
                     info.getObservationProfile().createGunDistribution(myWave.fireTimeContext));
+            myWave.fireTimeRecentExpertScores =
+                    info.getObservationProfile().createGunRecentPerformanceScores(myWave.fireTimeContext);
             myWave.fireTimeRenderGfMarkers =
                     info.getObservationProfile().createGunRenderGfMarkers(myWave.fireTimeContext);
         }
@@ -200,6 +202,12 @@ public class WaveManager {
             }
             logFlattenerVisitForWave(match.wave, pendingEnemyBulletHit.hitX, pendingEnemyBulletHit.hitY);
             logResolvedMovementWaveInterval(match.wave, movementInterval);
+            if (movementInterval != null) {
+                info.getObservationProfile().onResolvedMovementImpactWave(
+                        match.wave,
+                        movementInterval[0],
+                        movementInterval[1]);
+            }
             if (movementObservation.logged) {
                 info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
             }
@@ -497,6 +505,12 @@ public class WaveManager {
             }
             logFlattenerVisitForWave(match.wave, bullet.getX(), bullet.getY());
             logResolvedMovementWaveInterval(match.wave, movementInterval);
+            if (movementInterval != null) {
+                info.getObservationProfile().onResolvedMovementImpactWave(
+                        match.wave,
+                        movementInterval[0],
+                        movementInterval[1]);
+            }
             if (movementObservation.logged) {
                 info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
             }
@@ -534,6 +548,12 @@ public class WaveManager {
             }
             logFlattenerVisitForWave(match.wave, robot.getX(), robot.getY());
             logResolvedMovementWaveInterval(match.wave, movementInterval);
+            if (movementInterval != null) {
+                info.getObservationProfile().onResolvedMovementImpactWave(
+                        match.wave,
+                        movementInterval[0],
+                        movementInterval[1]);
+            }
             if (movementObservation.logged) {
                 info.getObservationProfile().onResolvedEnemyWaveHit(match.wave.fireTimeContext, movementObservation.gf);
             }

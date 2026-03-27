@@ -58,6 +58,14 @@ public interface ObservationProfile {
 
     GuessFactorDistribution createMovementDistribution(WaveContextFeatures.WaveContext context);
 
+    default double[] createGunRecentPerformanceScores(WaveContextFeatures.WaveContext context) {
+        return null;
+    }
+
+    default double[] createMovementRecentPerformanceScores(WaveContextFeatures.WaveContext context) {
+        return null;
+    }
+
     default double[] createGunRenderGfMarkers(WaveContextFeatures.WaveContext context) {
         return null;
     }
@@ -77,6 +85,11 @@ public interface ObservationProfile {
     default void onResolvedMovementWave(Wave wave,
                                         double gfMin,
                                         double gfMax) {
+    }
+
+    default void onResolvedMovementImpactWave(Wave wave,
+                                              double gfMin,
+                                              double gfMax) {
     }
 
     default void prepareWaveRenderState(Info info,

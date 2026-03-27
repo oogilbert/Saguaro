@@ -10,8 +10,12 @@ import oog.mega.saguaro.math.GuessFactorDistribution;
 
 final class AntiSurferObservationProfile implements ObservationProfile {
     private static final int SNAPSHOT_CACHE_CAPACITY = 256;
+    private static final double MIN_ACTIVE_WEIGHT = 1e-3;
 
     private Info info;
+    private final AntiSurferHistoricalWeighting historicalWeighting = new AntiSurferHistoricalWeighting();
+    private final AntiSurferLearnedRecentWeighting learnedRecentWeighting =
+            new AntiSurferLearnedRecentWeighting();
     private final AntiSurferRecentWeighting recentWeighting = new AntiSurferRecentWeighting();
     private final Map<WaveContextFeatures.WaveContext, AntiSurferExpertSnapshot> gunSnapshotCache =
             createSnapshotCache();
@@ -20,6 +24,11 @@ final class AntiSurferObservationProfile implements ObservationProfile {
 
     void setInfo(Info info) {
         this.info = info;
+        if (info != null && info.getRobot() != null && info.getRobot().getRoundNum() == 0) {
+            historicalWeighting.clear();
+            learnedRecentWeighting.clear();
+            recentWeighting.clear();
+        }
         gunSnapshotCache.clear();
         movementSnapshotCache.clear();
         AntiSurferPreciseMea.clearCache();
@@ -40,18 +49,34 @@ final class AntiSurferObservationProfile implements ObservationProfile {
 
     @Override
     public GuessFactorDistribution createGunDistribution(WaveContextFeatures.WaveContext context) {
+        double[] combinedWeights = combineWeights(
+                historicalWeighting.createGunWeights(context, info),
+                learnedRecentWeighting.createGunFactors(recentWeighting.createGunWeights(info)));
         ExpertPrediction prediction = ActiveAntiSurferExpert.createEnsemblePrediction(
                 gunSnapshotFor(context),
-                recentWeighting.createGunWeights(info));
+                combinedWeights);
         return prediction != null ? prediction.distribution : null;
     }
 
     @Override
     public GuessFactorDistribution createMovementDistribution(WaveContextFeatures.WaveContext context) {
+        double[] combinedWeights = combineWeights(
+                historicalWeighting.createMovementWeights(context, info),
+                learnedRecentWeighting.createMovementFactors(recentWeighting.createMovementWeights()));
         ExpertPrediction prediction = ActiveAntiSurferExpert.createEnsemblePrediction(
                 movementSnapshotFor(context),
-                recentWeighting.createMovementWeights());
+                combinedWeights);
         return prediction != null ? prediction.distribution : null;
+    }
+
+    @Override
+    public double[] createGunRecentPerformanceScores(WaveContextFeatures.WaveContext context) {
+        return recentWeighting.createGunWeights(info);
+    }
+
+    @Override
+    public double[] createMovementRecentPerformanceScores(WaveContextFeatures.WaveContext context) {
+        return recentWeighting.createMovementWeights();
     }
 
     @Override
@@ -71,18 +96,42 @@ final class AntiSurferObservationProfile implements ObservationProfile {
                                   double gfMin,
                                   double gfMax) {
         recentWeighting.onResolvedGunWave(wave, gfMin, gfMax);
+        historicalWeighting.onResolvedGunWave(wave, gfMin, gfMax);
+        learnedRecentWeighting.onResolvedGunWave(wave, gfMin, gfMax);
     }
 
     @Override
     public void onInvalidatedGunWave(oog.mega.saguaro.info.wave.Wave wave) {
+        if (wave == null || info == null || info.getRobot() == null) {
+            return;
+        }
+        double[] reachableInterval = AntiSurferReachability.computeGunWaveReachableGfInterval(
+                wave,
+                info.getEnemy(),
+                info.getRobot().getTime(),
+                info.getBattlefieldWidth(),
+                info.getBattlefieldHeight());
+        if (reachableInterval == null) {
+            return;
+        }
         recentWeighting.onInvalidatedGunWave(wave, info);
+        historicalWeighting.onInvalidatedGunWave(wave, reachableInterval[0], reachableInterval[1]);
+        learnedRecentWeighting.onInvalidatedGunWave(wave, reachableInterval[0], reachableInterval[1]);
     }
 
     @Override
     public void onResolvedMovementWave(oog.mega.saguaro.info.wave.Wave wave,
                                        double gfMin,
                                        double gfMax) {
+    }
+
+    @Override
+    public void onResolvedMovementImpactWave(oog.mega.saguaro.info.wave.Wave wave,
+                                             double gfMin,
+                                             double gfMax) {
         recentWeighting.onResolvedMovementWave(wave, gfMin, gfMax);
+        historicalWeighting.onResolvedMovementWave(wave, gfMin, gfMax);
+        learnedRecentWeighting.onResolvedMovementWave(wave, gfMin, gfMax);
     }
 
     @Override
@@ -147,5 +196,23 @@ final class AntiSurferObservationProfile implements ObservationProfile {
                 return size() > SNAPSHOT_CACHE_CAPACITY;
             }
         };
+    }
+
+    private static double[] combineWeights(double[] primaryWeights, double[] factorWeights) {
+        double[] combined = new double[AntiSurferExpertId.VALUES.length];
+        for (int i = 0; i < combined.length; i++) {
+            double primary = primaryWeights != null
+                    && i < primaryWeights.length
+                    && Double.isFinite(primaryWeights[i])
+                    ? primaryWeights[i]
+                    : 1.0;
+            double factor = factorWeights != null
+                    && i < factorWeights.length
+                    && Double.isFinite(factorWeights[i])
+                    ? factorWeights[i]
+                    : 1.0;
+            combined[i] = Math.max(MIN_ACTIVE_WEIGHT, primary * factor);
+        }
+        return combined;
     }
 }

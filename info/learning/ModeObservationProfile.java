@@ -109,6 +109,22 @@ public final class ModeObservationProfile implements ObservationProfile {
     }
 
     @Override
+    public double[] createGunRecentPerformanceScores(WaveContextFeatures.WaveContext context) {
+        if (!policy.useTargetingDistributions) {
+            return null;
+        }
+        return delegate.createGunRecentPerformanceScores(context);
+    }
+
+    @Override
+    public double[] createMovementRecentPerformanceScores(WaveContextFeatures.WaveContext context) {
+        if (!policy.useMovementDistributions) {
+            return null;
+        }
+        return delegate.createMovementRecentPerformanceScores(context);
+    }
+
+    @Override
     public double[] createGunRenderGfMarkers(WaveContextFeatures.WaveContext context) {
         if (!policy.useTargetingDistributions) {
             return null;
@@ -141,6 +157,13 @@ public final class ModeObservationProfile implements ObservationProfile {
                                        double gfMin,
                                        double gfMax) {
         delegate.onResolvedMovementWave(wave, gfMin, gfMax);
+    }
+
+    @Override
+    public void onResolvedMovementImpactWave(Wave wave,
+                                             double gfMin,
+                                             double gfMax) {
+        delegate.onResolvedMovementImpactWave(wave, gfMin, gfMax);
     }
 
     @Override

@@ -177,6 +177,8 @@ public class EnemyInfo {
                         observationProfile.shouldUpdateMovementModel());
                 firedWave.fireTimeDistributionHandle = GuessFactorDistributionHandle.orNull(
                         observationProfile.createMovementDistribution(firedWave.fireTimeContext));
+                firedWave.fireTimeRecentExpertScores =
+                        observationProfile.createMovementRecentPerformanceScores(firedWave.fireTimeContext);
                 firedWave.fireTimeRenderGfMarkers =
                         observationProfile.createMovementRenderGfMarkers(firedWave.fireTimeContext);
                 firedWave.renderReachableGfInterval = null;
