@@ -63,8 +63,10 @@ final class AntiSurferReachability {
 
         double cwBearing = currentBearing + Math.atan2(cwDisplacement, currentDistance);
         double ccwBearing = currentBearing + Math.atan2(ccwDisplacement, currentDistance);
-        double cwGf = MathUtils.angleToGf(referenceBearing, cwBearing, mea);
-        double ccwGf = MathUtils.angleToGf(referenceBearing, ccwBearing, mea);
+        double cwDistance = Math.hypot(currentDistance, cwDisplacement);
+        double ccwDistance = Math.hypot(currentDistance, ccwDisplacement);
+        double cwGf = optimisticEdgeGf(referenceBearing, mea, cwBearing, cwDistance, true);
+        double ccwGf = optimisticEdgeGf(referenceBearing, mea, ccwBearing, ccwDistance, false);
 
         double[] approximateRange = orderFiniteGfRange(cwGf, ccwGf);
         double[] preciseRange = MathUtils.inFieldMaxEscapeGfRange(
@@ -175,6 +177,22 @@ final class AntiSurferReachability {
                 Math.min(firstGf, secondGf),
                 Math.max(firstGf, secondGf)
         };
+    }
+
+    private static double optimisticEdgeGf(double referenceBearing,
+                                           double mea,
+                                           double centerBearing,
+                                           double centerDistance,
+                                           boolean positiveSide) {
+        double[] intervalOffsets = RobotHitbox.guessFactorIntervalOffsets(
+                centerBearing,
+                Math.max(RobotHitbox.HALF_WIDTH, centerDistance),
+                mea);
+        double optimisticOffset = positiveSide ? intervalOffsets[1] : intervalOffsets[0];
+        return MathUtils.angleToGf(
+                referenceBearing,
+                MathUtils.normalizeAngle(centerBearing + optimisticOffset * mea),
+                mea);
     }
 
     private static double clamp(double value, double min, double max) {

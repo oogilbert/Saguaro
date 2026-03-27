@@ -14,6 +14,7 @@ final class AntiSurferRecentWeighting {
     private static final int IN_FLIGHT_WINDOW = 8;
     private static final double WAVE_DECAY = 0.65;
     private static final double MIN_ACTIVE_WEIGHT = 1e-3;
+    private static final double INTERVAL_DISTANCE_SIGMA = 0.25;
 
     private final Deque<WaveScoreRecord> recentGunWaveScores = new ArrayDeque<WaveScoreRecord>();
     private final Deque<WaveScoreRecord> recentMovementWaveScores = new ArrayDeque<WaveScoreRecord>();
@@ -201,9 +202,18 @@ final class AntiSurferRecentWeighting {
                 scores[i] = Double.NaN;
                 continue;
             }
-            scores[i] = center >= minGf && center <= maxGf ? 1.0 : 0.0;
+            scores[i] = scoreCenterAgainstInterval(center, minGf, maxGf);
         }
         return scores;
+    }
+
+    private static double scoreCenterAgainstInterval(double center, double minGf, double maxGf) {
+        if (center >= minGf && center <= maxGf) {
+            return 1.0;
+        }
+        double distance = center < minGf ? (minGf - center) : (center - maxGf);
+        double normalizedDistance = distance / INTERVAL_DISTANCE_SIGMA;
+        return Math.exp(-0.5 * normalizedDistance * normalizedDistance);
     }
 
     private static final class WaveScoreRecord {

@@ -167,22 +167,14 @@ final class AntiSurferPlanner {
             return new GunInstruction(0.0, 0.0);
         }
 
-        ShotSolution shot = firstFiringTickOffset == 0
-                ? gun.selectOptimalShotFromPosition(
-                        fireState.x,
-                        fireState.y,
-                        enemyAtFireTime.x,
-                        enemyAtFireTime.y,
-                        firePower,
-                        robotState.gunHeading,
-                        0)
-                : gun.selectOptimalUnconstrainedShotFromPosition(
-                        fireState.x,
-                        fireState.y,
-                        enemyAtFireTime.x,
-                        enemyAtFireTime.y,
-                        firePower,
-                        0);
+        ShotSolution shot = gun.selectOptimalShotFromPosition(
+                fireState.x,
+                fireState.y,
+                enemyAtFireTime.x,
+                enemyAtFireTime.y,
+                firePower,
+                robotState.gunHeading,
+                firstFiringTickOffset);
         if (shot == null || !Double.isFinite(shot.firingAngle)) {
             return new GunInstruction(0.0, 0.0);
         }
