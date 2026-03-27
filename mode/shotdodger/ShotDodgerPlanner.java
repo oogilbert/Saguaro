@@ -21,7 +21,6 @@ import oog.mega.saguaro.movement.PathWaveIntersection;
 import robocode.Rules;
 
 final class ShotDodgerPlanner {
-    private static final double FIXED_FIRE_POWER = 2.0;
     private static final double MIN_FIRE_POWER = 0.1;
     private static final double OPPONENT_DISTANCE_DANGER_WEIGHT = 2500.0;
 
@@ -78,7 +77,7 @@ final class ShotDodgerPlanner {
                 bestPath,
                 robotState,
                 firstFiringTickOffset,
-                FIXED_FIRE_POWER);
+                selectFirePower(robotState));
         return new BattlePlan(
                 movementInstruction[0],
                 movementInstruction[1],
@@ -297,6 +296,19 @@ final class ShotDodgerPlanner {
         double gunTurnAngle = MathUtils.normalizeAngle(shot.firingAngle - robotState.gunHeading);
         double fireNowPower = firstFiringTickOffset == 0 ? firePower : 0.0;
         return new GunInstruction(gunTurnAngle, fireNowPower);
+    }
+
+    private double selectFirePower(RobotSnapshot robotState) {
+        EnemyInfo enemy = info.getEnemy();
+        if (enemy == null) {
+            return MIN_FIRE_POWER;
+        }
+        double distance = enemy.distance;
+        double enemyEnergy = enemy.energy;
+        double ourEnergy = robotState.energy;
+        return Math.max(MIN_FIRE_POWER, Math.min(3,
+                distance < 100 ? 3 : Math.min(enemyEnergy / 4,
+                        Math.min(ourEnergy / 10, 1 + 400 / distance))));
     }
 
     private static double sanitizeFirePower(double firePower, double availableEnergy) {
