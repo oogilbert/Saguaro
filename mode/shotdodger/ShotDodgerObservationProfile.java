@@ -787,6 +787,12 @@ public final class ShotDodgerObservationProfile implements ObservationProfile {
             persistedBootstrapLoaded = true;
             persistedBestExpertOrdinal = bestExpertOrdinal;
             persistedLearnedConstant = learnedConstant;
+            if (activeInstance != null) {
+                activeInstance.movementScoreSums[bestExpertOrdinal] = 1.0;
+                activeInstance.movementScoreWeights[bestExpertOrdinal] = 1.0;
+                activeInstance.applyPersistedLearnedConstant();
+                activeInstance.movementSnapshotCache.clear();
+            }
         } catch (IOException e) {
             throw new IllegalStateException("Unreadable shotdodger-bootstrap payload", e);
         }
