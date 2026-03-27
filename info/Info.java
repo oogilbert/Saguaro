@@ -19,6 +19,7 @@ import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.info.wave.WaveManager;
 import oog.mega.saguaro.render.PathRenderer;
 import oog.mega.saguaro.render.PathOverlay;
+import oog.mega.saguaro.render.RenderState;
 import oog.mega.saguaro.render.WaveRenderer;
 import oog.mega.saguaro.mode.perfectprediction.ReactiveOpponentPredictor;
 import robocode.Bullet;
@@ -79,20 +80,23 @@ public class Info {
     }
 
     public void updateWaves(Graphics2D g,
-                            List<PathOverlay> pathOverlays,
-                            boolean renderDefaultWaveGraphics) {
+                            RenderState renderState) {
         waveManager.update();
         observationProfile.prepareWaveRenderState(this, waveManager.getEnemyWaves(), waveManager.getMyWaves());
-        if (renderDefaultWaveGraphics) {
+        RenderState activeRenderState = renderState != null ? renderState : new RenderState(null);
+        if (activeRenderState.renderDefaultWaveGraphics) {
             waveRenderer.render(
                     g,
                     robot.getTime(),
                     battlefieldWidth,
                     battlefieldHeight,
                     waveManager.getEnemyWaves(),
-                    waveManager.getMyWaves());
+                    waveManager.getMyWaves(),
+                    activeRenderState.enemyWaveRenderMode,
+                    activeRenderState.myWaveRenderMode,
+                    activeRenderState.highlightSelectedEnemyExpertTick);
         }
-        pathRenderer.render(g, pathOverlays);
+        pathRenderer.render(g, activeRenderState.pathOverlays);
     }
 
     /**

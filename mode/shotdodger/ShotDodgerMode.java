@@ -66,7 +66,10 @@ public final class ShotDodgerMode implements BattleMode {
             overlays.add(overlay);
         }
         return new RenderState(
-                overlays);
+                overlays,
+                RenderState.WaveRenderMode.TICKS_ONLY,
+                RenderState.WaveRenderMode.FULL,
+                true);
     }
 
     @Override

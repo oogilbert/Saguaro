@@ -35,8 +35,7 @@ public class Saguaro extends AdvancedRobot {
 
             info.updateWaves(
                     graphics,
-                    renderState.pathOverlays,
-                    renderState.renderDefaultWaveGraphics);
+                    renderState);
 
             setAhead(plan.moveDistance);
             setTurnRightRadians(plan.turnAngle);

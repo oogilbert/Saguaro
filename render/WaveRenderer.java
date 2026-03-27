@@ -25,6 +25,7 @@ public final class WaveRenderer {
     private static final Color REACHABLE_INTERVAL_COLOR = new Color(120, 220, 255);
     private static final Color EXPERT_TICK_OUTLINE_COLOR = Color.BLACK;
     private static final Color EXPERT_TICK_INNER_COLOR = Color.WHITE;
+    private static final Color EXPERT_TICK_SELECTED_INNER_COLOR = new Color(255, 64, 64);
     private static final List<BulletShadowUtil.WeightedGfInterval> NO_SHADOW_INTERVALS = Collections.emptyList();
     // Debug rendering still needs a visible density band before learning data exists.
     private static final GuessFactorDistribution DEFAULT_RENDER_DISTRIBUTION = new DefaultDistribution();
@@ -44,24 +45,35 @@ public final class WaveRenderer {
                        double battlefieldWidth,
                        double battlefieldHeight,
                        List<Wave> enemyWaves,
-                       List<Wave> myWaves) {
+                       List<Wave> myWaves,
+                       RenderState.WaveRenderMode enemyWaveRenderMode,
+                       RenderState.WaveRenderMode myWaveRenderMode,
+                       boolean highlightSelectedEnemyExpertTick) {
         if (graphics == null) {
             return;
         }
-        drawWaveArcs(
-                graphics,
-                time,
-                enemyWaves,
-                battlefieldWidth,
-                battlefieldHeight,
-                true);
-        drawWaveArcs(
-                graphics,
-                time,
-                myWaves,
-                battlefieldWidth,
-                battlefieldHeight,
-                false);
+        if (enemyWaveRenderMode != RenderState.WaveRenderMode.NONE) {
+            drawWaveArcs(
+                    graphics,
+                    time,
+                    enemyWaves,
+                    battlefieldWidth,
+                    battlefieldHeight,
+                    true,
+                    enemyWaveRenderMode,
+                    highlightSelectedEnemyExpertTick);
+        }
+        if (myWaveRenderMode != RenderState.WaveRenderMode.NONE) {
+            drawWaveArcs(
+                    graphics,
+                    time,
+                    myWaves,
+                    battlefieldWidth,
+                    battlefieldHeight,
+                    false,
+                    myWaveRenderMode,
+                    false);
+        }
     }
 
     private void drawWaveArcs(Graphics2D graphics,
@@ -69,7 +81,9 @@ public final class WaveRenderer {
                               List<Wave> waves,
                               double battlefieldWidth,
                               double battlefieldHeight,
-                              boolean renderPersistentShadows) {
+                              boolean renderPersistentShadows,
+                              RenderState.WaveRenderMode waveRenderMode,
+                              boolean highlightSelectedTick) {
         Stroke oldStroke = graphics.getStroke();
         graphics.setStroke(new BasicStroke(1f));
 
@@ -91,21 +105,29 @@ public final class WaveRenderer {
             List<BulletShadowUtil.WeightedGfInterval> activeShadowIntervals = renderPersistentShadows
                     ? activeShadowIntervals(wave, referenceBearing, mea)
                     : NO_SHADOW_INTERVALS;
-            GuessFactorDistribution distribution = distributionForRender(wave);
-            ProbabilitySamples samples = sampleArcDensities(distribution);
-            drawWaveArcSegments(
+            if (waveRenderMode == RenderState.WaveRenderMode.FULL) {
+                GuessFactorDistribution distribution = distributionForRender(wave);
+                ProbabilitySamples samples = sampleArcDensities(distribution);
+                drawWaveArcSegments(
+                        graphics,
+                        wave,
+                        radius,
+                        referenceBearing,
+                        mea,
+                        preciseGfRange[0],
+                        preciseGfRange[1],
+                        activeShadowIntervals,
+                        samples.values,
+                        samples.max);
+                drawReachableInterval(graphics, wave, radius, referenceBearing, mea);
+            }
+            drawExpertTicks(
                     graphics,
                     wave,
                     radius,
                     referenceBearing,
                     mea,
-                    preciseGfRange[0],
-                    preciseGfRange[1],
-                    activeShadowIntervals,
-                    samples.values,
-                    samples.max);
-            drawReachableInterval(graphics, wave, radius, referenceBearing, mea);
-            drawExpertTicks(graphics, wave, radius, referenceBearing, mea);
+                    highlightSelectedTick ? selectedExpertIndex(wave) : -1);
         }
 
         graphics.setStroke(oldStroke);
@@ -231,12 +253,14 @@ public final class WaveRenderer {
                                         Wave wave,
                                         double radius,
                                         double referenceBearing,
-                                        double mea) {
+                                        double mea,
+                                        int selectedExpertIndex) {
         if (wave.fireTimeRenderGfMarkers == null || wave.fireTimeRenderGfMarkers.length == 0) {
             return;
         }
         Stroke oldStroke = graphics.getStroke();
-        for (double gf : wave.fireTimeRenderGfMarkers) {
+        for (int i = 0; i < wave.fireTimeRenderGfMarkers.length; i++) {
+            double gf = wave.fireTimeRenderGfMarkers[i];
             if (!Double.isFinite(gf)) {
                 continue;
             }
@@ -252,11 +276,30 @@ public final class WaveRenderer {
             graphics.setColor(EXPERT_TICK_OUTLINE_COLOR);
             graphics.setStroke(new BasicStroke(3f));
             graphics.drawLine(x1, y1, x2, y2);
-            graphics.setColor(EXPERT_TICK_INNER_COLOR);
+            graphics.setColor(i == selectedExpertIndex ? EXPERT_TICK_SELECTED_INNER_COLOR : EXPERT_TICK_INNER_COLOR);
             graphics.setStroke(new BasicStroke(1f));
             graphics.drawLine(x1, y1, x2, y2);
         }
         graphics.setStroke(oldStroke);
+    }
+
+    private static int selectedExpertIndex(Wave wave) {
+        if (wave == null || wave.fireTimeRecentExpertScores == null || wave.fireTimeRecentExpertScores.length == 0) {
+            return -1;
+        }
+        int bestIndex = -1;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < wave.fireTimeRecentExpertScores.length; i++) {
+            double score = wave.fireTimeRecentExpertScores[i];
+            if (!Double.isFinite(score)) {
+                continue;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestIndex = i;
+            }
+        }
+        return bestIndex;
     }
 
     private static void drawReachableInterval(Graphics2D graphics,
