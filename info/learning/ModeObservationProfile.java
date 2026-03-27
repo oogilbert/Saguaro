@@ -228,4 +228,9 @@ public final class ModeObservationProfile implements ObservationProfile {
     public boolean shouldUseVirtualMovementWaves() {
         return delegate.shouldUseVirtualMovementWaves();
     }
+
+    @Override
+    public boolean shouldPreserveMyWaveAfterBulletCollision() {
+        return policy.preserveMyWaveAfterBulletCollision;
+    }
 }

@@ -154,8 +154,13 @@ public class Info {
     }
 
     public void onBulletHitBullet(BulletHitBulletEvent e) {
-        Wave matchedWave = waveManager.validateAndRemoveMyWave(e);
-        bulletPowerHitRateTracker.onMyWaveInvalidated(matchedWave);
+        if (observationProfile.shouldPreserveMyWaveAfterBulletCollision()) {
+            Wave matchedWave = waveManager.markMyWaveCollided(e);
+            bulletPowerHitRateTracker.onMyWaveInvalidated(matchedWave);
+        } else {
+            Wave matchedWave = waveManager.validateAndRemoveMyWave(e);
+            bulletPowerHitRateTracker.onMyWaveInvalidated(matchedWave);
+        }
         Wave removedEnemyWave = waveManager.validateAndRemoveEnemyWave(e);
         if (removedEnemyWave != null) {
             enemyBulletHitRateTracker.onEnemyWaveInvalidated(removedEnemyWave);

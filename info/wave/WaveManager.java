@@ -166,6 +166,9 @@ public class WaveManager {
         }
         List<Wave> eligibleMyWaves = new ArrayList<>(myWaves.size());
         for (Wave myWave : myWaves) {
+            if (myWave.bulletCollided) {
+                continue;
+            }
             if (hasWaveReachedBot(myWave, wave.originX, wave.originY, wave.fireTime)) {
                 continue;
             }
@@ -491,6 +494,14 @@ public class WaveManager {
             info.getObservationProfile().onInvalidatedGunWave(matchedWave);
         }
         removeMyWave(matchedWave, "BulletHitBullet");
+        return matchedWave;
+    }
+
+    public Wave markMyWaveCollided(BulletHitBulletEvent e) {
+        Wave matchedWave = findMyWave(e.getBullet());
+        if (matchedWave != null) {
+            matchedWave.bulletCollided = true;
+        }
         return matchedWave;
     }
 

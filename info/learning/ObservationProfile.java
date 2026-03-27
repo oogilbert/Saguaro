@@ -135,4 +135,8 @@ public interface ObservationProfile {
     default boolean shouldUseVirtualMovementWaves() {
         return true;
     }
+
+    default boolean shouldPreserveMyWaveAfterBulletCollision() {
+        return false;
+    }
 }

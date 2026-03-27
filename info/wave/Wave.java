@@ -47,6 +47,7 @@ public final class Wave {
     public boolean allowTargetingModelUpdate;
     public boolean allowMovementModelUpdate;
     public boolean allowMovementObservationLogging;
+    public boolean bulletCollided;
     private final List<BulletShadowUtil.ShadowInterval> shadowIntervals = new ArrayList<>();
     private final List<BulletShadowUtil.ShadowInterval> shadowIntervalsView =
             Collections.unmodifiableList(shadowIntervals);
