@@ -89,6 +89,7 @@ public class EnemyInfo {
     private double previousRobotYAtScan = Double.NaN;
     private double previousRobotHeadingAtScan = Double.NaN;
     private double previousRobotVelocityAtScan = Double.NaN;
+    private double previousPreviousRobotHeadingAtScan = Double.NaN;
     private double previousHeading = Double.NaN;
     private double previousVelocity = Double.NaN;
     private long previousScanTime = Long.MIN_VALUE;
@@ -223,6 +224,7 @@ public class EnemyInfo {
         double priorRobotY = lastRobotYAtScan;
         double priorRobotHeading = lastRobotHeadingAtScan;
         double priorRobotVelocity = lastRobotVelocityAtScan;
+        double priorPreviousRobotHeading = previousRobotHeadingAtScan;
         double priorEnemyHeading = heading;
         double priorEnemyVelocity = velocity;
 
@@ -238,6 +240,7 @@ public class EnemyInfo {
             previousRobotYAtScan = priorRobotY;
             previousRobotHeadingAtScan = priorRobotHeading;
             previousRobotVelocityAtScan = priorRobotVelocity;
+            previousPreviousRobotHeadingAtScan = priorPreviousRobotHeading;
             previousHeading = priorEnemyHeading;
             previousVelocity = priorEnemyVelocity;
             previousScanTime = lastScanTime;
@@ -248,6 +251,7 @@ public class EnemyInfo {
             previousRobotYAtScan = Double.NaN;
             previousRobotHeadingAtScan = Double.NaN;
             previousRobotVelocityAtScan = Double.NaN;
+            previousPreviousRobotHeadingAtScan = Double.NaN;
             previousHeading = Double.NaN;
             previousVelocity = Double.NaN;
             previousScanTime = Long.MIN_VALUE;
@@ -388,11 +392,15 @@ public class EnemyInfo {
         }
 
         double sourceTickHeadingDelta =
-                Double.isFinite(firedWave.fireTimeTargetHeading)
+                Double.isFinite(previousPreviousRobotHeadingAtScan)
                         ? ConstantDeltaPredictor.estimateHeadingDelta(
-                                firedWave.fireTimeTargetHeading,
-                                firedWave.priorTickTargetHeading)
-                        : 0.0;
+                                firedWave.priorTickTargetHeading,
+                                previousPreviousRobotHeadingAtScan)
+                        : Double.isFinite(firedWave.fireTimeTargetHeading)
+                                ? ConstantDeltaPredictor.estimateHeadingDelta(
+                                        firedWave.fireTimeTargetHeading,
+                                        firedWave.priorTickTargetHeading)
+                                : 0.0;
         double sourceTickVelocityDelta =
                 Double.isFinite(firedWave.fireTimeTargetVelocity)
                         ? ConstantDeltaPredictor.estimateVelocityDelta(
