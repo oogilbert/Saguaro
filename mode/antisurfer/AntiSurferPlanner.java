@@ -223,17 +223,7 @@ final class AntiSurferPlanner {
                 firstFiringTickOffset,
                 gun);
         if (shot == null || !Double.isFinite(shot.firingAngle)) {
-            shot = gun.selectOptimalShotFromPosition(
-                    fireState.x,
-                    fireState.y,
-                    enemyAtFireTime.x,
-                    enemyAtFireTime.y,
-                    aimPower,
-                    robotState.gunHeading,
-                    firstFiringTickOffset);
-        }
-        if (shot == null || !Double.isFinite(shot.firingAngle)) {
-            return new GunInstruction(0.0, 0.0);
+            shot = new ShotSolution(0.0, robotState.gunHeading);
         }
 
         double gunTurnAngle = MathUtils.normalizeAngle(shot.firingAngle - robotState.gunHeading);

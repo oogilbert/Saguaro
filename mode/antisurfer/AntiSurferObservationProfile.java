@@ -1,12 +1,15 @@
 package oog.mega.saguaro.mode.antisurfer;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.gun.GunController;
 import oog.mega.saguaro.gun.ShotSolution;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ObservationProfile;
+import oog.mega.saguaro.math.KDEDistribution;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.GuessFactorDistribution;
 import oog.mega.saguaro.math.MathUtils;
@@ -66,10 +69,7 @@ final class AntiSurferObservationProfile implements ObservationProfile {
         double[] combinedWeights = combineWeights(
                 historicalWeighting.createMovementWeights(context, info),
                 learnedRecentWeighting.createMovementFactors(recentWeighting.createMovementWeights()));
-        ExpertPrediction prediction = ActiveAntiSurferExpert.createEnsemblePrediction(
-                movementSnapshotFor(context),
-                combinedWeights);
-        return prediction != null ? prediction.distribution : null;
+        return createWeightedMovementDistribution(movementSnapshotFor(context), combinedWeights);
     }
 
     @Override
@@ -92,6 +92,16 @@ final class AntiSurferObservationProfile implements ObservationProfile {
     public double[] createMovementRenderGfMarkers(WaveContextFeatures.WaveContext context) {
         AntiSurferExpertSnapshot snapshot = movementSnapshotFor(context);
         return snapshot != null ? snapshot.centers() : null;
+    }
+
+    @Override
+    public double[] createGunHistoricalSignaturePoint(WaveContextFeatures.WaveContext context) {
+        return historicalWeighting.captureCurrentGunSignaturePoint();
+    }
+
+    @Override
+    public double[] createMovementHistoricalSignaturePoint(WaveContextFeatures.WaveContext context) {
+        return historicalWeighting.captureCurrentMovementSignaturePoint();
     }
 
     @Override
@@ -257,6 +267,41 @@ final class AntiSurferObservationProfile implements ObservationProfile {
                 return size() > SNAPSHOT_CACHE_CAPACITY;
             }
         };
+    }
+
+    private static GuessFactorDistribution createWeightedMovementDistribution(AntiSurferExpertSnapshot snapshot,
+                                                                              double[] weights) {
+        if (snapshot == null || snapshot.isEmpty()) {
+            return null;
+        }
+        ArrayList<Double> centers = new ArrayList<Double>();
+        ArrayList<Double> activeWeights = new ArrayList<Double>();
+        for (AntiSurferExpertId expertId : AntiSurferExpertId.VALUES) {
+            ExpertPrediction prediction = snapshot.get(expertId);
+            if (prediction == null || !Double.isFinite(prediction.centerGf)) {
+                continue;
+            }
+            double weight = weights != null
+                    && expertId.ordinal() < weights.length
+                    && Double.isFinite(weights[expertId.ordinal()])
+                    ? Math.max(0.0, weights[expertId.ordinal()])
+                    : 1.0;
+            if (!(weight > 0.0)) {
+                continue;
+            }
+            centers.add(prediction.centerGf);
+            activeWeights.add(weight);
+        }
+        if (centers.isEmpty()) {
+            return null;
+        }
+        double[] centerArray = new double[centers.size()];
+        double[] weightArray = new double[activeWeights.size()];
+        for (int i = 0; i < centers.size(); i++) {
+            centerArray[i] = centers.get(i);
+            weightArray[i] = activeWeights.get(i);
+        }
+        return new KDEDistribution(centerArray, weightArray, BotConfig.Learning.DEFAULT_MOVEMENT_KDE_BANDWIDTH);
     }
 
     private static double[] combineWeights(double[] primaryWeights, double[] factorWeights) {

@@ -43,7 +43,9 @@ final class AntiSurferHistoricalWeighting {
         if (wave == null || wave.fireTimeContext == null || wave.fireTimeRenderGfMarkers == null) {
             return;
         }
-        double[] signature = currentMovementSignaturePoint();
+        double[] signature = wave.fireTimeHistoricalSignaturePoint != null
+                ? wave.fireTimeHistoricalSignaturePoint.clone()
+                : currentMovementSignaturePoint();
         movementRecords.add(new HistoricalRecord(
                 buildFeatureVector(wave.fireTimeContext, signature, wave.fireTime),
                 scoreCentersAgainstInterval(wave.fireTimeRenderGfMarkers, gfMin, gfMax)));
@@ -66,7 +68,9 @@ final class AntiSurferHistoricalWeighting {
         if (wave == null || wave.fireTimeContext == null || wave.fireTimeRenderGfMarkers == null) {
             return;
         }
-        double[] signature = currentGunSignaturePoint();
+        double[] signature = wave.fireTimeHistoricalSignaturePoint != null
+                ? wave.fireTimeHistoricalSignaturePoint.clone()
+                : currentGunSignaturePoint();
         gunRecords.add(new HistoricalRecord(
                 buildFeatureVector(wave.fireTimeContext, signature, wave.fireTime),
                 scoreCentersAgainstInterval(wave.fireTimeRenderGfMarkers, gfMin, gfMax)));
@@ -74,6 +78,14 @@ final class AntiSurferHistoricalWeighting {
         if (Double.isFinite(firedGf)) {
             addRecentGunSignatureRecord(wave.fireTimeRenderGfMarkers, firedGf);
         }
+    }
+
+    double[] captureCurrentGunSignaturePoint() {
+        return currentGunSignaturePoint();
+    }
+
+    double[] captureCurrentMovementSignaturePoint() {
+        return currentMovementSignaturePoint();
     }
 
     private double[] createWeights(List<HistoricalRecord> records, double[] currentFeatures) {

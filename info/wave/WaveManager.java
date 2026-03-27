@@ -146,6 +146,8 @@ public class WaveManager {
                     info.getObservationProfile().createGunRecentPerformanceScores(myWave.fireTimeContext);
             myWave.fireTimeRenderGfMarkers =
                     info.getObservationProfile().createGunRenderGfMarkers(myWave.fireTimeContext);
+            myWave.fireTimeHistoricalSignaturePoint =
+                    info.getObservationProfile().createGunHistoricalSignaturePoint(myWave.fireTimeContext);
         }
         myWaves.add(myWave);
         myWaveObservationStates.put(myWave, new MyWaveObservationState(fireTime));

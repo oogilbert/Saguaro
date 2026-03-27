@@ -141,6 +141,22 @@ public final class ModeObservationProfile implements ObservationProfile {
     }
 
     @Override
+    public double[] createGunHistoricalSignaturePoint(WaveContextFeatures.WaveContext context) {
+        if (!policy.useTargetingDistributions) {
+            return null;
+        }
+        return delegate.createGunHistoricalSignaturePoint(context);
+    }
+
+    @Override
+    public double[] createMovementHistoricalSignaturePoint(WaveContextFeatures.WaveContext context) {
+        if (!policy.useMovementDistributions) {
+            return null;
+        }
+        return delegate.createMovementHistoricalSignaturePoint(context);
+    }
+
+    @Override
     public void onResolvedGunWave(Wave wave,
                                   double gfMin,
                                   double gfMax) {

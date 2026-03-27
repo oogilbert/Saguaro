@@ -69,7 +69,15 @@ final class LocalHitRateKnnModel {
                 context.sourceY,
                 context.targetX,
                 context.targetY);
-        double compression = clamp(0.5 * (context.wallAhead + context.wallReverse), 0.0, 1.0);
+        double[] preciseRange = MathUtils.inFieldMaxEscapeGfRange(
+                context.sourceX,
+                context.sourceY,
+                context.targetX,
+                context.targetY,
+                context.bulletSpeed,
+                context.battlefieldWidth,
+                context.battlefieldHeight);
+        double compression = preciseWidthFraction(preciseRange);
         return new double[]{
                 clamp(context.flightTicks / FLIGHT_TICKS_SCALE, 0.0, 1.0),
                 clamp(angularWidth / ANGULAR_WIDTH_SCALE, 0.0, 1.0),
@@ -105,7 +113,7 @@ final class LocalHitRateKnnModel {
                 bulletSpeed,
                 battlefieldWidth,
                 battlefieldHeight);
-        double compression = clamp(0.5 * (preciseRange[1] - preciseRange[0]), 0.0, 1.0);
+        double compression = preciseWidthFraction(preciseRange);
         return new double[]{
                 clamp(flightTicks / FLIGHT_TICKS_SCALE, 0.0, 1.0),
                 clamp(angularWidth / ANGULAR_WIDTH_SCALE, 0.0, 1.0),
@@ -141,6 +149,13 @@ final class LocalHitRateKnnModel {
             }
         }
         return true;
+    }
+
+    private static double preciseWidthFraction(double[] preciseRange) {
+        if (preciseRange == null || preciseRange.length < 2) {
+            return 1.0;
+        }
+        return clamp(0.5 * Math.max(0.0, preciseRange[1] - preciseRange[0]), 0.0, 1.0);
     }
 
     private static double clamp(double value, double minValue, double maxValue) {

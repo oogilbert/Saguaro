@@ -181,6 +181,8 @@ public class EnemyInfo {
                         observationProfile.createMovementRecentPerformanceScores(firedWave.fireTimeContext);
                 firedWave.fireTimeRenderGfMarkers =
                         observationProfile.createMovementRenderGfMarkers(firedWave.fireTimeContext);
+                firedWave.fireTimeHistoricalSignaturePoint =
+                        observationProfile.createMovementHistoricalSignaturePoint(firedWave.fireTimeContext);
                 firedWave.renderReachableGfInterval = null;
                 lastDetectedBulletPower = firepower;
                 gunHeat = 1.0 + firepower / 5.0;

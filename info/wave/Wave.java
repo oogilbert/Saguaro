@@ -38,6 +38,7 @@ public final class Wave {
     public GuessFactorDistributionHandle fireTimeDistributionHandle;
     public double[] fireTimeRecentExpertScores;
     public double[] fireTimeRenderGfMarkers;
+    public double[] fireTimeHistoricalSignaturePoint;
     public double[] renderReachableGfInterval;
     public boolean allowTargetingModelUpdate;
     public boolean allowMovementModelUpdate;

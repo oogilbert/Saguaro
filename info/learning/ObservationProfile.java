@@ -74,6 +74,14 @@ public interface ObservationProfile {
         return null;
     }
 
+    default double[] createGunHistoricalSignaturePoint(WaveContextFeatures.WaveContext context) {
+        return null;
+    }
+
+    default double[] createMovementHistoricalSignaturePoint(WaveContextFeatures.WaveContext context) {
+        return null;
+    }
+
     default void onResolvedGunWave(Wave wave,
                                    double gfMin,
                                    double gfMax) {
