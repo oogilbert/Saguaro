@@ -21,6 +21,7 @@ import oog.mega.saguaro.movement.PathWaveIntersection;
 import robocode.Rules;
 
 final class ShotDodgerPlanner {
+    private static final double FIXED_FIRE_POWER = 2.0;
     private static final double MIN_FIRE_POWER = 0.1;
     private static final double PREDICTED_SHOT_SIGMA_GUESS_FACTOR = 0.20;
     private static final double DISTANCE_ADJUSTMENT_SCALE = 18.0;
@@ -31,7 +32,6 @@ final class ShotDodgerPlanner {
     private MovementController movement;
     private GunController gun;
     private ShotDodgerObservationProfile observationProfile;
-    private ShotDodgerPowerScorer powerScorer;
     private CandidatePath lastSelectedPath;
     private List<CandidatePath> lastSelectedFamilyPaths = new ArrayList<CandidatePath>();
     private List<PathWaveIntersection> lastSelectedPathIntersections = new ArrayList<PathWaveIntersection>();
@@ -49,10 +49,6 @@ final class ShotDodgerPlanner {
         this.movement = movement;
         this.gun = gun;
         this.observationProfile = observationProfile;
-        if (this.powerScorer == null) {
-            this.powerScorer = new ShotDodgerPowerScorer();
-        }
-        this.powerScorer.init(info);
         this.lastSelectedPath = null;
         this.lastSelectedFamilyPaths = new ArrayList<CandidatePath>();
         this.lastSelectedPathIntersections = new ArrayList<PathWaveIntersection>();
@@ -81,16 +77,11 @@ final class ShotDodgerPlanner {
         lastSelectedWaveDangerRevision = info.getEnemyWaveDangerRevision();
 
         double[] movementInstruction = firstTickMovementInstruction(bestPath, robotState);
-        ShotDodgerPowerScorer.PowerSelection powerSelection = powerScorer.selectBestPower(
-                bestPath,
-                lastSelectedPathIntersections,
-                robotState,
-                firstFiringTickOffset);
         GunInstruction gunInstruction = buildGunInstruction(
                 bestPath,
                 robotState,
                 firstFiringTickOffset,
-                powerSelection != null ? powerSelection.firePower : 0.0);
+                FIXED_FIRE_POWER);
         return new BattlePlan(
                 movementInstruction[0],
                 movementInstruction[1],
