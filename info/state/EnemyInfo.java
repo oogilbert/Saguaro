@@ -353,6 +353,8 @@ public class EnemyInfo {
                 Double.isFinite(previousHeading)
                         ? MathUtils.normalizeAngle(heading - previousHeading)
                         : Double.NaN;
+        firedWave.sourceTickTime =
+                previousScanTime != Long.MIN_VALUE ? previousScanTime : Math.max(0L, firedWave.fireTime - 1L);
         firedWave.sourceTickContext = createSourceTickContext(robot, existingEnemyWaves, firedWave);
         firedWave.fireTimeContext = WaveContextFeatures.createWaveContext(
                 firedWave.originX,
@@ -427,7 +429,9 @@ public class EnemyInfo {
                 firedWave.priorTickShooterX,
                 firedWave.priorTickShooterY,
                 firedWave.speed,
-                Math.max(0L, firedWave.fireTime - 1L),
+                firedWave.sourceTickTime != Long.MIN_VALUE
+                        ? firedWave.sourceTickTime
+                        : Math.max(0L, firedWave.fireTime - 1L),
                 firedWave.priorTickTargetX,
                 firedWave.priorTickTargetY,
                 firedWave.priorTickTargetHeading,
@@ -564,6 +568,26 @@ public class EnemyInfo {
             return 0.0;
         }
         return ConstantDeltaPredictor.estimateVelocityDelta(velocity, previousVelocity);
+    }
+
+    public long getSourceTickRobotLateralVelocityTime() {
+        return previousScanTime;
+    }
+
+    public double getSourceTickRobotLateralVelocity() {
+        if (previousScanTime == Long.MIN_VALUE
+                || !Double.isFinite(previousXAtScan)
+                || !Double.isFinite(previousYAtScan)
+                || !Double.isFinite(previousRobotXAtScan)
+                || !Double.isFinite(previousRobotYAtScan)
+                || !Double.isFinite(previousRobotHeadingAtScan)
+                || !Double.isFinite(previousRobotVelocityAtScan)) {
+            return Double.NaN;
+        }
+        double absoluteBearing = Math.atan2(
+                previousRobotXAtScan - previousXAtScan,
+                previousRobotYAtScan - previousYAtScan);
+        return previousRobotVelocityAtScan * Math.sin(previousRobotHeadingAtScan - absoluteBearing);
     }
 
     public int getMotionHistorySize() {

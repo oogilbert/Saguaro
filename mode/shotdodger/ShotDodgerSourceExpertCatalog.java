@@ -7,15 +7,23 @@ final class ShotDodgerSourceExpertCatalog {
     }
 
     static ShotDodgerExpertSnapshot createMovementSnapshot(WaveContextFeatures.WaveContext context,
+                                                           double averagedLinearLateralVelocity,
+                                                           double averagedLinearNoAdjustLateralVelocity,
                                                            double linearConstantDivisor,
                                                            double linearConstantDivisorNoGunAdjust) {
         ShotDodgerExpertSnapshot snapshot = new ShotDodgerExpertSnapshot();
         snapshot.set(ShotDodgerExpertId.HEAD_ON, HeadOnExpert.createMovementPrediction(context));
         snapshot.set(ShotDodgerExpertId.LINEAR, LinearTargetingExpert.createMovementPrediction(context));
         snapshot.set(
+                ShotDodgerExpertId.AVERAGED_LINEAR,
+                AveragedLinearTargetingExpert.createMovementPrediction(context, averagedLinearLateralVelocity));
+        snapshot.set(
                 ShotDodgerExpertId.LINEAR_CONSTANT_DIVISOR,
                 ConstantDivisorLinearExpert.createMovementPrediction(context, linearConstantDivisor));
         snapshot.set(ShotDodgerExpertId.CIRCULAR, CircularTargetingExpert.createMovementPrediction(context));
+        snapshot.set(
+                ShotDodgerExpertId.AVERAGED_LINEAR_NO_GUN_ADJUST,
+                AveragedLinearTargetingExpert.createMovementPrediction(context, averagedLinearNoAdjustLateralVelocity));
         snapshot.set(
                 ShotDodgerExpertId.LINEAR_CONSTANT_DIVISOR_NO_GUN_ADJUST,
                 ConstantDivisorLinearExpert.createMovementPrediction(context, linearConstantDivisorNoGunAdjust));

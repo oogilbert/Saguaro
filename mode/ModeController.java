@@ -30,8 +30,6 @@ import robocode.RobotDeathEvent;
 import robocode.ScannedRobotEvent;
 
 public final class ModeController {
-    private static final ModeId FORCED_MODE_ID = ModeId.SHOT_DODGER;
-
     private final ShotDodgerMode shotDodgerMode = new ShotDodgerMode();
     private final BulletShieldMode bulletShieldMode = new BulletShieldMode();
     private final PerfectPredictionMode perfectPredictionMode = new PerfectPredictionMode();
@@ -40,8 +38,8 @@ public final class ModeController {
     private final BattleDataStore dataStore = new BattleDataStore();
     private final ModeRoundScoreTracker roundScoreTracker = new ModeRoundScoreTracker();
     private final ModeSelector modeSelector = new ModeSelector(roundScoreTracker);
-    private BattleMode activeMode = shotDodgerMode;
-    private ModeId activeModeId = FORCED_MODE_ID;
+    private BattleMode activeMode = scoreMaxMode;
+    private ModeId activeModeId = ModeId.SCORE_MAX;
     private final Set<BattleMode> modesUsedThisBattle = new LinkedHashSet<>();
     private BattleServices services;
     private Info info;
@@ -77,7 +75,7 @@ public final class ModeController {
         colorAppliedRobot = null;
         colorAppliedModeId = null;
         roundScoreTracker.startBattle();
-        setActiveMode(FORCED_MODE_ID);
+        setActiveMode(ModeId.SCORE_MAX);
     }
 
     public void init(Info info) {
@@ -98,10 +96,10 @@ public final class ModeController {
             remainingBulletShieldForgivenHits = 0;
             if (!opponentContextLoaded) {
                 pendingOpponentContextResolution = true;
-                activateModeForRound(FORCED_MODE_ID);
+                activateModeForRound(ModeId.BULLET_SHIELD);
             } else {
                 pendingOpponentContextResolution = false;
-                activateModeForRound(FORCED_MODE_ID);
+                activateModeForRound(activeModeId);
             }
         }
     }
@@ -280,17 +278,18 @@ public final class ModeController {
     }
 
     private ModeId chooseOpeningMode() {
-        return FORCED_MODE_ID;
+        return modeSelector.chooseOpeningMode(bulletShieldRetiredForBattle);
     }
 
     private void maybeReevaluateModeSelection() {
         if (pendingOpponentContextResolution || !opponentContextLoaded) {
             return;
         }
-        if (activeModeId == FORCED_MODE_ID) {
+        ModeId selectedMode = modeSelector.chooseModeForSwitch(activeModeId, bulletShieldRetiredForBattle);
+        if (selectedMode == activeModeId) {
             return;
         }
-        activateModeForRound(FORCED_MODE_ID);
+        activateModeForRound(selectedMode);
     }
 
     private BattleMode modeFor(ModeId modeId) {

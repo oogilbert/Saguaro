@@ -732,11 +732,14 @@ final class BranchedPlanScorer {
         double ourPower = sanitizeContinuationPower(continuationFirePower, ourEnergy);
         double enemyPower = sanitizeContinuationPower(assumedEnemyContinuationPower(enemyEnergy), enemyEnergy);
 
+        double ourDistance = currentEnemyDistance();
+        int ourFlightTicks = nominalFlightTicksForPower(ourDistance, ourPower);
+        int enemyFlightTicks = nominalFlightTicksForPower(ourDistance, enemyPower);
         double ourHitRate = ourPower >= MIN_CONTINUATION_POWER
-                ? estimateOurContinuationHitRate(ourPower) * ShotPlanner.targetingDataHitRateScale()
+                ? info.getBulletPowerHitRateTracker().estimateHitRate(ourFlightTicks) * ShotPlanner.targetingDataHitRateScale()
                 : 0.0;
         double enemyHitRate = enemyPower >= MIN_CONTINUATION_POWER
-                ? estimateEnemyContinuationHitRate(enemyPower)
+                ? info.getEnemyBulletHitRateTracker().estimateHitRate(enemyFlightTicks)
                 : 0.0;
 
         double ourDamageRate = continuationBulletDamageRate(ourPower, ourHitRate);
@@ -823,38 +826,6 @@ final class BranchedPlanScorer {
             return 65;
         }
         return Wave.nominalFlightTicks(distance, Wave.bulletSpeed(power));
-    }
-
-    private double estimateOurContinuationHitRate(double power) {
-        EnemyInfo enemy = info.getEnemy();
-        if (enemy == null || !enemy.seenThisRound) {
-            return info.getBulletPowerHitRateTracker().estimateHitRate(
-                    nominalFlightTicksForPower(400.0, power));
-        }
-        return info.getBulletPowerHitRateTracker().estimateHitRate(
-                info.getRobot().getX(),
-                info.getRobot().getY(),
-                enemy.x,
-                enemy.y,
-                Wave.bulletSpeed(power),
-                info.getBattlefieldWidth(),
-                info.getBattlefieldHeight());
-    }
-
-    private double estimateEnemyContinuationHitRate(double power) {
-        EnemyInfo enemy = info.getEnemy();
-        if (enemy == null || !enemy.seenThisRound) {
-            return info.getEnemyBulletHitRateTracker().estimateHitRate(
-                    nominalFlightTicksForPower(400.0, power));
-        }
-        return info.getEnemyBulletHitRateTracker().estimateHitRate(
-                enemy.x,
-                enemy.y,
-                info.getRobot().getX(),
-                info.getRobot().getY(),
-                Wave.bulletSpeed(power),
-                info.getBattlefieldWidth(),
-                info.getBattlefieldHeight());
     }
 
     static double sanitizeContinuationPower(double power, double availableEnergy) {

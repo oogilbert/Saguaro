@@ -14,6 +14,7 @@ import oog.mega.saguaro.mode.BattleMode;
 import oog.mega.saguaro.mode.BattleServices;
 import oog.mega.saguaro.render.PathOverlay;
 import oog.mega.saguaro.render.RenderState;
+import robocode.ScannedRobotEvent;
 
 public final class ShotDodgerMode implements BattleMode {
     private static final Color SELECTED_PATH_LINE_COLOR = new Color(220, 120, 40);
@@ -79,6 +80,14 @@ public final class ShotDodgerMode implements BattleMode {
         robot.setRadarColor(new Color(210, 140, 60));
         robot.setBulletColor(new Color(255, 170, 80));
         robot.setScanColor(new Color(240, 130, 50));
+    }
+
+    @Override
+    public void onScannedRobot(ScannedRobotEvent event) {
+        if (info == null) {
+            return;
+        }
+        observationProfile.onScannedRobot(info.getEnemy());
     }
 
     @Override

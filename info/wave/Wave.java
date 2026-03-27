@@ -34,12 +34,15 @@ public final class Wave {
     public double fireTimeShooterHeading = Double.NaN;
     public double fireTimeShooterVelocity = Double.NaN;
     public double fireTimeShooterBodyTurn = Double.NaN;
+    public long sourceTickTime = Long.MIN_VALUE;
     public WaveContextFeatures.WaveContext sourceTickContext;
     public WaveContextFeatures.WaveContext fireTimeContext;
     public GuessFactorDistributionHandle fireTimeDistributionHandle;
     public double[] fireTimeRecentExpertScores;
     public double[] fireTimeRenderGfMarkers;
     public double[] fireTimeHistoricalSignaturePoint;
+    public double[] averagedLinearCandidateGfs;
+    public double[] averagedLinearNoAdjustCandidateGfs;
     public double[] renderReachableGfInterval;
     public boolean allowTargetingModelUpdate;
     public boolean allowMovementModelUpdate;

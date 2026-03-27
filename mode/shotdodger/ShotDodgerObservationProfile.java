@@ -8,6 +8,7 @@ import java.util.Map;
 
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ObservationProfile;
+import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.learning.ScoreMaxLearningProfile;
 import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
@@ -21,12 +22,19 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     private static final double DIVISOR_SAMPLE_EPSILON = 1e-4;
     private static final double MIN_LEARNED_DIVISOR = 4.0;
     private static final double MAX_LEARNED_DIVISOR = 30.0;
+    private static final int MAX_AVERAGED_LINEAR_CONSTANT = 100;
 
     private static final class PendingPassSample {
-        final double[] scores;
+        final double[] expertScores;
+        final double[] averagedLinearCandidateScores;
+        final double[] averagedLinearNoAdjustCandidateScores;
 
-        PendingPassSample(double[] scores) {
-            this.scores = scores;
+        PendingPassSample(double[] expertScores,
+                          double[] averagedLinearCandidateScores,
+                          double[] averagedLinearNoAdjustCandidateScores) {
+            this.expertScores = expertScores;
+            this.averagedLinearCandidateScores = averagedLinearCandidateScores;
+            this.averagedLinearNoAdjustCandidateScores = averagedLinearNoAdjustCandidateScores;
         }
     }
 
@@ -36,6 +44,12 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     private final Map<Wave, PendingPassSample> pendingPassSamples = new IdentityHashMap<Wave, PendingPassSample>();
     private final double[] movementScoreSums = new double[ShotDodgerExpertId.VALUES.length];
     private final double[] movementScoreWeights = new double[ShotDodgerExpertId.VALUES.length];
+    private final double[] averagedLinearCandidateValues = new double[MAX_AVERAGED_LINEAR_CONSTANT + 1];
+    private final double[] averagedLinearCandidateScoreSums = new double[MAX_AVERAGED_LINEAR_CONSTANT + 1];
+    private final double[] averagedLinearCandidateScoreWeights = new double[MAX_AVERAGED_LINEAR_CONSTANT + 1];
+    private final double[] averagedLinearNoAdjustCandidateScoreSums = new double[MAX_AVERAGED_LINEAR_CONSTANT + 1];
+    private final double[] averagedLinearNoAdjustCandidateScoreWeights = new double[MAX_AVERAGED_LINEAR_CONSTANT + 1];
+    private long lastAveragedLinearCandidateUpdateTime = Long.MIN_VALUE;
     private double linearConstantDivisorSum;
     private double linearConstantDivisorWeight;
     private double linearConstantDivisorNoAdjustSum;
@@ -46,13 +60,28 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         if (info != null && info.getRobot() != null && info.getRobot().getRoundNum() == 0) {
             Arrays.fill(movementScoreSums, 0.0);
             Arrays.fill(movementScoreWeights, 0.0);
-            pendingPassSamples.clear();
+            Arrays.fill(averagedLinearCandidateScoreSums, 0.0);
+            Arrays.fill(averagedLinearCandidateScoreWeights, 0.0);
+            Arrays.fill(averagedLinearNoAdjustCandidateScoreSums, 0.0);
+            Arrays.fill(averagedLinearNoAdjustCandidateScoreWeights, 0.0);
             linearConstantDivisorSum = 0.0;
             linearConstantDivisorWeight = 0.0;
             linearConstantDivisorNoAdjustSum = 0.0;
             linearConstantDivisorNoAdjustWeight = 0.0;
         }
+        pendingPassSamples.clear();
+        Arrays.fill(averagedLinearCandidateValues, 0.0);
+        lastAveragedLinearCandidateUpdateTime = Long.MIN_VALUE;
         movementSnapshotCache.clear();
+    }
+
+    void onScannedRobot(EnemyInfo enemy) {
+        if (enemy == null) {
+            return;
+        }
+        long sampleTime = enemy.getSourceTickRobotLateralVelocityTime();
+        double lateralVelocity = enemy.getSourceTickRobotLateralVelocity();
+        updateAveragedLinearCandidates(sampleTime, lateralVelocity);
     }
 
     @Override
@@ -134,15 +163,32 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
                                        double gfMin,
                                        double gfMax) {
         double[] centers = centersForWave(wave);
-        double[] passScores = scorePassPredictions(centers, gfMin, gfMax);
-        if (passScores == null) {
+        double[] expertPassScores = scorePassPredictions(centers, gfMin, gfMax);
+        double[] averagedLinearPassScores = scorePassPredictions(wave != null ? wave.averagedLinearCandidateGfs : null, gfMin, gfMax);
+        double[] averagedLinearNoAdjustPassScores =
+                scorePassPredictions(wave != null ? wave.averagedLinearNoAdjustCandidateGfs : null, gfMin, gfMax);
+        if (expertPassScores == null
+                && averagedLinearPassScores == null
+                && averagedLinearNoAdjustPassScores == null) {
             return;
         }
-        PendingPassSample previous = pendingPassSamples.put(wave, new PendingPassSample(passScores));
+        PendingPassSample previous = pendingPassSamples.put(
+                wave,
+                new PendingPassSample(expertPassScores, averagedLinearPassScores, averagedLinearNoAdjustPassScores));
         if (previous != null) {
-            removeMovementSample(previous.scores);
+            removeMovementSample(previous.expertScores);
+            removeCandidateSample(previous.averagedLinearCandidateScores, averagedLinearCandidateScoreSums, averagedLinearCandidateScoreWeights);
+            removeCandidateSample(
+                    previous.averagedLinearNoAdjustCandidateScores,
+                    averagedLinearNoAdjustCandidateScoreSums,
+                    averagedLinearNoAdjustCandidateScoreWeights);
         }
-        applyMovementSample(passScores);
+        applyMovementSample(expertPassScores);
+        applyCandidateSample(averagedLinearPassScores, averagedLinearCandidateScoreSums, averagedLinearCandidateScoreWeights);
+        applyCandidateSample(
+                averagedLinearNoAdjustPassScores,
+                averagedLinearNoAdjustCandidateScoreSums,
+                averagedLinearNoAdjustCandidateScoreWeights);
     }
 
     @Override
@@ -151,7 +197,12 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
                                              double gfMax) {
         PendingPassSample pending = pendingPassSamples.remove(wave);
         if (pending != null) {
-            removeMovementSample(pending.scores);
+            removeMovementSample(pending.expertScores);
+            removeCandidateSample(pending.averagedLinearCandidateScores, averagedLinearCandidateScoreSums, averagedLinearCandidateScoreWeights);
+            removeCandidateSample(
+                    pending.averagedLinearNoAdjustCandidateScores,
+                    averagedLinearNoAdjustCandidateScoreSums,
+                    averagedLinearNoAdjustCandidateScoreWeights);
         }
     }
 
@@ -160,7 +211,10 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
                                        double gf) {
         double[] exactScores = scoreExactPredictions(centersForWave(wave), gf);
         applyMovementSample(exactScores);
-        if (updateLearnedConstantDivisors(wave, gf)) {
+        boolean updated = false;
+        updated |= updateAveragedLinearCandidateScores(wave, gf);
+        updated |= updateLearnedConstantDivisors(wave, gf);
+        if (updated) {
             movementSnapshotCache.clear();
         }
     }
@@ -183,7 +237,7 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
 
     @Override
     public boolean shouldRefreshEnemyWavesAfterResolvedHit() {
-        return true;
+        return false;
     }
 
     @Override
@@ -224,7 +278,8 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         }
         WaveContextFeatures.WaveContext sourceContext =
                 wave.sourceTickContext != null ? wave.sourceTickContext : wave.fireTimeContext;
-        return movementSnapshotForContext(sourceContext);
+        ensureAveragedLinearCandidateGfs(wave, sourceContext);
+        return createMovementSnapshot(sourceContext);
     }
 
     private ShotDodgerExpertSnapshot movementSnapshotForContext(WaveContextFeatures.WaveContext context) {
@@ -235,14 +290,23 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         if (snapshot != null) {
             return snapshot;
         }
-        snapshot = ShotDodgerSourceExpertCatalog.createMovementSnapshot(
-                context,
-                currentLearnedDivisor(linearConstantDivisorSum, linearConstantDivisorWeight, context),
-                currentLearnedDivisor(linearConstantDivisorNoAdjustSum, linearConstantDivisorNoAdjustWeight, context));
+        snapshot = createMovementSnapshot(context);
         if (snapshot != null) {
             movementSnapshotCache.put(context, snapshot);
         }
         return snapshot;
+    }
+
+    private ShotDodgerExpertSnapshot createMovementSnapshot(WaveContextFeatures.WaveContext context) {
+        if (context == null) {
+            return null;
+        }
+        return ShotDodgerSourceExpertCatalog.createMovementSnapshot(
+                context,
+                currentBestAveragedLinearLateralVelocity(false),
+                currentBestAveragedLinearLateralVelocity(true),
+                currentLearnedDivisor(linearConstantDivisorSum, linearConstantDivisorWeight, context),
+                currentLearnedDivisor(linearConstantDivisorNoAdjustSum, linearConstantDivisorNoAdjustWeight, context));
     }
 
     private double[] centersForWave(Wave wave) {
@@ -303,9 +367,9 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         if (centers == null) {
             return null;
         }
-        double[] scores = new double[ShotDodgerExpertId.VALUES.length];
+        double[] scores = new double[centers.length];
         Arrays.fill(scores, Double.NaN);
-        for (int i = 0; i < scores.length && i < centers.length; i++) {
+        for (int i = 0; i < scores.length; i++) {
             double center = centers[i];
             if (!Double.isFinite(center)) {
                 continue;
@@ -320,9 +384,9 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         if (centers == null) {
             return null;
         }
-        double[] scores = new double[ShotDodgerExpertId.VALUES.length];
+        double[] scores = new double[centers.length];
         Arrays.fill(scores, Double.NaN);
-        for (int i = 0; i < scores.length && i < centers.length; i++) {
+        for (int i = 0; i < scores.length; i++) {
             double center = centers[i];
             if (!Double.isFinite(center)) {
                 continue;
@@ -356,6 +420,45 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         boolean updated = false;
         updated |= accumulateConstantDivisorSample(wave.sourceTickContext, actualFireAngle, false);
         updated |= accumulateConstantDivisorSample(wave.sourceTickContext, actualFireAngle, true, wave.fireTimeShooterBodyTurn);
+        return updated;
+    }
+
+    private boolean updateAveragedLinearCandidateScores(Wave wave,
+                                                        double resolvedGf) {
+        if (wave == null || !Double.isFinite(resolvedGf)) {
+            return false;
+        }
+        boolean updated = applyAveragedLinearCandidateExactScores(
+                wave.averagedLinearCandidateGfs,
+                resolvedGf,
+                averagedLinearCandidateScoreSums,
+                averagedLinearCandidateScoreWeights);
+        updated |= applyAveragedLinearCandidateExactScores(
+                wave.averagedLinearNoAdjustCandidateGfs,
+                resolvedGf,
+                averagedLinearNoAdjustCandidateScoreSums,
+                averagedLinearNoAdjustCandidateScoreWeights);
+        return updated;
+    }
+
+    private static boolean applyAveragedLinearCandidateExactScores(double[] candidateGfs,
+                                                                   double resolvedGf,
+                                                                   double[] scoreSums,
+                                                                   double[] scoreWeights) {
+        if (candidateGfs == null || scoreSums == null || scoreWeights == null) {
+            return false;
+        }
+        boolean updated = false;
+        for (int constant = 1; constant < candidateGfs.length && constant < scoreSums.length; constant++) {
+            double predictedGf = candidateGfs[constant];
+            if (!Double.isFinite(predictedGf)) {
+                continue;
+            }
+            double distance = Math.abs(predictedGf - resolvedGf);
+            scoreSums[constant] += gaussianScore(distance, EXACT_GUESS_FACTOR_SIGMA);
+            scoreWeights[constant] += 1.0;
+            updated = true;
+        }
         return updated;
     }
 
@@ -442,6 +545,132 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     private static double sourceAngleWithoutBodyTurn(double actualFireAngle,
                                                      double bodyTurn) {
         return normalizeAngle(actualFireAngle - bodyTurn);
+    }
+
+    private void ensureAveragedLinearCandidateGfs(Wave wave,
+                                                  WaveContextFeatures.WaveContext sourceContext) {
+        if (wave == null || sourceContext == null) {
+            return;
+        }
+        if (wave.averagedLinearCandidateGfs == null) {
+            wave.averagedLinearCandidateGfs = createAveragedLinearCandidateGfs(wave, sourceContext, false, wave.fireTimeShooterBodyTurn);
+        }
+        if (wave.averagedLinearNoAdjustCandidateGfs == null) {
+            wave.averagedLinearNoAdjustCandidateGfs =
+                    createAveragedLinearCandidateGfs(wave, sourceContext, true, wave.fireTimeShooterBodyTurn);
+        }
+    }
+
+    private double[] createAveragedLinearCandidateGfs(Wave wave,
+                                                      WaveContextFeatures.WaveContext sourceContext,
+                                                      boolean applyBodyTurn,
+                                                      double bodyTurn) {
+        if (wave == null || sourceContext == null) {
+            return null;
+        }
+        double sourceReferenceBearing = Math.atan2(
+                sourceContext.targetX - sourceContext.sourceX,
+                sourceContext.targetY - sourceContext.sourceY);
+        double fireReferenceBearing = fireReferenceBearing(wave);
+        double fireMea = fireMea(wave);
+        if (!Double.isFinite(sourceReferenceBearing)
+                || !Double.isFinite(fireReferenceBearing)
+                || !Double.isFinite(fireMea)
+                || fireMea <= 0.0) {
+            return null;
+        }
+        double[] candidateGfs = new double[MAX_AVERAGED_LINEAR_CONSTANT + 1];
+        Arrays.fill(candidateGfs, Double.NaN);
+        for (int constant = 1; constant <= MAX_AVERAGED_LINEAR_CONSTANT; constant++) {
+            double sourceAngle = sourceReferenceBearing + averagedLinearCandidateValues[constant] / sourceContext.bulletSpeed;
+            if (applyBodyTurn) {
+                if (!Double.isFinite(bodyTurn)) {
+                    continue;
+                }
+                sourceAngle = normalizeAngle(sourceAngle + bodyTurn);
+            }
+            candidateGfs[constant] = Math.max(
+                    -1.0,
+                    Math.min(1.0, MathUtils.angleToGf(fireReferenceBearing, sourceAngle, fireMea)));
+        }
+        return candidateGfs;
+    }
+
+    private double currentBestAveragedLinearLateralVelocity(boolean noAdjust) {
+        return averagedLinearCandidateValues[currentBestAveragedLinearConstant(noAdjust)];
+    }
+
+    private int currentBestAveragedLinearConstant(boolean noAdjust) {
+        double[] scoreSums = noAdjust ? averagedLinearNoAdjustCandidateScoreSums : averagedLinearCandidateScoreSums;
+        double[] scoreWeights = noAdjust ? averagedLinearNoAdjustCandidateScoreWeights : averagedLinearCandidateScoreWeights;
+        int bestConstant = 1;
+        double bestScore = candidateAverageScore(scoreSums, scoreWeights, bestConstant);
+        for (int constant = 2; constant <= MAX_AVERAGED_LINEAR_CONSTANT; constant++) {
+            double score = candidateAverageScore(scoreSums, scoreWeights, constant);
+            if (score > bestScore + 1e-12) {
+                bestScore = score;
+                bestConstant = constant;
+            }
+        }
+        return bestConstant;
+    }
+
+    private static double candidateAverageScore(double[] scoreSums,
+                                                double[] scoreWeights,
+                                                int constant) {
+        if (scoreSums == null || scoreWeights == null || constant < 0 || constant >= scoreSums.length) {
+            return DEFAULT_EXPERT_SCORE;
+        }
+        return scoreWeights[constant] > 0.0
+                ? scoreSums[constant] / scoreWeights[constant]
+                : DEFAULT_EXPERT_SCORE;
+    }
+
+    private void updateAveragedLinearCandidates(long sampleTime,
+                                                double lateralVelocity) {
+        if (sampleTime == Long.MIN_VALUE
+                || !Double.isFinite(lateralVelocity)
+                || sampleTime <= lastAveragedLinearCandidateUpdateTime) {
+            return;
+        }
+        for (int constant = 1; constant <= MAX_AVERAGED_LINEAR_CONSTANT; constant++) {
+            averagedLinearCandidateValues[constant] =
+                    (averagedLinearCandidateValues[constant] * constant + lateralVelocity) / (constant + 1.0);
+        }
+        lastAveragedLinearCandidateUpdateTime = sampleTime;
+        movementSnapshotCache.clear();
+    }
+
+    private void applyCandidateSample(double[] sampleScores,
+                                      double[] scoreSums,
+                                      double[] scoreWeights) {
+        if (sampleScores == null || scoreSums == null || scoreWeights == null) {
+            return;
+        }
+        for (int constant = 1; constant < sampleScores.length && constant < scoreSums.length; constant++) {
+            double score = sampleScores[constant];
+            if (!Double.isFinite(score)) {
+                continue;
+            }
+            scoreSums[constant] += score;
+            scoreWeights[constant] += 1.0;
+        }
+    }
+
+    private void removeCandidateSample(double[] sampleScores,
+                                       double[] scoreSums,
+                                       double[] scoreWeights) {
+        if (sampleScores == null || scoreSums == null || scoreWeights == null) {
+            return;
+        }
+        for (int constant = 1; constant < sampleScores.length && constant < scoreSums.length; constant++) {
+            double score = sampleScores[constant];
+            if (!Double.isFinite(score)) {
+                continue;
+            }
+            scoreSums[constant] -= score;
+            scoreWeights[constant] = Math.max(0.0, scoreWeights[constant] - 1.0);
+        }
     }
 
     private static double normalizeAngle(double angle) {

@@ -97,27 +97,7 @@ final class ModeSelector {
     }
 
     private boolean isShotDodgerAdmissible(boolean bulletShieldRetiredForBattle) {
-        if (info == null) {
-            return false;
-        }
-        if (ModePerformanceProfile.hasAnyCombinedSamples(ModeId.SHOT_DODGER)) {
-            return true;
-        }
-        // Admit ShotDodger only when every other admissible mode has posterior mean below 90%.
-        List<ModePosterior> others = new ArrayList<>();
-        others.add(estimateLiveMode(ModeId.SCORE_MAX));
-        if (!bulletShieldRetiredForBattle) {
-            others.add(estimateLiveMode(ModeId.BULLET_SHIELD));
-        }
-        if (isPerfectPredictionAdmissible(bulletShieldRetiredForBattle)) {
-            others.add(estimateLiveMode(ModeId.PERFECT_PREDICTION));
-        }
-        for (ModePosterior posterior : others) {
-            if (posterior.posteriorMean >= 0.90) {
-                return false;
-            }
-        }
-        return true;
+        return info != null;
     }
 
     private boolean areLegalModesSettled(boolean bulletShieldRetiredForBattle) {
