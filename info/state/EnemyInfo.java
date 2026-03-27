@@ -349,6 +349,7 @@ public class EnemyInfo {
                 Double.isFinite(previousHeading)
                         ? MathUtils.normalizeAngle(heading - previousHeading)
                         : Double.NaN;
+        firedWave.sourceTickContext = createSourceTickContext(robot, existingEnemyWaves, firedWave);
         firedWave.fireTimeContext = WaveContextFeatures.createWaveContext(
                 firedWave.originX,
                 firedWave.originY,
@@ -369,6 +370,70 @@ public class EnemyInfo {
                 existingEnemyWaves,
                 null);
         return firedWave;
+    }
+
+    private WaveContextFeatures.WaveContext createSourceTickContext(Saguaro robot,
+                                                                    List<Wave> existingEnemyWaves,
+                                                                    Wave firedWave) {
+        if (robot == null || firedWave == null) {
+            return null;
+        }
+        if (!Double.isFinite(firedWave.priorTickShooterX)
+                || !Double.isFinite(firedWave.priorTickShooterY)
+                || !Double.isFinite(firedWave.priorTickTargetX)
+                || !Double.isFinite(firedWave.priorTickTargetY)
+                || !Double.isFinite(firedWave.priorTickTargetHeading)
+                || !Double.isFinite(firedWave.priorTickTargetVelocity)) {
+            return null;
+        }
+
+        double sourceTickHeadingDelta =
+                Double.isFinite(firedWave.fireTimeTargetHeading)
+                        ? ConstantDeltaPredictor.estimateHeadingDelta(
+                                firedWave.fireTimeTargetHeading,
+                                firedWave.priorTickTargetHeading)
+                        : 0.0;
+        double sourceTickVelocityDelta =
+                Double.isFinite(firedWave.fireTimeTargetVelocity)
+                        ? ConstantDeltaPredictor.estimateVelocityDelta(
+                                firedWave.fireTimeTargetVelocity,
+                                firedWave.priorTickTargetVelocity)
+                        : 0.0;
+        int sourceTickAccelerationSign = signWithEpsilon(sourceTickVelocityDelta);
+        int sourceTickLateralDirectionSign = WaveContextFeatures.computeLateralDirectionSign(
+                firedWave.priorTickShooterX,
+                firedWave.priorTickShooterY,
+                firedWave.priorTickTargetX,
+                firedWave.priorTickTargetY,
+                firedWave.priorTickTargetHeading,
+                firedWave.priorTickTargetVelocity);
+        if (sourceTickLateralDirectionSign == 0) {
+            sourceTickLateralDirectionSign =
+                    WaveContextFeatures.normalizeDirectionSign(lastRobotNonZeroLateralDirectionSignAtScan);
+        }
+        if (sourceTickLateralDirectionSign == 0) {
+            sourceTickLateralDirectionSign = 1;
+        }
+
+        return WaveContextFeatures.createWaveContext(
+                firedWave.priorTickShooterX,
+                firedWave.priorTickShooterY,
+                firedWave.speed,
+                Math.max(0L, firedWave.fireTime - 1L),
+                firedWave.priorTickTargetX,
+                firedWave.priorTickTargetY,
+                firedWave.priorTickTargetHeading,
+                firedWave.priorTickTargetVelocity,
+                sourceTickHeadingDelta,
+                sourceTickVelocityDelta,
+                sourceTickAccelerationSign,
+                Math.max(0, lastRobotTicksSinceVelocityReversalAtScan - 1),
+                Math.max(0, lastRobotTicksSinceDecelAtScan - 1),
+                sourceTickLateralDirectionSign,
+                robot.getBattleFieldWidth(),
+                robot.getBattleFieldHeight(),
+                existingEnemyWaves,
+                null);
     }
 
     /**

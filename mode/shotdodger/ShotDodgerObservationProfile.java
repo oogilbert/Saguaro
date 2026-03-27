@@ -17,7 +17,6 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     private static final int SNAPSHOT_CACHE_CAPACITY = 256;
     private static final double DEFAULT_EXPERT_SCORE = 0.5;
     private static final double EXACT_GUESS_FACTOR_SIGMA = 0.18;
-    private static final double PASS_INTERVAL_SIGMA = 0.22;
 
     private static final class PendingPassSample {
         final double[] scores;
@@ -81,7 +80,7 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
 
     @Override
     public GuessFactorDistribution createMovementDistribution(WaveContextFeatures.WaveContext context) {
-        ShotDodgerExpertSnapshot snapshot = movementSnapshotFor(context);
+        ShotDodgerExpertSnapshot snapshot = movementSnapshotForContext(context);
         if (snapshot == null || snapshot.isEmpty()) {
             return null;
         }
@@ -96,7 +95,7 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
 
     @Override
     public double[] createMovementRenderGfMarkers(WaveContextFeatures.WaveContext context) {
-        ShotDodgerExpertSnapshot snapshot = movementSnapshotFor(context);
+        ShotDodgerExpertSnapshot snapshot = movementSnapshotForContext(context);
         if (snapshot == null) {
             return null;
         }
@@ -108,7 +107,7 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         if (wave == null) {
             return null;
         }
-        ShotDodgerExpertSnapshot snapshot = movementSnapshotFor(wave.fireTimeContext);
+        ShotDodgerExpertSnapshot snapshot = movementSnapshotForWave(wave);
         if (snapshot == null) {
             return null;
         }
@@ -201,7 +200,16 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         return bestExpertId;
     }
 
-    private ShotDodgerExpertSnapshot movementSnapshotFor(WaveContextFeatures.WaveContext context) {
+    private ShotDodgerExpertSnapshot movementSnapshotForWave(Wave wave) {
+        if (wave == null) {
+            return null;
+        }
+        WaveContextFeatures.WaveContext sourceContext =
+                wave.sourceTickContext != null ? wave.sourceTickContext : wave.fireTimeContext;
+        return movementSnapshotForContext(sourceContext);
+    }
+
+    private ShotDodgerExpertSnapshot movementSnapshotForContext(WaveContextFeatures.WaveContext context) {
         if (context == null) {
             return null;
         }
@@ -223,11 +231,12 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         if (wave.fireTimeRenderGfMarkers != null) {
             return wave.fireTimeRenderGfMarkers;
         }
-        return centersForContext(wave.fireTimeContext);
+        ShotDodgerExpertSnapshot snapshot = movementSnapshotForWave(wave);
+        return snapshot != null ? ShotDodgerExpertTransforms.createRenderGfMarkers(snapshot, wave) : null;
     }
 
     private double[] centersForContext(WaveContextFeatures.WaveContext context) {
-        ShotDodgerExpertSnapshot snapshot = movementSnapshotFor(context);
+        ShotDodgerExpertSnapshot snapshot = movementSnapshotForContext(context);
         return snapshot != null ? ShotDodgerExpertTransforms.createRenderGfMarkers(snapshot, null) : null;
     }
 
@@ -297,17 +306,11 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
             if (!Double.isFinite(center)) {
                 continue;
             }
-            double distance = intervalDistance(center, gfMin, gfMax);
-            scores[i] = 1.0 - gaussianScore(distance, PASS_INTERVAL_SIGMA);
+            if (center >= gfMin && center <= gfMax) {
+                scores[i] = 0.0;
+            }
         }
         return scores;
-    }
-
-    private static double intervalDistance(double value, double minValue, double maxValue) {
-        if (value >= minValue && value <= maxValue) {
-            return 0.0;
-        }
-        return value < minValue ? (minValue - value) : (value - maxValue);
     }
 
     private static double gaussianScore(double distance, double sigma) {

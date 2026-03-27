@@ -34,6 +34,7 @@ public final class Wave {
     public double fireTimeShooterHeading = Double.NaN;
     public double fireTimeShooterVelocity = Double.NaN;
     public double fireTimeShooterBodyTurn = Double.NaN;
+    public WaveContextFeatures.WaveContext sourceTickContext;
     public WaveContextFeatures.WaveContext fireTimeContext;
     public GuessFactorDistributionHandle fireTimeDistributionHandle;
     public double[] fireTimeRecentExpertScores;
