@@ -654,10 +654,13 @@ public final class BulletShieldMode implements BattleMode {
         if (aggressivePower < Rules.MIN_BULLET_POWER) {
             return Double.NaN;
         }
-        if (Point2D.distance(myNow.x, myNow.y, latestEnemy.x, latestEnemy.y)
-                <= BotConfig.Shield.AGGRESSIVE_CLOSE_RANGE_RADIUS) {
+        double distance = Point2D.distance(myNow.x, myNow.y, latestEnemy.x, latestEnemy.y);
+        if (distance <= BotConfig.Shield.AGGRESSIVE_CLOSE_RANGE_RADIUS) {
             return aggressivePower;
         }
+        aggressivePower = Math.min(aggressivePower, Math.max(Rules.MIN_BULLET_POWER, Math.min(3,
+                distance < 100 ? 3 : Math.min(latestEnemy.energy / 4,
+                        Math.min(myNow.energy / 10, 1 + 400 / distance)))));
         if (isImmediateShieldingImpossible(myNow)) {
             return aggressivePower;
         }
