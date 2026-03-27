@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -16,7 +16,7 @@ import oog.mega.saguaro.movement.PathWaveIntersection;
 import oog.mega.saguaro.movement.RamEvent;
 import robocode.Rules;
 
-final class AntiSurferPowerScorer {
+final class ShotDodgerPowerScorer {
     private static final double MIN_FIRE_POWER = 0.1;
     private static final double MIN_TERMINAL_RATE = 1e-6;
     private static final double EVENT_TIME_EPSILON = 1e-9;

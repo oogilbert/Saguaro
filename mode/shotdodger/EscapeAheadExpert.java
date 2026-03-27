@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,7 +45,7 @@ final class EscapeAheadExpert {
                                                               double bandwidth,
                                                               int orbitDirectionSign) {
         RawPrediction rawPrediction = createRawPredictionForOrbitDirection(context, orbitDirectionSign);
-        double clampedGf = AntiSurferPreciseMea.clampGf(context, rawPrediction.centerGf);
+        double clampedGf = ShotDodgerPreciseMea.clampGf(context, rawPrediction.centerGf);
         GuessFactorDistribution distribution = new KDEDistribution(
                 new double[]{clampedGf},
                 bandwidth);

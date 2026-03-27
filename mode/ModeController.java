@@ -15,10 +15,10 @@ import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.info.persistence.BulletPowerHitRateDataSet;
 import oog.mega.saguaro.info.persistence.ModePerformanceDataSet;
 import oog.mega.saguaro.info.persistence.WaveLogModelDataSet;
-import oog.mega.saguaro.mode.antisurfer.AntiSurferMode;
 import oog.mega.saguaro.mode.perfectprediction.PerfectPredictionMode;
 import oog.mega.saguaro.mode.perfectprediction.PrecisePredictionProfile;
 import oog.mega.saguaro.mode.scoremax.ScoreMaxMode;
+import oog.mega.saguaro.mode.shotdodger.ShotDodgerMode;
 import oog.mega.saguaro.mode.shield.BulletShieldDataSet;
 import oog.mega.saguaro.mode.shield.BulletShieldMode;
 import oog.mega.saguaro.render.RenderState;
@@ -30,9 +30,9 @@ import robocode.RobotDeathEvent;
 import robocode.ScannedRobotEvent;
 
 public final class ModeController {
-    private static final ModeId FORCED_MODE_ID = ModeId.ANTI_SURFER;
+    private static final ModeId FORCED_MODE_ID = ModeId.SHOT_DODGER;
 
-    private final AntiSurferMode antiSurferMode = new AntiSurferMode();
+    private final ShotDodgerMode shotDodgerMode = new ShotDodgerMode();
     private final BulletShieldMode bulletShieldMode = new BulletShieldMode();
     private final PerfectPredictionMode perfectPredictionMode = new PerfectPredictionMode();
     private final ScoreMaxMode scoreMaxMode = new ScoreMaxMode();
@@ -40,7 +40,7 @@ public final class ModeController {
     private final BattleDataStore dataStore = new BattleDataStore();
     private final ModeRoundScoreTracker roundScoreTracker = new ModeRoundScoreTracker();
     private final ModeSelector modeSelector = new ModeSelector(roundScoreTracker);
-    private BattleMode activeMode = antiSurferMode;
+    private BattleMode activeMode = shotDodgerMode;
     private ModeId activeModeId = FORCED_MODE_ID;
     private final Set<BattleMode> modesUsedThisBattle = new LinkedHashSet<>();
     private BattleServices services;
@@ -66,7 +66,7 @@ public final class ModeController {
         PrecisePredictionProfile.startBattle();
         startRoundOutcomeProfile(bulletShieldMode.getRoundOutcomeProfile(), null);
         startRoundOutcomeProfile(scoreMaxMode.getRoundOutcomeProfile(), bulletShieldMode.getRoundOutcomeProfile());
-        startRoundOutcomeProfile(antiSurferMode.getRoundOutcomeProfile(), scoreMaxMode.getRoundOutcomeProfile());
+        startRoundOutcomeProfile(shotDodgerMode.getRoundOutcomeProfile(), scoreMaxMode.getRoundOutcomeProfile());
         modesUsedThisBattle.clear();
         initializedRound = -1;
         opponentContextLoaded = false;
@@ -86,7 +86,7 @@ public final class ModeController {
         }
         this.info = info;
         modeSelector.setInfo(info);
-        antiSurferMode.init(info, services);
+        shotDodgerMode.init(info, services);
         bulletShieldMode.init(info, services);
         perfectPredictionMode.init(info, services);
         scoreMaxMode.init(info, services);
@@ -210,13 +210,13 @@ public final class ModeController {
         BattleMode nextMode = modeFor(nextModeId);
         activeModeId = nextModeId;
         activeMode = nextMode;
-        boolean scoreMaxTracking = nextModeId == ModeId.SCORE_MAX || nextModeId == ModeId.ANTI_SURFER;
+        boolean scoreMaxTracking = nextModeId == ModeId.SCORE_MAX || nextModeId == ModeId.SHOT_DODGER;
         ScoreMaxScoreHistoryProfile.INSTANCE.setTrackingEnabled(scoreMaxTracking);
         if (info != null) {
             info.setScoreMaxTrackingEnabled(scoreMaxTracking);
         }
-        if (nextModeId == ModeId.ANTI_SURFER) {
-            observationProfile.setDelegate(antiSurferMode.getObservationProfile());
+        if (nextModeId == ModeId.SHOT_DODGER) {
+            observationProfile.setDelegate(shotDodgerMode.getObservationProfile());
         } else {
             observationProfile.setDelegate(ScoreMaxLearningProfile.INSTANCE);
         }
@@ -303,8 +303,8 @@ public final class ModeController {
         if (modeId == ModeId.PERFECT_PREDICTION) {
             return perfectPredictionMode;
         }
-        if (modeId == ModeId.ANTI_SURFER) {
-            return antiSurferMode;
+        if (modeId == ModeId.SHOT_DODGER) {
+            return shotDodgerMode;
         }
         throw new IllegalArgumentException("Unsupported mode id " + modeId);
     }

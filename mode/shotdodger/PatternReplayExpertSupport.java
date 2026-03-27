@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -62,7 +62,7 @@ final class PatternReplayExpertSupport {
                 absoluteBearing,
                 aimSolution.firingAngle,
                 MathUtils.maxEscapeAngle(context.bulletSpeed));
-        double clampedGf = AntiSurferPreciseMea.clampGf(context, meanGf);
+        double clampedGf = ShotDodgerPreciseMea.clampGf(context, meanGf);
         GuessFactorDistribution distribution = new KDEDistribution(
                 new double[]{clampedGf},
                 bandwidth);

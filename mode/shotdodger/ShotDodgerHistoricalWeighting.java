@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -11,7 +11,7 @@ import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.MathUtils;
 
-final class AntiSurferHistoricalWeighting {
+final class ShotDodgerHistoricalWeighting {
     private static final int SIGNATURE_WINDOW = 8;
     private static final double SIGNATURE_DECAY = 0.65;
     private static final double MIN_ACTIVE_WEIGHT = 1e-3;
@@ -92,14 +92,14 @@ final class AntiSurferHistoricalWeighting {
         if (records.isEmpty()) {
             return defaultWeights();
         }
-        double[] numerator = new double[AntiSurferExpertId.VALUES.length];
-        double[] denominator = new double[AntiSurferExpertId.VALUES.length];
+        double[] numerator = new double[ShotDodgerExpertId.VALUES.length];
+        double[] denominator = new double[ShotDodgerExpertId.VALUES.length];
         for (HistoricalRecord record : records) {
             double contextWeight = historicalContextWeight(currentFeatures, record.features);
             if (!(contextWeight > 0.0)) {
                 continue;
             }
-            for (int i = 0; i < AntiSurferExpertId.VALUES.length; i++) {
+            for (int i = 0; i < ShotDodgerExpertId.VALUES.length; i++) {
                 double score = record.expertScores[i];
                 if (!Double.isFinite(score)) {
                     continue;
@@ -108,7 +108,7 @@ final class AntiSurferHistoricalWeighting {
                 denominator[i] += contextWeight;
             }
         }
-        double[] weights = new double[AntiSurferExpertId.VALUES.length];
+        double[] weights = new double[ShotDodgerExpertId.VALUES.length];
         for (int i = 0; i < weights.length; i++) {
             weights[i] = denominator[i] > 0.0
                     ? Math.max(MIN_ACTIVE_WEIGHT, numerator[i] / denominator[i])
@@ -136,8 +136,8 @@ final class AntiSurferHistoricalWeighting {
     }
 
     private static double[] buildGunSignaturePoint(Deque<GunSignatureRecord> records) {
-        double[] numerator = new double[AntiSurferExpertId.VALUES.length];
-        double[] denominator = new double[AntiSurferExpertId.VALUES.length];
+        double[] numerator = new double[ShotDodgerExpertId.VALUES.length];
+        double[] denominator = new double[ShotDodgerExpertId.VALUES.length];
         double weight = 1.0;
         int used = 0;
         for (Iterator<GunSignatureRecord> it = records.descendingIterator(); it.hasNext() && used < SIGNATURE_WINDOW; used++) {
@@ -149,8 +149,8 @@ final class AntiSurferHistoricalWeighting {
     }
 
     private static double[] buildMovementSignaturePoint(Deque<IntervalSignatureRecord> records) {
-        double[] numerator = new double[AntiSurferExpertId.VALUES.length];
-        double[] denominator = new double[AntiSurferExpertId.VALUES.length];
+        double[] numerator = new double[ShotDodgerExpertId.VALUES.length];
+        double[] denominator = new double[ShotDodgerExpertId.VALUES.length];
         double weight = 1.0;
         int used = 0;
         for (Iterator<IntervalSignatureRecord> it = records.descendingIterator(); it.hasNext() && used < SIGNATURE_WINDOW; used++) {
@@ -165,7 +165,7 @@ final class AntiSurferHistoricalWeighting {
                                                double weight,
                                                double[] numerator,
                                                double[] denominator) {
-        for (int i = 0; i < AntiSurferExpertId.VALUES.length; i++) {
+        for (int i = 0; i < ShotDodgerExpertId.VALUES.length; i++) {
             double center = record.centerAt(i);
             if (!Double.isFinite(center)) {
                 continue;
@@ -180,7 +180,7 @@ final class AntiSurferHistoricalWeighting {
                                                     double weight,
                                                     double[] numerator,
                                                     double[] denominator) {
-        for (int i = 0; i < AntiSurferExpertId.VALUES.length; i++) {
+        for (int i = 0; i < ShotDodgerExpertId.VALUES.length; i++) {
             double center = record.centerAt(i);
             if (!Double.isFinite(center)) {
                 continue;
@@ -192,7 +192,7 @@ final class AntiSurferHistoricalWeighting {
     }
 
     private static double[] finalizeSignature(double[] numerator, double[] denominator) {
-        double[] signature = new double[AntiSurferExpertId.VALUES.length];
+        double[] signature = new double[ShotDodgerExpertId.VALUES.length];
         for (int i = 0; i < signature.length; i++) {
             signature[i] = denominator[i] > 0.0 ? numerator[i] / denominator[i] : 1.0;
         }
@@ -203,11 +203,11 @@ final class AntiSurferHistoricalWeighting {
                                                double[] signature,
                                                long time) {
         if (context == null) {
-            double[] empty = new double[BASE_FEATURE_COUNT + AntiSurferExpertId.VALUES.length];
+            double[] empty = new double[BASE_FEATURE_COUNT + ShotDodgerExpertId.VALUES.length];
             java.util.Arrays.fill(empty, 0.0);
             return empty;
         }
-        double[] features = new double[BASE_FEATURE_COUNT + AntiSurferExpertId.VALUES.length];
+        double[] features = new double[BASE_FEATURE_COUNT + ShotDodgerExpertId.VALUES.length];
         int index = 0;
         features[index++] = clamp01(context.flightTicks / 80.0);
         features[index++] = clamp01(context.wallAhead);
@@ -218,14 +218,14 @@ final class AntiSurferHistoricalWeighting {
         features[index++] = clamp01(context.ticksSinceDecel / (double) Math.max(1, context.flightTicks));
         features[index++] = clamp01((context.currentGF + 1.0) * 0.5);
         features[index++] = time <= 40L ? 1.0 : 0.0;
-        for (int i = 0; i < AntiSurferExpertId.VALUES.length; i++) {
+        for (int i = 0; i < ShotDodgerExpertId.VALUES.length; i++) {
             features[index++] = i < signature.length ? clamp01(signature[i]) : 1.0;
         }
         return features;
     }
 
     private static double[] scoreCentersAgainstInterval(double[] centers, double minGf, double maxGf) {
-        double[] scores = new double[AntiSurferExpertId.VALUES.length];
+        double[] scores = new double[ShotDodgerExpertId.VALUES.length];
         for (int i = 0; i < scores.length; i++) {
             double center = i < centers.length ? centers[i] : Double.NaN;
             if (!Double.isFinite(center)) {
@@ -288,7 +288,7 @@ final class AntiSurferHistoricalWeighting {
     }
 
     private static double[] defaultWeights() {
-        double[] weights = new double[AntiSurferExpertId.VALUES.length];
+        double[] weights = new double[ShotDodgerExpertId.VALUES.length];
         java.util.Arrays.fill(weights, 1.0);
         return weights;
     }

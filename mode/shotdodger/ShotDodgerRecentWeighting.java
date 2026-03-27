@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -9,7 +9,7 @@ import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.wave.Wave;
 
-final class AntiSurferRecentWeighting {
+final class ShotDodgerRecentWeighting {
     private static final int GUN_RESOLVED_WINDOW = 8;
     private static final int MOVEMENT_RESOLVED_WINDOW = 5;
     private static final int IN_FLIGHT_WINDOW = 8;
@@ -34,7 +34,7 @@ final class AntiSurferRecentWeighting {
             return;
         }
         EnemyInfo enemy = info.getEnemy();
-        double[] reachableInterval = AntiSurferReachability.computeGunWaveReachableGfInterval(
+        double[] reachableInterval = ShotDodgerReachability.computeGunWaveReachableGfInterval(
                 wave,
                 enemy,
                 info.getRobot().getTime(),
@@ -83,7 +83,7 @@ final class AntiSurferRecentWeighting {
         EnemyInfo enemy = info.getEnemy();
         long currentTime = info.getRobot().getTime();
         for (Wave wave : myWaves) {
-            wave.renderReachableGfInterval = AntiSurferReachability.computeGunWaveReachableGfInterval(
+            wave.renderReachableGfInterval = ShotDodgerReachability.computeGunWaveReachableGfInterval(
                     wave,
                     enemy,
                     currentTime,
@@ -102,13 +102,13 @@ final class AntiSurferRecentWeighting {
         }
         EnemyInfo enemy = info.getEnemy();
         long currentTime = info.getRobot().getTime();
-        double[] numerator = new double[AntiSurferExpertId.VALUES.length];
-        double[] denominator = new double[AntiSurferExpertId.VALUES.length];
+        double[] numerator = new double[ShotDodgerExpertId.VALUES.length];
+        double[] denominator = new double[ShotDodgerExpertId.VALUES.length];
         double weight = 1.0;
         int used = 0;
         for (int i = myWaves.size() - 1; i >= 0 && used < IN_FLIGHT_WINDOW; i--) {
             Wave wave = myWaves.get(i);
-            double[] interval = AntiSurferReachability.computeGunWaveReachableGfInterval(
+            double[] interval = ShotDodgerReachability.computeGunWaveReachableGfInterval(
                     wave,
                     enemy,
                     currentTime,
@@ -139,8 +139,8 @@ final class AntiSurferRecentWeighting {
         if (queue.isEmpty()) {
             return null;
         }
-        double[] numerator = new double[AntiSurferExpertId.VALUES.length];
-        double[] denominator = new double[AntiSurferExpertId.VALUES.length];
+        double[] numerator = new double[ShotDodgerExpertId.VALUES.length];
+        double[] denominator = new double[ShotDodgerExpertId.VALUES.length];
         double weight = 1.0;
         int used = 0;
         for (Iterator<WaveScoreRecord> it = queue.descendingIterator(); it.hasNext() && used < maxWaves; used++) {
@@ -174,7 +174,7 @@ final class AntiSurferRecentWeighting {
     }
 
     private static double[] combineScores(double[] primaryScores, double[] secondaryScores) {
-        double[] weights = new double[AntiSurferExpertId.VALUES.length];
+        double[] weights = new double[ShotDodgerExpertId.VALUES.length];
         for (int i = 0; i < weights.length; i++) {
             double combined = 0.0;
             int contributors = 0;
@@ -199,7 +199,7 @@ final class AntiSurferRecentWeighting {
         if (wave == null || wave.fireTimeRenderGfMarkers == null) {
             return null;
         }
-        double[] scores = new double[AntiSurferExpertId.VALUES.length];
+        double[] scores = new double[ShotDodgerExpertId.VALUES.length];
         for (int i = 0; i < scores.length; i++) {
             double center = i < wave.fireTimeRenderGfMarkers.length
                     ? wave.fireTimeRenderGfMarkers[i]

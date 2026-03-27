@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -6,14 +6,14 @@ import java.util.List;
 
 import oog.mega.saguaro.math.PhysicsUtil;
 
-final class AntiSurferExpertSnapshot {
-    private final ExpertPrediction[] predictions = new ExpertPrediction[AntiSurferExpertId.VALUES.length];
+final class ShotDodgerExpertSnapshot {
+    private final ExpertPrediction[] predictions = new ExpertPrediction[ShotDodgerExpertId.VALUES.length];
 
-    void set(AntiSurferExpertId expertId, ExpertPrediction prediction) {
+    void set(ShotDodgerExpertId expertId, ExpertPrediction prediction) {
         predictions[expertId.ordinal()] = prediction;
     }
 
-    ExpertPrediction get(AntiSurferExpertId expertId) {
+    ExpertPrediction get(ShotDodgerExpertId expertId) {
         return predictions[expertId.ordinal()];
     }
 
@@ -49,7 +49,7 @@ final class AntiSurferExpertSnapshot {
     double[] centers() {
         double[] centers = new double[predictions.length];
         Arrays.fill(centers, Double.NaN);
-        for (AntiSurferExpertId expertId : AntiSurferExpertId.VALUES) {
+        for (ShotDodgerExpertId expertId : ShotDodgerExpertId.VALUES) {
             ExpertPrediction prediction = get(expertId);
             if (prediction != null) {
                 centers[expertId.ordinal()] = prediction.centerGf;

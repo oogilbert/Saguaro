@@ -67,8 +67,8 @@ final class ModeSelector {
         if (isPerfectPredictionAdmissible(bulletShieldRetiredForBattle)) {
             posteriors.add(estimateLiveMode(ModeId.PERFECT_PREDICTION));
         }
-        if (isAntiSurferAdmissible(bulletShieldRetiredForBattle)) {
-            posteriors.add(estimateLiveMode(ModeId.ANTI_SURFER));
+        if (isShotDodgerAdmissible(bulletShieldRetiredForBattle)) {
+            posteriors.add(estimateLiveMode(ModeId.SHOT_DODGER));
         }
         return posteriors.toArray(new ModePosterior[0]);
     }
@@ -96,14 +96,14 @@ final class ModeSelector {
         return !areLegalModesSettled(bulletShieldRetiredForBattle);
     }
 
-    private boolean isAntiSurferAdmissible(boolean bulletShieldRetiredForBattle) {
+    private boolean isShotDodgerAdmissible(boolean bulletShieldRetiredForBattle) {
         if (info == null) {
             return false;
         }
-        if (ModePerformanceProfile.hasAnyCombinedSamples(ModeId.ANTI_SURFER)) {
+        if (ModePerformanceProfile.hasAnyCombinedSamples(ModeId.SHOT_DODGER)) {
             return true;
         }
-        // Admit AntiSurfer only when every other admissible mode has posterior mean below 90%.
+        // Admit ShotDodger only when every other admissible mode has posterior mean below 90%.
         List<ModePosterior> others = new ArrayList<>();
         others.add(estimateLiveMode(ModeId.SCORE_MAX));
         if (!bulletShieldRetiredForBattle) {

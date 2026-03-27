@@ -280,7 +280,7 @@ public final class BattleDataStore {
                 "PerfectPrediction mode estimate: "
                         + ModeController.describeModeEstimate(ModeId.PERFECT_PREDICTION));
         robot.out.println("ScoreMax mode estimate: " + ModeController.describeModeEstimate(ModeId.SCORE_MAX));
-        robot.out.println("AntiSurfer mode estimate: " + ModeController.describeModeEstimate(ModeId.ANTI_SURFER));
+        robot.out.println("ShotDodger mode estimate: " + ModeController.describeModeEstimate(ModeId.SHOT_DODGER));
         robot.out.println(describePrecisePredictionStatus());
         double historicalHitRate = BulletPowerHitRateTracker.getPersistedOverallHitRate();
         if (!Double.isNaN(historicalHitRate)) {

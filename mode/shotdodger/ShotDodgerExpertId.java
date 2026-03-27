@@ -1,6 +1,6 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
-enum AntiSurferExpertId {
+enum ShotDodgerExpertId {
     STATE_CONTINUATION,
     MINI_PATTERN,
     ALTERNATING_MINI_PATTERN,
@@ -14,5 +14,5 @@ enum AntiSurferExpertId {
     CENTER_OF_MASS,
     COSTANZA;
 
-    static final AntiSurferExpertId[] VALUES = values();
+    static final ShotDodgerExpertId[] VALUES = values();
 }

@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.Info;
@@ -43,7 +43,7 @@ final class ReverseLastDisplacementExpert {
         if (basePrediction == null) {
             return null;
         }
-        double reverseGf = AntiSurferPreciseMea.clampGf(
+        double reverseGf = ShotDodgerPreciseMea.clampGf(
                 context,
                 reverseAcrossPreciseMea(context, basePrediction.centerGf));
         GuessFactorDistribution distribution = new KDEDistribution(
@@ -54,7 +54,7 @@ final class ReverseLastDisplacementExpert {
 
     private static double reverseAcrossPreciseMea(WaveContextFeatures.WaveContext context,
                                                   double gf) {
-        double[] preciseRange = AntiSurferPreciseMea.range(context);
+        double[] preciseRange = ShotDodgerPreciseMea.range(context);
         double minGf = preciseRange[0];
         double maxGf = preciseRange[1];
         double clampedGf = Math.max(minGf, Math.min(maxGf, gf));

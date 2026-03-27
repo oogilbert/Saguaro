@@ -1,11 +1,11 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
 
-final class AntiSurferPreciseMea {
+final class ShotDodgerPreciseMea {
     private static final int RANGE_CACHE_CAPACITY = 256;
     private static final Map<WaveContextFeatures.WaveContext, double[]> rangeCache =
             new LinkedHashMap<WaveContextFeatures.WaveContext, double[]>(32, 0.75f, true) {
@@ -15,7 +15,7 @@ final class AntiSurferPreciseMea {
                 }
             };
 
-    private AntiSurferPreciseMea() {
+    private ShotDodgerPreciseMea() {
     }
 
     static synchronized double[] range(WaveContextFeatures.WaveContext context) {

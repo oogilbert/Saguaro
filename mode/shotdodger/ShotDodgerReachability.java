@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.wave.Wave;
@@ -7,12 +7,12 @@ import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.PhysicsUtil;
 import oog.mega.saguaro.math.RobotHitbox;
 
-final class AntiSurferReachability {
+final class ShotDodgerReachability {
     private static final double ROBOT_MAX_VELOCITY = 8.0;
     private static final double ROBOT_DECELERATION = 2.0;
     private static final double GF_RANGE_OVERLAP_EPSILON = 1e-5;
 
-    private AntiSurferReachability() {
+    private ShotDodgerReachability() {
     }
 
     static double[] computeGunWaveReachableGfInterval(Wave wave,
@@ -93,7 +93,7 @@ final class AntiSurferReachability {
                 clippedMaxGf = preciseRange[1];
             } else {
                 throw new IllegalStateException(
-                        "Approximate and precise AntiSurfer GF ranges do not overlap: "
+                        "Approximate and precise ShotDodger GF ranges do not overlap: "
                                 + "approximate=[" + approximateRange[0] + ", " + approximateRange[1] + "], "
                                 + "precise=[" + preciseRange[0] + ", " + preciseRange[1] + "]");
             }
@@ -170,7 +170,7 @@ final class AntiSurferReachability {
     private static double[] orderFiniteGfRange(double firstGf, double secondGf) {
         if (!Double.isFinite(firstGf) || !Double.isFinite(secondGf)) {
             throw new IllegalStateException(
-                    "Non-finite AntiSurfer reachable GF endpoint: firstGf="
+                    "Non-finite ShotDodger reachable GF endpoint: firstGf="
                             + firstGf + ", secondGf=" + secondGf);
         }
         return new double[]{

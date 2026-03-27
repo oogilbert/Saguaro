@@ -405,6 +405,8 @@ public class WaveManager {
             }
             wave.fireTimeDistributionHandle = GuessFactorDistributionHandle.orNull(
                     info.getObservationProfile().createMovementDistribution(wave.fireTimeContext));
+            wave.fireTimeRecentExpertScores =
+                    info.getObservationProfile().createMovementRecentPerformanceScores(wave.fireTimeContext);
             wave.fireTimeRenderGfMarkers =
                     info.getObservationProfile().createMovementRenderGfMarkers(wave.fireTimeContext);
         }
@@ -461,6 +463,9 @@ public class WaveManager {
                     logFlattenerVisitForWave(wave, robotX, robotY);
                     info.onEnemyWavePassedRobot(wave);
                     logResolvedMovementWaveInterval(wave, movementInterval);
+                    if (movementInterval != null && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
+                        refreshEnemyWaveDistributions();
+                    }
                 }
                 it.remove();
             }

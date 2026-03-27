@@ -197,7 +197,7 @@ public final class ModeObservationProfile implements ObservationProfile {
 
     @Override
     public boolean shouldRefreshEnemyWavesAfterResolvedHit() {
-        return policy.updateMovementModel;
+        return policy.useMovementDistributions && delegate.shouldRefreshEnemyWavesAfterResolvedHit();
     }
 
     @Override

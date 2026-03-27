@@ -1,10 +1,10 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import java.util.Arrays;
 
 import oog.mega.saguaro.info.wave.Wave;
 
-final class AntiSurferLearnedRecentWeighting {
+final class ShotDodgerLearnedRecentWeighting {
     private static final int MIN_SAMPLES_FOR_EFFECT = 5;
     private static final double SAMPLE_SATURATION = 16.0;
     private static final double INTERVAL_DISTANCE_SIGMA = 0.25;
@@ -46,7 +46,7 @@ final class AntiSurferLearnedRecentWeighting {
             return;
         }
         int expertCount = Math.min(
-                AntiSurferExpertId.VALUES.length,
+                ShotDodgerExpertId.VALUES.length,
                 Math.min(wave.fireTimeRecentExpertScores.length, wave.fireTimeRenderGfMarkers.length));
         for (int i = 0; i < expertCount; i++) {
             double recentScore = wave.fireTimeRecentExpertScores[i];
@@ -60,7 +60,7 @@ final class AntiSurferLearnedRecentWeighting {
     }
 
     private static double[] createFactors(ExpertRecentModel[] models, double[] currentRecentScores) {
-        double[] factors = new double[AntiSurferExpertId.VALUES.length];
+        double[] factors = new double[ShotDodgerExpertId.VALUES.length];
         Arrays.fill(factors, 1.0);
         if (currentRecentScores == null) {
             return factors;
@@ -86,7 +86,7 @@ final class AntiSurferLearnedRecentWeighting {
     }
 
     private static ExpertRecentModel[] createModelArray() {
-        ExpertRecentModel[] models = new ExpertRecentModel[AntiSurferExpertId.VALUES.length];
+        ExpertRecentModel[] models = new ExpertRecentModel[ShotDodgerExpertId.VALUES.length];
         for (int i = 0; i < models.length; i++) {
             models[i] = new ExpertRecentModel();
         }

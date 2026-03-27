@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
@@ -85,7 +85,7 @@ final class CenterOfMassExpert {
         }
 
         double centerGf = (aheadWeight * aheadCenterGf + reverseWeight * reverseCenterGf) / totalWeight;
-        double clampedGf = AntiSurferPreciseMea.clampGf(context, centerGf);
+        double clampedGf = ShotDodgerPreciseMea.clampGf(context, centerGf);
         GuessFactorDistribution distribution = new KDEDistribution(
                 new double[]{clampedGf},
                 bandwidth);

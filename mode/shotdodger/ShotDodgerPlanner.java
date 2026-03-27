@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -11,7 +11,6 @@ import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.state.RobotSnapshot;
 import oog.mega.saguaro.info.wave.Wave;
-import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.PhysicsUtil;
 import oog.mega.saguaro.mode.BattlePlan;
@@ -19,15 +18,20 @@ import oog.mega.saguaro.movement.CandidatePath;
 import oog.mega.saguaro.movement.MovementController;
 import oog.mega.saguaro.movement.PathGenerationContext;
 import oog.mega.saguaro.movement.PathWaveIntersection;
+import robocode.Rules;
 
-final class AntiSurferPlanner {
+final class ShotDodgerPlanner {
     private static final double MIN_FIRE_POWER = 0.1;
+    private static final double PREDICTED_SHOT_SIGMA_GUESS_FACTOR = 0.20;
+    private static final double DISTANCE_ADJUSTMENT_SCALE = 18.0;
+    private static final double DISTANCE_ADJUSTMENT_MIN_DISTANCE = 150.0;
+    private static final double WAVE_TIME_WEIGHT_SCALE = 0.015;
 
     private Info info;
     private MovementController movement;
     private GunController gun;
-    private AntiSurferObservationProfile observationProfile;
-    private AntiSurferPowerScorer powerScorer;
+    private ShotDodgerObservationProfile observationProfile;
+    private ShotDodgerPowerScorer powerScorer;
     private CandidatePath lastSelectedPath;
     private List<CandidatePath> lastSelectedFamilyPaths = new ArrayList<CandidatePath>();
     private List<PathWaveIntersection> lastSelectedPathIntersections = new ArrayList<PathWaveIntersection>();
@@ -36,17 +40,17 @@ final class AntiSurferPlanner {
     void init(Info info,
               MovementController movement,
               GunController gun,
-              AntiSurferObservationProfile observationProfile) {
+              ShotDodgerObservationProfile observationProfile) {
         if (info == null || movement == null || gun == null || observationProfile == null) {
             throw new IllegalArgumentException(
-                    "AntiSurferPlanner requires non-null info, movement, gun, and observationProfile");
+                    "ShotDodgerPlanner requires non-null info, movement, gun, and observationProfile");
         }
         this.info = info;
         this.movement = movement;
         this.gun = gun;
         this.observationProfile = observationProfile;
         if (this.powerScorer == null) {
-            this.powerScorer = new AntiSurferPowerScorer();
+            this.powerScorer = new ShotDodgerPowerScorer();
         }
         this.powerScorer.init(info);
         this.lastSelectedPath = null;
@@ -77,7 +81,7 @@ final class AntiSurferPlanner {
         lastSelectedWaveDangerRevision = info.getEnemyWaveDangerRevision();
 
         double[] movementInstruction = firstTickMovementInstruction(bestPath, robotState);
-        AntiSurferPowerScorer.PowerSelection powerSelection = powerScorer.selectBestPower(
+        ShotDodgerPowerScorer.PowerSelection powerSelection = powerScorer.selectBestPower(
                 bestPath,
                 lastSelectedPathIntersections,
                 robotState,
@@ -123,7 +127,10 @@ final class AntiSurferPlanner {
             if (path == null) {
                 continue;
             }
-            double cost = path.totalDanger + path.wallHitDamage;
+            List<PathWaveIntersection> intersections = path.pathIntersections != null
+                    ? path.pathIntersections
+                    : movement.collectPathWaveIntersections(path, null);
+            double cost = scorePath(path, intersections);
             if (bestPath == null
                     || cost < bestCost - 1e-9
                     || (Math.abs(cost - bestCost) <= 1e-9 && isBetterTiebreak(path, bestPath))) {
@@ -135,13 +142,110 @@ final class AntiSurferPlanner {
     }
 
     private static boolean isBetterTiebreak(CandidatePath candidate, CandidatePath incumbent) {
-        if (candidate.totalDanger < incumbent.totalDanger - 1e-9) {
+        if (candidate.wallHitDamage < incumbent.wallHitDamage - 1e-9) {
             return true;
         }
-        if (candidate.totalDanger > incumbent.totalDanger + 1e-9) {
+        if (candidate.wallHitDamage > incumbent.wallHitDamage + 1e-9) {
             return false;
         }
-        return candidate.wallHitDamage < incumbent.wallHitDamage - 1e-9;
+        return candidate.totalDanger < incumbent.totalDanger - 1e-9;
+    }
+
+    private double scorePath(CandidatePath path, List<PathWaveIntersection> intersections) {
+        double predictedDanger = 0.0;
+        int bestExpertOrdinal = observationProfile.currentBestMovementExpertId().ordinal();
+        int scoredWaveCount = 0;
+        long currentTime = info.getRobot().getTime();
+
+        if (intersections != null) {
+            for (PathWaveIntersection intersection : intersections) {
+                double waveDanger = scoreIntersection(intersection, bestExpertOrdinal, currentTime);
+                if (!Double.isFinite(waveDanger)) {
+                    continue;
+                }
+                predictedDanger += waveDanger;
+                scoredWaveCount++;
+            }
+        }
+
+        if (scoredWaveCount == 0) {
+            predictedDanger = path.totalDanger;
+        }
+
+        predictedDanger += path.wallHitDamage;
+        predictedDanger += Math.max(0.0, path.ramEnergyLoss);
+        predictedDanger += distanceAdjustment(path);
+        return predictedDanger;
+    }
+
+    private double scoreIntersection(PathWaveIntersection intersection,
+                                     int bestExpertOrdinal,
+                                     long currentTime) {
+        if (intersection == null
+                || intersection.wave == null
+                || intersection.exposedGfIntervals == null
+                || intersection.exposedGfIntervals.isEmpty()) {
+            return Double.NaN;
+        }
+        Wave wave = intersection.wave;
+        double[] predictedCenters = wave.fireTimeRenderGfMarkers;
+        if (predictedCenters == null
+                || bestExpertOrdinal < 0
+                || bestExpertOrdinal >= predictedCenters.length
+                || !Double.isFinite(predictedCenters[bestExpertOrdinal])) {
+            return Double.NaN;
+        }
+
+        double predictedGf = predictedCenters[bestExpertOrdinal];
+        double peakExposure = 0.0;
+        for (oog.mega.saguaro.info.wave.BulletShadowUtil.WeightedGfInterval interval : intersection.exposedGfIntervals) {
+            if (interval == null) {
+                continue;
+            }
+            double gap = intervalDistance(predictedGf, interval.startGf, interval.endGf);
+            double threat = interval.weight * gaussianScore(gap, PREDICTED_SHOT_SIGMA_GUESS_FACTOR);
+            if (threat > peakExposure) {
+                peakExposure = threat;
+            }
+        }
+        if (!(peakExposure > 0.0)) {
+            return 0.0;
+        }
+
+        double timeWeight = 1.0;
+        long ticksUntilContact = Math.max(0L, intersection.firstContactTime - currentTime);
+        if (ticksUntilContact > 0L) {
+            timeWeight = 1.0 / (1.0 + WAVE_TIME_WEIGHT_SCALE * ticksUntilContact);
+        }
+        return timeWeight * Rules.getBulletDamage(wave.getFirepower()) * peakExposure;
+    }
+
+    private double distanceAdjustment(CandidatePath path) {
+        if (path == null || path.trajectory == null || path.trajectory.length() == 0) {
+            return 0.0;
+        }
+        EnemyInfo.PredictedPosition enemyAtEnd = predictEnemyPositionAt(path.startTime + path.trajectory.length() - 1L);
+        if (enemyAtEnd == null) {
+            return 0.0;
+        }
+        PhysicsUtil.PositionState endState = path.trajectory.stateAt(path.trajectory.length() - 1);
+        double distance = Math.hypot(endState.x - enemyAtEnd.x, endState.y - enemyAtEnd.y);
+        return DISTANCE_ADJUSTMENT_SCALE / Math.max(DISTANCE_ADJUSTMENT_MIN_DISTANCE, distance);
+    }
+
+    private static double intervalDistance(double value, double minValue, double maxValue) {
+        if (value >= minValue && value <= maxValue) {
+            return 0.0;
+        }
+        return value < minValue ? (minValue - value) : (value - maxValue);
+    }
+
+    private static double gaussianScore(double distance, double sigma) {
+        if (!(sigma > 0.0)) {
+            return distance <= 0.0 ? 1.0 : 0.0;
+        }
+        double normalized = distance / sigma;
+        return Math.exp(-0.5 * normalized * normalized);
     }
 
     private double[] firstTickMovementInstruction(CandidatePath path, RobotSnapshot robotState) {
@@ -183,7 +287,8 @@ final class AntiSurferPlanner {
             return new GunInstruction(0.0, 0.0);
         }
 
-        PhysicsUtil.PositionState fireState = path.trajectory.stateAt(firstFiringTickOffset);
+        int fireStateIndex = Math.min(firstFiringTickOffset, Math.max(0, path.trajectory.length() - 1));
+        PhysicsUtil.PositionState fireState = path.trajectory.stateAt(fireStateIndex);
         long fireTime = path.startTime + Math.max(0, firstFiringTickOffset);
         EnemyInfo.PredictedPosition enemyAtFireTime = predictEnemyPositionAt(fireTime);
         if (enemyAtFireTime == null) {
@@ -193,35 +298,23 @@ final class AntiSurferPlanner {
         double aimPower = firePower >= MIN_FIRE_POWER
                 ? firePower
                 : Math.min(BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER, robotState.energy);
-        WaveContextFeatures.WaveContext fireContext = WaveContextFeatures.createWaveContext(
-                fireState.x,
-                fireState.y,
-                Wave.bulletSpeed(aimPower),
-                fireTime,
-                enemyAtFireTime.x,
-                enemyAtFireTime.y,
-                enemyAtFireTime.heading,
-                enemyAtFireTime.velocity,
-                info.getEnemy().getPredictedHeadingDelta(),
-                info.getEnemy().getPredictedVelocityDelta(),
-                enemyAtFireTime.accelerationSign,
-                enemyAtFireTime.ticksSinceVelocityReversal,
-                enemyAtFireTime.ticksSinceDecel,
-                enemyAtFireTime.lastNonZeroLateralDirectionSign,
-                info.getBattlefieldWidth(),
-                info.getBattlefieldHeight(),
-                info.getMyWaves(),
-                null);
-        ShotSolution shot = observationProfile.selectBestReachableGunShot(
-                fireContext,
+        ShotSolution shot = gun.selectOptimalShotFromPosition(
                 fireState.x,
                 fireState.y,
                 enemyAtFireTime.x,
                 enemyAtFireTime.y,
                 aimPower,
                 robotState.gunHeading,
-                firstFiringTickOffset,
-                gun);
+                firstFiringTickOffset);
+        if (shot == null || !Double.isFinite(shot.firingAngle)) {
+            shot = gun.selectOptimalUnconstrainedShotFromPosition(
+                    fireState.x,
+                    fireState.y,
+                    enemyAtFireTime.x,
+                    enemyAtFireTime.y,
+                    aimPower,
+                    firstFiringTickOffset);
+        }
         if (shot == null || !Double.isFinite(shot.firingAngle)) {
             shot = new ShotSolution(0.0, robotState.gunHeading);
         }

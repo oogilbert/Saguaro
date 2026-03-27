@@ -1,10 +1,10 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
-final class ActiveAntiSurferExpert {
-    private ActiveAntiSurferExpert() {
+final class ActiveShotDodgerExpert {
+    private ActiveShotDodgerExpert() {
     }
 
-    static ExpertPrediction createEnsemblePrediction(AntiSurferExpertSnapshot snapshot,
+    static ExpertPrediction createEnsemblePrediction(ShotDodgerExpertSnapshot snapshot,
                                                      double[] perExpertWeights) {
         if (snapshot == null || snapshot.isEmpty()) {
             return null;
@@ -12,7 +12,7 @@ final class ActiveAntiSurferExpert {
 
         ExpertPrediction bestPrediction = null;
         double bestWeight = Double.NEGATIVE_INFINITY;
-        for (AntiSurferExpertId expertId : AntiSurferExpertId.VALUES) {
+        for (ShotDodgerExpertId expertId : ShotDodgerExpertId.VALUES) {
             ExpertPrediction prediction = snapshot.get(expertId);
             if (prediction == null) {
                 continue;

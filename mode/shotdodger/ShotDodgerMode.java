@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import java.awt.Color;
 import java.util.ArrayList;
@@ -15,15 +15,15 @@ import oog.mega.saguaro.mode.BattleServices;
 import oog.mega.saguaro.render.PathOverlay;
 import oog.mega.saguaro.render.RenderState;
 
-public final class AntiSurferMode implements BattleMode {
+public final class ShotDodgerMode implements BattleMode {
     private static final Color SELECTED_PATH_LINE_COLOR = new Color(220, 120, 40);
     private static final Color SELECTED_PATH_NODE_COLOR = new Color(220, 120, 40, 210);
     private static final Color SELECTED_PATH_MARKER_COLOR = new Color(255, 200, 140);
     private static final float SELECTED_PATH_STROKE_WIDTH = 2.0f;
 
-    private final AntiSurferPlanner planner = new AntiSurferPlanner();
-    private final AntiSurferObservationProfile observationProfile = new AntiSurferObservationProfile();
-    private final RoundOutcomeProfile roundOutcomeProfile = AntiSurferRoundOutcomeProfile.INSTANCE;
+    private final ShotDodgerPlanner planner = new ShotDodgerPlanner();
+    private final ShotDodgerObservationProfile observationProfile = new ShotDodgerObservationProfile();
+    private final RoundOutcomeProfile roundOutcomeProfile = ShotDodgerRoundOutcomeProfile.INSTANCE;
     private Info info;
 
     @Override
@@ -33,7 +33,7 @@ public final class AntiSurferMode implements BattleMode {
 
     @Override
     public ModeObservationPolicy getObservationPolicy() {
-        return ModeObservationPolicy.ANTI_SURFER_EXPERT_ONLY;
+        return ModeObservationPolicy.SHOT_DODGER_EXPERT_ONLY;
     }
 
     public ObservationProfile getObservationProfile() {

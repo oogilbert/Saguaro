@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;

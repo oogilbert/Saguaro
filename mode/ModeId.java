@@ -4,7 +4,7 @@ public enum ModeId {
     SCORE_MAX("scoreMax", "ScoreMax"),
     BULLET_SHIELD("bulletShield", "BulletShielding"),
     PERFECT_PREDICTION("perfectPrediction", "PerfectPrediction"),
-    ANTI_SURFER("antiSurfer", "AntiSurfer");
+    SHOT_DODGER("shotDodger", "ShotDodger");
 
     private final String label;
     private final String displayName;

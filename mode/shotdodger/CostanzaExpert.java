@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -37,11 +37,11 @@ final class CostanzaExpert {
                                                 Info info) {
         return createGunPrediction(
                 context,
-                AntiSurferSourceExpertCatalog.createGunSourceSnapshot(context, enemy, info));
+                ShotDodgerSourceExpertCatalog.createGunSourceSnapshot(context, enemy, info));
     }
 
     static ExpertPrediction createGunPrediction(WaveContextFeatures.WaveContext context,
-                                                AntiSurferExpertSnapshot sourceSnapshot) {
+                                                ShotDodgerExpertSnapshot sourceSnapshot) {
         return createPrediction(
                 context,
                 sourceSnapshot,
@@ -52,11 +52,11 @@ final class CostanzaExpert {
                                                      Info info) {
         return createMovementPrediction(
                 context,
-                AntiSurferSourceExpertCatalog.createMovementSourceSnapshot(context, info));
+                ShotDodgerSourceExpertCatalog.createMovementSourceSnapshot(context, info));
     }
 
     static ExpertPrediction createMovementPrediction(WaveContextFeatures.WaveContext context,
-                                                     AntiSurferExpertSnapshot sourceSnapshot) {
+                                                     ShotDodgerExpertSnapshot sourceSnapshot) {
         return createPrediction(
                 context,
                 sourceSnapshot,
@@ -64,17 +64,17 @@ final class CostanzaExpert {
     }
 
     private static ExpertPrediction createPrediction(WaveContextFeatures.WaveContext context,
-                                                     AntiSurferExpertSnapshot sourceSnapshot,
+                                                     ShotDodgerExpertSnapshot sourceSnapshot,
                                                      double bandwidth) {
         List<ExpertPrediction> sourcePredictions =
                 sourceSnapshot != null ? sourceSnapshot.activePredictions() : Collections.<ExpertPrediction>emptyList();
         if (sourcePredictions == null || sourcePredictions.isEmpty()) {
             return null;
         }
-        double[] preciseRange = AntiSurferPreciseMea.range(context);
+        double[] preciseRange = ShotDodgerPreciseMea.range(context);
         List<PredictionPoint> points = buildSortedPoints(sourcePredictions, preciseRange[0], preciseRange[1]);
         double selectedGf = selectCostanzaGf(points, preciseRange[0], preciseRange[1]);
-        double clampedGf = AntiSurferPreciseMea.clampGf(context, selectedGf);
+        double clampedGf = ShotDodgerPreciseMea.clampGf(context, selectedGf);
         GuessFactorDistribution distribution = new KDEDistribution(new double[]{clampedGf}, bandwidth);
         PhysicsUtil.Trajectory trajectory = selectDisplayTrajectory(points, clampedGf);
         return new ExpertPrediction(distribution, trajectory, clampedGf);

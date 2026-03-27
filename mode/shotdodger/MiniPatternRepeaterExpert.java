@@ -1,4 +1,4 @@
-package oog.mega.saguaro.mode.antisurfer;
+package oog.mega.saguaro.mode.shotdodger;
 
 import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.Info;
@@ -6,8 +6,8 @@ import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.GuessFactorDistribution;
 
-final class AlternatingMiniPatternRepeaterExpert {
-    private AlternatingMiniPatternRepeaterExpert() {
+final class MiniPatternRepeaterExpert {
+    private MiniPatternRepeaterExpert() {
     }
 
     static GuessFactorDistribution createGunDistribution(WaveContextFeatures.WaveContext context,
@@ -83,8 +83,8 @@ final class AlternatingMiniPatternRepeaterExpert {
                 history,
                 cooldownTicksForBulletSpeed(context.bulletSpeed),
                 false,
-                true,
-                "Alternating mini-pattern expert");
+                false,
+                "Mini-pattern expert");
     }
 
     private static int cooldownTicksForBulletSpeed(double bulletSpeed) {
