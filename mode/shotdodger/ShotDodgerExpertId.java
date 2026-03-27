@@ -2,7 +2,11 @@ package oog.mega.saguaro.mode.shotdodger;
 
 enum ShotDodgerExpertId {
     HEAD_ON,
-    HEAD_ON_NO_GUN_ADJUST(HEAD_ON, true);
+    LINEAR,
+    LINEAR_CONSTANT_DIVISOR,
+    HEAD_ON_NO_GUN_ADJUST(HEAD_ON, true),
+    LINEAR_NO_GUN_ADJUST(LINEAR, true),
+    LINEAR_CONSTANT_DIVISOR_NO_GUN_ADJUST(true);
 
     static final ShotDodgerExpertId[] VALUES = values();
 
@@ -11,6 +15,10 @@ enum ShotDodgerExpertId {
 
     ShotDodgerExpertId() {
         this(null, false);
+    }
+
+    ShotDodgerExpertId(boolean applyFireTimeBodyTurn) {
+        this(null, applyFireTimeBodyTurn);
     }
 
     ShotDodgerExpertId(ShotDodgerExpertId sourceExpertId,

@@ -12,11 +12,15 @@ import oog.mega.saguaro.info.learning.ScoreMaxLearningProfile;
 import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.GuessFactorDistribution;
+import oog.mega.saguaro.math.MathUtils;
 
 final class ShotDodgerObservationProfile implements ObservationProfile {
     private static final int SNAPSHOT_CACHE_CAPACITY = 256;
     private static final double DEFAULT_EXPERT_SCORE = 0.5;
     private static final double EXACT_GUESS_FACTOR_SIGMA = 0.18;
+    private static final double DIVISOR_SAMPLE_EPSILON = 1e-4;
+    private static final double MIN_LEARNED_DIVISOR = 4.0;
+    private static final double MAX_LEARNED_DIVISOR = 30.0;
 
     private static final class PendingPassSample {
         final double[] scores;
@@ -32,6 +36,10 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
     private final Map<Wave, PendingPassSample> pendingPassSamples = new IdentityHashMap<Wave, PendingPassSample>();
     private final double[] movementScoreSums = new double[ShotDodgerExpertId.VALUES.length];
     private final double[] movementScoreWeights = new double[ShotDodgerExpertId.VALUES.length];
+    private double linearConstantDivisorSum;
+    private double linearConstantDivisorWeight;
+    private double linearConstantDivisorNoAdjustSum;
+    private double linearConstantDivisorNoAdjustWeight;
 
     void setInfo(Info info) {
         this.info = info;
@@ -39,6 +47,10 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
             Arrays.fill(movementScoreSums, 0.0);
             Arrays.fill(movementScoreWeights, 0.0);
             pendingPassSamples.clear();
+            linearConstantDivisorSum = 0.0;
+            linearConstantDivisorWeight = 0.0;
+            linearConstantDivisorNoAdjustSum = 0.0;
+            linearConstantDivisorNoAdjustWeight = 0.0;
         }
         movementSnapshotCache.clear();
     }
@@ -84,7 +96,10 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         if (snapshot == null || snapshot.isEmpty()) {
             return null;
         }
-        ExpertPrediction prediction = snapshot.get(ShotDodgerExpertId.HEAD_ON);
+        ShotDodgerExpertId activeExpertId = currentBestMovementExpertId();
+        ShotDodgerExpertId sourceExpertId =
+                activeExpertId.sourceExpertId() != null ? activeExpertId.sourceExpertId() : activeExpertId;
+        ExpertPrediction prediction = snapshot.get(sourceExpertId);
         return prediction != null ? prediction.distribution : null;
     }
 
@@ -145,6 +160,9 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
                                        double gf) {
         double[] exactScores = scoreExactPredictions(centersForWave(wave), gf);
         applyMovementSample(exactScores);
+        if (updateLearnedConstantDivisors(wave, gf)) {
+            movementSnapshotCache.clear();
+        }
     }
 
     @Override
@@ -217,7 +235,10 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         if (snapshot != null) {
             return snapshot;
         }
-        snapshot = ShotDodgerSourceExpertCatalog.createMovementSnapshot(context);
+        snapshot = ShotDodgerSourceExpertCatalog.createMovementSnapshot(
+                context,
+                currentLearnedDivisor(linearConstantDivisorSum, linearConstantDivisorWeight, context),
+                currentLearnedDivisor(linearConstantDivisorNoAdjustSum, linearConstantDivisorNoAdjustWeight, context));
         if (snapshot != null) {
             movementSnapshotCache.put(context, snapshot);
         }
@@ -319,6 +340,112 @@ final class ShotDodgerObservationProfile implements ObservationProfile {
         }
         double normalized = distance / sigma;
         return Math.exp(-0.5 * normalized * normalized);
+    }
+
+    private boolean updateLearnedConstantDivisors(Wave wave,
+                                                  double resolvedGf) {
+        if (wave == null || wave.sourceTickContext == null || !Double.isFinite(resolvedGf)) {
+            return false;
+        }
+        double fireReferenceBearing = fireReferenceBearing(wave);
+        double fireMea = fireMea(wave);
+        if (!Double.isFinite(fireReferenceBearing) || !Double.isFinite(fireMea) || fireMea <= 0.0) {
+            return false;
+        }
+        double actualFireAngle = fireReferenceBearing + resolvedGf * fireMea;
+        boolean updated = false;
+        updated |= accumulateConstantDivisorSample(wave.sourceTickContext, actualFireAngle, false);
+        updated |= accumulateConstantDivisorSample(wave.sourceTickContext, actualFireAngle, true, wave.fireTimeShooterBodyTurn);
+        return updated;
+    }
+
+    private boolean accumulateConstantDivisorSample(WaveContextFeatures.WaveContext sourceContext,
+                                                    double actualFireAngle,
+                                                    boolean subtractBodyTurn) {
+        return accumulateConstantDivisorSample(sourceContext, actualFireAngle, subtractBodyTurn, Double.NaN);
+    }
+
+    private boolean accumulateConstantDivisorSample(WaveContextFeatures.WaveContext sourceContext,
+                                                    double actualFireAngle,
+                                                    boolean subtractBodyTurn,
+                                                    double bodyTurn) {
+        if (sourceContext == null || !Double.isFinite(actualFireAngle)) {
+            return false;
+        }
+        double sourceReferenceBearing = Math.atan2(
+                sourceContext.targetX - sourceContext.sourceX,
+                sourceContext.targetY - sourceContext.sourceY);
+        double sourceAngle = subtractBodyTurn && Double.isFinite(bodyTurn)
+                ? sourceAngleWithoutBodyTurn(actualFireAngle, bodyTurn)
+                : actualFireAngle;
+        double angleOffset = normalizeAngle(sourceAngle - sourceReferenceBearing);
+        double lateralComponent =
+                sourceContext.targetVelocity * Math.sin(sourceContext.targetHeading - sourceReferenceBearing);
+        if (Math.abs(angleOffset) < DIVISOR_SAMPLE_EPSILON
+                || Math.abs(lateralComponent) < DIVISOR_SAMPLE_EPSILON) {
+            return false;
+        }
+        double divisor = lateralComponent / angleOffset;
+        if (!Double.isFinite(divisor) || divisor < MIN_LEARNED_DIVISOR || divisor > MAX_LEARNED_DIVISOR) {
+            return false;
+        }
+        if (subtractBodyTurn) {
+            linearConstantDivisorNoAdjustSum += divisor;
+            linearConstantDivisorNoAdjustWeight += 1.0;
+        } else {
+            linearConstantDivisorSum += divisor;
+            linearConstantDivisorWeight += 1.0;
+        }
+        return true;
+    }
+
+    private static double currentLearnedDivisor(double divisorSum,
+                                                double divisorWeight,
+                                                WaveContextFeatures.WaveContext context) {
+        if (divisorWeight > 0.0) {
+            return divisorSum / divisorWeight;
+        }
+        return context != null ? context.bulletSpeed : Double.NaN;
+    }
+
+    private static double fireReferenceBearing(Wave wave) {
+        if (wave == null) {
+            return Double.NaN;
+        }
+        if (Double.isFinite(wave.targetX)
+                && Double.isFinite(wave.targetY)
+                && Double.isFinite(wave.originX)
+                && Double.isFinite(wave.originY)) {
+            return Math.atan2(wave.targetX - wave.originX, wave.targetY - wave.originY);
+        }
+        if (wave.fireTimeContext == null) {
+            return Double.NaN;
+        }
+        return Math.atan2(
+                wave.fireTimeContext.targetX - wave.fireTimeContext.sourceX,
+                wave.fireTimeContext.targetY - wave.fireTimeContext.sourceY);
+    }
+
+    private static double fireMea(Wave wave) {
+        if (wave == null) {
+            return Double.NaN;
+        }
+        if (Double.isFinite(wave.speed) && wave.speed > 0.0) {
+            return MathUtils.maxEscapeAngle(wave.speed);
+        }
+        if (wave.fireTimeContext == null || !Double.isFinite(wave.fireTimeContext.bulletSpeed)) {
+            return Double.NaN;
+        }
+        return MathUtils.maxEscapeAngle(wave.fireTimeContext.bulletSpeed);
+    }
+
+    private static double sourceAngleWithoutBodyTurn(double actualFireAngle,
+                                                     double bodyTurn) {
+        return normalizeAngle(actualFireAngle - bodyTurn);
+    }
+
+    private static double normalizeAngle(double angle) {
+        return MathUtils.normalizeAngle(angle);
     }
 
     private static Map<WaveContextFeatures.WaveContext, ShotDodgerExpertSnapshot> createSnapshotCache() {
