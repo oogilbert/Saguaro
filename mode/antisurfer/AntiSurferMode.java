@@ -12,7 +12,6 @@ import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleMode;
 import oog.mega.saguaro.mode.BattleServices;
-import oog.mega.saguaro.mode.scoremax.ScoreMaxPlanner;
 import oog.mega.saguaro.render.PathOverlay;
 import oog.mega.saguaro.render.RenderState;
 
@@ -22,7 +21,7 @@ public final class AntiSurferMode implements BattleMode {
     private static final Color SELECTED_PATH_MARKER_COLOR = new Color(255, 200, 140);
     private static final float SELECTED_PATH_STROKE_WIDTH = 2.0f;
 
-    private final ScoreMaxPlanner planner = new ScoreMaxPlanner();
+    private final AntiSurferPlanner planner = new AntiSurferPlanner();
     private final AntiSurferObservationProfile observationProfile = new AntiSurferObservationProfile();
     private final RoundOutcomeProfile roundOutcomeProfile = AntiSurferRoundOutcomeProfile.INSTANCE;
     private Info info;
