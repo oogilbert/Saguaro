@@ -7,6 +7,7 @@ import oog.mega.saguaro.math.PhysicsUtil;
 
 public final class WaveContextFeatures {
     static final double ROBOT_DIAMETER = 36.0;
+    private static final double STICK_FEATURE_TARGET_DISTANCE = 1000.0;
 
     public static final class WaveContext {
         public final double sourceX;
@@ -30,6 +31,16 @@ public final class WaveContextFeatures {
         public final double wallAhead;
         public final double wallReverse;
         public final double currentGF;
+        public final double relativeHeading;
+        public final double absoluteVelocity;
+        public final double distanceLast10;
+        public final double distanceLast20;
+        public final double stickWallAhead;
+        public final double stickWallReverse;
+        public final double stickWallAhead2;
+        public final double stickWallReverse2;
+        public final boolean didHit;
+        public final long battleTime;
 
         public WaveContext(double sourceX,
                            double sourceY,
@@ -51,7 +62,17 @@ public final class WaveContextFeatures {
                            int ticksSinceDecel,
                            double wallAhead,
                            double wallReverse,
-                           double currentGF) {
+                           double currentGF,
+                           double relativeHeading,
+                           double absoluteVelocity,
+                           double distanceLast10,
+                           double distanceLast20,
+                           double stickWallAhead,
+                           double stickWallReverse,
+                           double stickWallAhead2,
+                           double stickWallReverse2,
+                           boolean didHit,
+                           long battleTime) {
             this.sourceX = sourceX;
             this.sourceY = sourceY;
             this.bulletSpeed = bulletSpeed;
@@ -73,6 +94,16 @@ public final class WaveContextFeatures {
             this.wallAhead = wallAhead;
             this.wallReverse = wallReverse;
             this.currentGF = currentGF;
+            this.relativeHeading = relativeHeading;
+            this.absoluteVelocity = absoluteVelocity;
+            this.distanceLast10 = distanceLast10;
+            this.distanceLast20 = distanceLast20;
+            this.stickWallAhead = stickWallAhead;
+            this.stickWallReverse = stickWallReverse;
+            this.stickWallAhead2 = stickWallAhead2;
+            this.stickWallReverse2 = stickWallReverse2;
+            this.didHit = didHit;
+            this.battleTime = battleTime;
         }
 
         @Override
@@ -104,7 +135,17 @@ public final class WaveContextFeatures {
                     && ticksSinceDecel == other.ticksSinceDecel
                     && Double.doubleToLongBits(wallAhead) == Double.doubleToLongBits(other.wallAhead)
                     && Double.doubleToLongBits(wallReverse) == Double.doubleToLongBits(other.wallReverse)
-                    && Double.doubleToLongBits(currentGF) == Double.doubleToLongBits(other.currentGF);
+                    && Double.doubleToLongBits(currentGF) == Double.doubleToLongBits(other.currentGF)
+                    && Double.doubleToLongBits(relativeHeading) == Double.doubleToLongBits(other.relativeHeading)
+                    && Double.doubleToLongBits(absoluteVelocity) == Double.doubleToLongBits(other.absoluteVelocity)
+                    && Double.doubleToLongBits(distanceLast10) == Double.doubleToLongBits(other.distanceLast10)
+                    && Double.doubleToLongBits(distanceLast20) == Double.doubleToLongBits(other.distanceLast20)
+                    && Double.doubleToLongBits(stickWallAhead) == Double.doubleToLongBits(other.stickWallAhead)
+                    && Double.doubleToLongBits(stickWallReverse) == Double.doubleToLongBits(other.stickWallReverse)
+                    && Double.doubleToLongBits(stickWallAhead2) == Double.doubleToLongBits(other.stickWallAhead2)
+                    && Double.doubleToLongBits(stickWallReverse2) == Double.doubleToLongBits(other.stickWallReverse2)
+                    && didHit == other.didHit
+                    && battleTime == other.battleTime;
         }
 
         @Override
@@ -130,6 +171,16 @@ public final class WaveContextFeatures {
             result = 31 * result + Long.hashCode(Double.doubleToLongBits(wallAhead));
             result = 31 * result + Long.hashCode(Double.doubleToLongBits(wallReverse));
             result = 31 * result + Long.hashCode(Double.doubleToLongBits(currentGF));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(relativeHeading));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(absoluteVelocity));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(distanceLast10));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(distanceLast20));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(stickWallAhead));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(stickWallReverse));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(stickWallAhead2));
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(stickWallReverse2));
+            result = 31 * result + (didHit ? 1 : 0);
+            result = 31 * result + Long.hashCode(battleTime);
             return result;
         }
     }
@@ -150,6 +201,9 @@ public final class WaveContextFeatures {
                                                 int accelerationSign,
                                                 int ticksSinceVelocityReversal,
                                                 int ticksSinceDecel,
+                                                double distanceLast10,
+                                                double distanceLast20,
+                                                boolean didHit,
                                                 int lastNonZeroLateralDirectionSign,
                                                 double battlefieldWidth,
                                                 double battlefieldHeight,
@@ -176,6 +230,16 @@ public final class WaveContextFeatures {
                 targetX,
                 targetY,
                 currentTime);
+        double relativeHeading = MathUtils.normalizeAngle(targetHeading - bearing);
+        double[] stickWallFeatures = computeStickWallFeatures(
+                sourceX,
+                sourceY,
+                targetX,
+                targetY,
+                targetHeading,
+                battlefieldWidth,
+                battlefieldHeight,
+                lateralDirectionSign);
         return new WaveContext(
                 sourceX,
                 sourceY,
@@ -197,7 +261,17 @@ public final class WaveContextFeatures {
                 ticksSinceDecel,
                 wallFeatures[0],
                 wallFeatures[1],
-                currentGF);
+                currentGF,
+                relativeHeading,
+                Math.abs(targetVelocity),
+                Math.max(0.0, distanceLast10),
+                Math.max(0.0, distanceLast20),
+                stickWallFeatures[0],
+                stickWallFeatures[1],
+                stickWallFeatures[2],
+                stickWallFeatures[3],
+                didHit,
+                currentTime);
     }
 
     public static double computeCurrentGuessFactor(List<Wave> referenceWaves,
@@ -301,6 +375,66 @@ public final class WaveContextFeatures {
         return new double[]{negativeEscape, positiveEscape};
     }
 
+    private static double[] computeStickWallFeatures(double sourceX,
+                                                     double sourceY,
+                                                     double targetX,
+                                                     double targetY,
+                                                     double targetHeading,
+                                                     double battlefieldWidth,
+                                                     double battlefieldHeight,
+                                                     int lateralDirectionSign) {
+        int directionSign = normalizeDirectionSign(lateralDirectionSign);
+        if (directionSign == 0) {
+            directionSign = 1;
+        }
+        double absoluteBearing = Math.atan2(targetX - sourceX, targetY - sourceY);
+        double aheadHeading = MathUtils.normalizeAngle(absoluteBearing + directionSign * Math.PI * 0.5);
+        double reverseHeading = MathUtils.normalizeAngle(absoluteBearing - directionSign * Math.PI * 0.5);
+        PhysicsUtil.SteeringMode primaryAheadMode =
+                directionSign > 0 ? PhysicsUtil.SteeringMode.WALL_SMOOTHED_CW : PhysicsUtil.SteeringMode.WALL_SMOOTHED_CCW;
+        PhysicsUtil.SteeringMode primaryReverseMode =
+                directionSign > 0 ? PhysicsUtil.SteeringMode.WALL_SMOOTHED_CCW : PhysicsUtil.SteeringMode.WALL_SMOOTHED_CW;
+        PhysicsUtil.SteeringMode secondaryAheadMode =
+                primaryAheadMode == PhysicsUtil.SteeringMode.WALL_SMOOTHED_CW
+                        ? PhysicsUtil.SteeringMode.WALL_SMOOTHED_CCW
+                        : PhysicsUtil.SteeringMode.WALL_SMOOTHED_CW;
+        PhysicsUtil.SteeringMode secondaryReverseMode =
+                primaryReverseMode == PhysicsUtil.SteeringMode.WALL_SMOOTHED_CW
+                        ? PhysicsUtil.SteeringMode.WALL_SMOOTHED_CCW
+                        : PhysicsUtil.SteeringMode.WALL_SMOOTHED_CW;
+        return new double[]{
+                wallSmoothingDeviation(targetX, targetY, aheadHeading, primaryAheadMode, battlefieldWidth, battlefieldHeight),
+                wallSmoothingDeviation(targetX, targetY, reverseHeading, primaryReverseMode, battlefieldWidth, battlefieldHeight),
+                wallSmoothingDeviation(targetX, targetY, aheadHeading, secondaryAheadMode, battlefieldWidth, battlefieldHeight),
+                wallSmoothingDeviation(targetX, targetY, reverseHeading, secondaryReverseMode, battlefieldWidth, battlefieldHeight)
+        };
+    }
+
+    private static double wallSmoothingDeviation(double x,
+                                                 double y,
+                                                 double desiredHeading,
+                                                 PhysicsUtil.SteeringMode steeringMode,
+                                                 double battlefieldWidth,
+                                                 double battlefieldHeight) {
+        double targetX = x + Math.sin(desiredHeading) * STICK_FEATURE_TARGET_DISTANCE;
+        double targetY = y + Math.cos(desiredHeading) * STICK_FEATURE_TARGET_DISTANCE;
+        double smoothedHeading = PhysicsUtil.computeTravelAngle(
+                x,
+                y,
+                targetX,
+                targetY,
+                steeringMode,
+                battlefieldWidth,
+                battlefieldHeight);
+        if (!Double.isFinite(smoothedHeading)) {
+            return 1.0;
+        }
+        return clamp(
+                Math.abs(MathUtils.normalizeAngle(smoothedHeading - desiredHeading)) / (Math.PI * 0.5),
+                0.0,
+                1.0);
+    }
+
     private static int resolveLateralDirectionSign(double lateralVelocity, int lastNonZeroLateralDirectionSign) {
         int directionSign = signWithEpsilon(lateralVelocity);
         if (directionSign != 0) {
@@ -324,4 +458,3 @@ public final class WaveContextFeatures {
         return Math.max(min, Math.min(max, value));
     }
 }
-

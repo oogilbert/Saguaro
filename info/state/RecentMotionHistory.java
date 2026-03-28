@@ -38,6 +38,18 @@ final class RecentMotionHistory {
         return headingDeltas[translateIndex(index)];
     }
 
+    double distanceLastTicks(int tickCount) {
+        if (tickCount <= 0 || size == 0) {
+            return 0.0;
+        }
+        int actualCount = Math.min(tickCount, size);
+        double distance = 0.0;
+        for (int i = size - actualCount; i < size; i++) {
+            distance += Math.abs(velocityAt(i));
+        }
+        return distance;
+    }
+
     private int translateIndex(int index) {
         if (index < 0 || index >= size) {
             throw new IllegalArgumentException("Motion-history index out of range: " + index);

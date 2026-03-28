@@ -59,6 +59,9 @@ public final class EnemyTracker {
                                                  int accelerationSign,
                                                  int ticksSinceVelocityReversal,
                                                  int ticksSinceDecel,
+                                                 double distanceLast10,
+                                                 double distanceLast20,
+                                                 boolean didHit,
                                                  List<Wave> existingEnemyWaves) {
         if (observationProfile == null) {
             throw new IllegalArgumentException("Observation profile must be non-null");
@@ -81,6 +84,9 @@ public final class EnemyTracker {
                 accelerationSign,
                 ticksSinceVelocityReversal,
                 ticksSinceDecel,
+                distanceLast10,
+                distanceLast20,
+                didHit,
                 existingEnemyWaves);
     }
 

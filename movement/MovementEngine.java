@@ -416,19 +416,25 @@ public class MovementEngine implements MovementController {
         public final int ticksSinceVelocityReversal;
         public final int ticksSinceDecel;
         public final int lastNonZeroVelocitySign;
+        public final double distanceLast10;
+        public final double distanceLast20;
 
         MotionContext(double headingDelta,
                       double velocityDelta,
                       int accelerationSign,
                       int ticksSinceVelocityReversal,
                       int ticksSinceDecel,
-                      int lastNonZeroVelocitySign) {
+                      int lastNonZeroVelocitySign,
+                      double distanceLast10,
+                      double distanceLast20) {
             this.headingDelta = headingDelta;
             this.velocityDelta = velocityDelta;
             this.accelerationSign = accelerationSign;
             this.ticksSinceVelocityReversal = ticksSinceVelocityReversal;
             this.ticksSinceDecel = ticksSinceDecel;
             this.lastNonZeroVelocitySign = lastNonZeroVelocitySign;
+            this.distanceLast10 = distanceLast10;
+            this.distanceLast20 = distanceLast20;
         }
     }
 
@@ -477,6 +483,34 @@ public class MovementEngine implements MovementController {
             return 0.0;
         }
         return stateAt.apply(boundedTickOffset).velocity - stateAt.apply(boundedTickOffset - 1).velocity;
+    }
+
+    static double deriveDistanceLastTicks(PhysicsUtil.PositionState[] states,
+                                          int tickOffset,
+                                          int tickCount) {
+        return deriveDistanceLastTicks(states.length, index -> states[index], tickOffset, tickCount);
+    }
+
+    static double deriveDistanceLastTicks(List<PhysicsUtil.PositionState> states,
+                                          int tickOffset,
+                                          int tickCount) {
+        return deriveDistanceLastTicks(states.size(), states::get, tickOffset, tickCount);
+    }
+
+    private static double deriveDistanceLastTicks(int stateCount,
+                                                  java.util.function.IntFunction<PhysicsUtil.PositionState> stateAt,
+                                                  int tickOffset,
+                                                  int tickCount) {
+        if (tickCount <= 0 || stateCount <= 0) {
+            return 0.0;
+        }
+        int boundedTickOffset = Math.max(0, Math.min(tickOffset, stateCount - 1));
+        int startIndex = Math.max(0, boundedTickOffset - tickCount + 1);
+        double distance = 0.0;
+        for (int i = startIndex; i <= boundedTickOffset; i++) {
+            distance += Math.abs(stateAt.apply(i).velocity);
+        }
+        return distance;
     }
 
     static MotionContext deriveMotionContext(PhysicsUtil.PositionState[] states,
@@ -542,6 +576,8 @@ public class MovementEngine implements MovementController {
             }
             ticksSinceDecel++;
         }
+        double distanceLast10 = deriveDistanceLastTicks(stateCount, stateAt, boundedTickOffset, 10);
+        double distanceLast20 = deriveDistanceLastTicks(stateCount, stateAt, boundedTickOffset, 20);
 
         return new MotionContext(
                 headingDelta,
@@ -549,7 +585,9 @@ public class MovementEngine implements MovementController {
                 accelerationSign,
                 ticksSinceVelocityReversal,
                 ticksSinceDecel,
-                lastNonZeroVelocitySign);
+                lastNonZeroVelocitySign,
+                distanceLast10,
+                distanceLast20);
     }
 
     static int deriveLastNonZeroLateralDirectionSign(PhysicsUtil.PositionState[] states,
@@ -1100,6 +1138,9 @@ public class MovementEngine implements MovementController {
                         motionContext.accelerationSign,
                         motionContext.ticksSinceVelocityReversal,
                         motionContext.ticksSinceDecel,
+                        motionContext.distanceLast10,
+                        motionContext.distanceLast20,
+                        didLastEnemyWaveHitRobot(),
                         lastNonZeroLateralDirectionSign,
                         bfWidth,
                         bfHeight,
@@ -1256,6 +1297,9 @@ public class MovementEngine implements MovementController {
                                 int targetAccelerationSign,
                                 int targetTicksSinceVelocityReversal,
                                 int targetTicksSinceDecel,
+                                double targetDistanceLast10,
+                                double targetDistanceLast20,
+                                boolean targetDidHit,
                                 int targetLastNonZeroLateralDirectionSign,
                                 double bfWidth,
                                 double bfHeight,
@@ -1274,10 +1318,17 @@ public class MovementEngine implements MovementController {
                 targetAccelerationSign,
                 targetTicksSinceVelocityReversal,
                 targetTicksSinceDecel,
+                targetDistanceLast10,
+                targetDistanceLast20,
+                targetDidHit,
                 targetLastNonZeroLateralDirectionSign,
                 bfWidth,
                 bfHeight,
                 referenceWaves);
+    }
+
+    boolean didLastEnemyWaveHitRobot() {
+        return info.didLastEnemyWaveHitRobot();
     }
 
     double waveReferenceX(Wave wave) {

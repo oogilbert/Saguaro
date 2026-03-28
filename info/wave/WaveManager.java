@@ -90,6 +90,8 @@ public class WaveManager {
     private PendingEnemyBulletHit pendingEnemyBulletHit;
     private double battlefieldWidth;
     private double battlefieldHeight;
+    private boolean lastMyWaveHitOpponent;
+    private boolean lastEnemyWaveHitRobot;
 
     public void init(Saguaro robot, double battlefieldWidth, double battlefieldHeight, Info info) {
         this.robot = robot;
@@ -101,6 +103,8 @@ public class WaveManager {
         loggedMyWaves.clear();
         myWaveObservationStates.clear();
         pendingEnemyBulletHit = null;
+        lastMyWaveHitOpponent = false;
+        lastEnemyWaveHitRobot = false;
     }
 
     public Wave onBulletFired(Bullet bullet) {
@@ -135,6 +139,9 @@ public class WaveManager {
                     enemyAtFireTime.accelerationSign,
                     enemyAtFireTime.ticksSinceVelocityReversal,
                     enemyAtFireTime.ticksSinceDecel,
+                    enemy.getDistanceLastTicks(10),
+                    enemy.getDistanceLastTicks(20),
+                    lastMyWaveHitOpponent,
                     enemyAtFireTime.lastNonZeroLateralDirectionSign,
                     battlefieldWidth,
                     battlefieldHeight,
@@ -215,6 +222,7 @@ public class WaveManager {
             if (movementObservation.logged) {
                 info.getObservationProfile().onResolvedEnemyWaveHit(match.wave, movementObservation.gf);
             }
+            lastEnemyWaveHitRobot = true;
             pendingEnemyBulletHit = null;
             return match.wave;
         }
@@ -255,6 +263,7 @@ public class WaveManager {
             accumulateMyWaveOverlapInterval(wave, enemy, time);
             if (wave.hasPassed(enemy.x, enemy.y, time)) {
                 finalizeMyWaveGunObservation(wave);
+                lastMyWaveHitOpponent = false;
                 info.onMyWavePassedEnemy(wave);
             }
         }
@@ -448,6 +457,7 @@ public class WaveManager {
                             robotY,
                             removalCheckTime);
                     info.onEnemyWavePassedRobot(wave);
+                    lastEnemyWaveHitRobot = false;
                     logResolvedMovementWaveInterval(wave, movementInterval);
                     if (movementInterval != null && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                         refreshEnemyWaveDistributions();
@@ -466,6 +476,7 @@ public class WaveManager {
                 accumulateMyWaveOverlapInterval(matchedWave, enemy, robot.getTime());
             }
             finalizeMyWaveGunObservation(matchedWave);
+            lastMyWaveHitOpponent = true;
         }
         removeMyWave(matchedWave, "BulletHit");
         return matchedWave;
@@ -475,6 +486,7 @@ public class WaveManager {
         Wave matchedWave = findMyWave(e.getBullet());
         if (matchedWave != null) {
             info.getObservationProfile().onInvalidatedGunWave(matchedWave);
+            lastMyWaveHitOpponent = false;
         }
         removeMyWave(matchedWave, "BulletHitBullet");
         return matchedWave;
@@ -484,6 +496,7 @@ public class WaveManager {
         Wave matchedWave = findMyWave(e.getBullet());
         if (matchedWave != null) {
             matchedWave.bulletCollided = true;
+            lastMyWaveHitOpponent = false;
         }
         return matchedWave;
     }
@@ -514,6 +527,7 @@ public class WaveManager {
             if (movementObservation.logged) {
                 info.getObservationProfile().onResolvedEnemyWaveHit(match.wave, movementObservation.gf);
             }
+            lastEnemyWaveHitRobot = true;
             pendingEnemyBulletHit = null;
             return match.wave;
         }
@@ -556,6 +570,7 @@ public class WaveManager {
             if (movementObservation.logged) {
                 info.getObservationProfile().onResolvedEnemyWaveHit(match.wave, movementObservation.gf);
             }
+            lastEnemyWaveHitRobot = false;
             return match.wave;
         }
         return null;
@@ -575,6 +590,14 @@ public class WaveManager {
 
     public List<Wave> getEnemyWaves() {
         return enemyWaves;
+    }
+
+    public boolean didLastMyWaveHitOpponent() {
+        return lastMyWaveHitOpponent;
+    }
+
+    public boolean didLastEnemyWaveHitRobot() {
+        return lastEnemyWaveHitRobot;
     }
 
     private static double radiusErrorForEvent(Wave wave, double hitX, double hitY, long time,

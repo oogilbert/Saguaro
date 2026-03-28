@@ -105,4 +105,8 @@ public final class RobotMotionTracker {
         return motionHistory.headingDeltaAt(index);
     }
 
+    public double getDistanceLastTicks(int tickCount) {
+        return motionHistory.distanceLastTicks(tickCount);
+    }
+
 }

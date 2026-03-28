@@ -117,6 +117,9 @@ public class Info {
                 robotMotionTracker.getAccelerationSign(),
                 robotMotionTracker.getTicksSinceVelocityReversal(),
                 robotMotionTracker.getTicksSinceDecel(),
+                robotMotionTracker.getDistanceLastTicks(10),
+                robotMotionTracker.getDistanceLastTicks(20),
+                waveManager.didLastEnemyWaveHitRobot(),
                 waveManager.getEnemyWaves());
         EnemyInfo enemy = enemyTracker.getEnemy();
         if (enemy != null) {
@@ -353,6 +356,18 @@ public class Info {
 
     public double getRobotMotionHistoryHeadingDelta(int index) {
         return robotMotionTracker.getMotionHistoryHeadingDelta(index);
+    }
+
+    public double getRobotDistanceLastTicks(int tickCount) {
+        return robotMotionTracker.getDistanceLastTicks(tickCount);
+    }
+
+    public boolean didLastEnemyWaveHitRobot() {
+        return waveManager.didLastEnemyWaveHitRobot();
+    }
+
+    public boolean didLastMyWaveHitOpponent() {
+        return waveManager.didLastMyWaveHitOpponent();
     }
 
     public ReactiveOpponentPredictor createPerfectPredictionPredictor() {

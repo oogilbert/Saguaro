@@ -14,7 +14,6 @@ import oog.mega.saguaro.info.persistence.BattleDataStore;
 import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.info.persistence.BulletPowerHitRateDataSet;
 import oog.mega.saguaro.info.persistence.ModePerformanceDataSet;
-import oog.mega.saguaro.info.persistence.WaveLogModelDataSet;
 import oog.mega.saguaro.mode.perfectprediction.PerfectPredictionMode;
 import oog.mega.saguaro.mode.perfectprediction.PrecisePredictionProfile;
 import oog.mega.saguaro.mode.scoremax.ScoreMaxMode;
@@ -64,7 +63,6 @@ public final class ModeController {
         dataStore.registerDataSet(new ShotDodgerDataSet());
         dataStore.registerDataSet(new ModePerformanceDataSet());
         dataStore.registerDataSet(new BulletPowerHitRateDataSet());
-        dataStore.registerDataSet(new WaveLogModelDataSet());
     }
 
     public void startBattle() {
@@ -133,7 +131,6 @@ public final class ModeController {
     public void saveCurrentBattle(Saguaro robot) {
         dataStore.requestDataSetSave(ModePerformanceDataSet.class);
         dataStore.requestDataSetSave(BulletPowerHitRateDataSet.class);
-        dataStore.requestDataSetSave(WaveLogModelDataSet.class);
         for (BattleMode mode : modesUsedThisBattle) {
             mode.onBattleEnded(robot);
         }
