@@ -277,6 +277,9 @@ public final class BattleDataStore {
         robot.out.println(
                 "BulletShielding mode estimate: " + ModeController.describeModeEstimate(ModeId.BULLET_SHIELD));
         robot.out.println(
+                "MovingBulletShielding mode estimate: "
+                        + ModeController.describeModeEstimate(ModeId.MOVING_BULLET_SHIELD));
+        robot.out.println(
                 "PerfectPrediction mode estimate: "
                         + ModeController.describeModeEstimate(ModeId.PERFECT_PREDICTION));
         robot.out.println("ScoreMax mode estimate: " + ModeController.describeModeEstimate(ModeId.SCORE_MAX));
@@ -311,7 +314,7 @@ public final class BattleDataStore {
     private static boolean hasAnyOpponentDataLoaded() {
         return ScoreMaxScoreHistoryProfile.isPersistedScoreHistoryLoaded()
                 || ModePerformanceProfile.isPersistedModeStatsLoaded()
-                || BulletShieldMode.isPersistedBootstrapLoaded()
+                || BulletShieldMode.isAnyPersistedBootstrapLoaded()
                 || BulletPowerHitRateTracker.isPersistedBaselineLoaded()
                 || WaveLog.isPersistedModelLoaded();
     }

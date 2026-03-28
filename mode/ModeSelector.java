@@ -38,12 +38,12 @@ final class ModeSelector {
                 stats.totalOpponentScore);
     }
 
-    ModeId chooseOpeningMode(boolean bulletShieldRetiredForBattle) {
-        return selectOpeningMode(admissibleModePosteriors(bulletShieldRetiredForBattle));
+    ModeId chooseOpeningMode(ModeId[] candidateModes) {
+        return selectOpeningMode(admissibleModePosteriors(candidateModes));
     }
 
-    ModeId chooseModeForSwitch(ModeId activeModeId, boolean bulletShieldRetiredForBattle) {
-        ModePosterior[] posteriors = admissibleModePosteriors(bulletShieldRetiredForBattle);
+    ModeId chooseModeForSwitch(ModeId activeModeId, ModeId[] candidateModes) {
+        ModePosterior[] posteriors = admissibleModePosteriors(candidateModes);
         ModePosterior current = findPosterior(posteriors, activeModeId);
         if (current == null) {
             return selectOpeningMode(posteriors);
@@ -59,17 +59,15 @@ final class ModeSelector {
         return selectOpeningMode(alternatives);
     }
 
-    private ModePosterior[] admissibleModePosteriors(boolean bulletShieldRetiredForBattle) {
+    private ModePosterior[] admissibleModePosteriors(ModeId[] candidateModes) {
         List<ModePosterior> posteriors = new ArrayList<>();
-        posteriors.add(estimateLiveMode(ModeId.SCORE_MAX));
-        if (!bulletShieldRetiredForBattle) {
-            posteriors.add(estimateLiveMode(ModeId.BULLET_SHIELD));
+        if (candidateModes == null) {
+            return new ModePosterior[0];
         }
-        if (isPerfectPredictionAdmissible(bulletShieldRetiredForBattle)) {
-            posteriors.add(estimateLiveMode(ModeId.PERFECT_PREDICTION));
-        }
-        if (isShotDodgerAdmissible(bulletShieldRetiredForBattle)) {
-            posteriors.add(estimateLiveMode(ModeId.SHOT_DODGER));
+        for (ModeId modeId : candidateModes) {
+            if (modeId != null && isModeAdmissible(modeId, candidateModes)) {
+                posteriors.add(estimateLiveMode(modeId));
+            }
         }
         return posteriors.toArray(new ModePosterior[0]);
     }
@@ -84,7 +82,20 @@ final class ModeSelector {
         return estimateMode(modeId, totalOurScore, totalOpponentScore);
     }
 
-    private boolean isPerfectPredictionAdmissible(boolean bulletShieldRetiredForBattle) {
+    private boolean isModeAdmissible(ModeId modeId, ModeId[] candidateModes) {
+        if (modeId == ModeId.SCORE_MAX || modeId == ModeId.BULLET_SHIELD || modeId == ModeId.MOVING_BULLET_SHIELD) {
+            return true;
+        }
+        if (modeId == ModeId.PERFECT_PREDICTION) {
+            return isPerfectPredictionAdmissible(candidateModes);
+        }
+        if (modeId == ModeId.SHOT_DODGER) {
+            return isShotDodgerAdmissible();
+        }
+        throw new IllegalArgumentException("Unsupported mode id " + modeId);
+    }
+
+    private boolean isPerfectPredictionAdmissible(ModeId[] candidateModes) {
         if (info == null) {
             return false;
         }
@@ -94,18 +105,29 @@ final class ModeSelector {
         if (!info.isPerfectPredictionUnlocked()) {
             return false;
         }
-        return !areLegalModesSettled(bulletShieldRetiredForBattle);
+        return !areComparisonModesSettled(candidateModes, ModeId.PERFECT_PREDICTION);
     }
 
-    private boolean isShotDodgerAdmissible(boolean bulletShieldRetiredForBattle) {
+    private boolean isShotDodgerAdmissible() {
         return info != null;
     }
 
-    private boolean areLegalModesSettled(boolean bulletShieldRetiredForBattle) {
+    private boolean areComparisonModesSettled(ModeId[] candidateModes, ModeId excludedMode) {
         List<ModePosterior> legal = new ArrayList<>();
-        legal.add(estimateLiveMode(ModeId.SCORE_MAX));
-        if (!bulletShieldRetiredForBattle) {
-            legal.add(estimateLiveMode(ModeId.BULLET_SHIELD));
+        if (candidateModes == null) {
+            return false;
+        }
+        for (ModeId modeId : candidateModes) {
+            if (modeId == null || modeId == excludedMode || modeId == ModeId.PERFECT_PREDICTION) {
+                continue;
+            }
+            if (modeId == ModeId.SHOT_DODGER && !isShotDodgerAdmissible()) {
+                continue;
+            }
+            legal.add(estimateLiveMode(modeId));
+        }
+        if (legal.isEmpty()) {
+            return false;
         }
         ModePosterior best = null;
         for (ModePosterior posterior : legal) {
@@ -165,7 +187,7 @@ final class ModeSelector {
                 }
             }
             if (candidate.comparisonUpperBound > bestOtherComparisonMean
-                    || (candidate.modeId == ModeId.BULLET_SHIELD
+                    || ((candidate.modeId == ModeId.BULLET_SHIELD || candidate.modeId == ModeId.MOVING_BULLET_SHIELD)
                     && nearlyEqual(candidate.comparisonUpperBound, bestOtherComparisonMean))) {
                 return candidate.modeId;
             }
@@ -254,7 +276,7 @@ final class ModeSelector {
         if (candidate.posteriorMean < incumbent.posteriorMean) {
             return false;
         }
-        return prefersBulletShieldTie(candidate.modeId, incumbent.modeId);
+        return prefersShieldTie(candidate.modeId, incumbent.modeId);
     }
 
     private static boolean prefersOpeningOrder(ModePosterior candidate, ModePosterior incumbent) {
@@ -276,11 +298,16 @@ final class ModeSelector {
         if (candidate.posteriorMean < incumbent.posteriorMean) {
             return false;
         }
-        return prefersBulletShieldTie(candidate.modeId, incumbent.modeId);
+        return prefersShieldTie(candidate.modeId, incumbent.modeId);
     }
 
-    private static boolean prefersBulletShieldTie(ModeId candidate, ModeId incumbent) {
-        return candidate == ModeId.BULLET_SHIELD && incumbent != ModeId.BULLET_SHIELD;
+    private static boolean prefersShieldTie(ModeId candidate, ModeId incumbent) {
+        if (candidate == ModeId.BULLET_SHIELD && incumbent != ModeId.BULLET_SHIELD) {
+            return true;
+        }
+        return candidate == ModeId.MOVING_BULLET_SHIELD
+                && incumbent != ModeId.BULLET_SHIELD
+                && incumbent != ModeId.MOVING_BULLET_SHIELD;
     }
 
     private static boolean nearlyEqual(double first, double second) {

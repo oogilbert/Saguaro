@@ -126,6 +126,10 @@ public final class BotConfig {
         public static final long EARLY_ROUND_IDLE_AGGRESSION_GUARD_TICKS = 100L;
         // Scales enemy-gun-heat cooldown into the idle-shot threshold in shield mode.
         public static final double IDLE_AGGRESSION_GUN_HEAT_MULTIPLIER = 2.0;
+        // Start braking this many ticks before the enemy's opening gun heat is expected to reach zero.
+        public static final int OPENING_CENTER_STOP_LEAD_TICKS = 5;
+        // Emergency stop radius for the opening center-reposition when the current motion is closing distance.
+        public static final double OPENING_CENTER_EMERGENCY_STOP_DISTANCE = 200.0;
     }
 
     public static final class PerfectPrediction {
@@ -190,7 +194,7 @@ public final class BotConfig {
         }
 
         // Scales the logit-space confidence interval used for mode selection and settling.
-        public static final double CONFIDENCE_SCALE = 5.0;
+        public static final double CONFIDENCE_SCALE = 7.0;
         // Raw score delta corresponding to one posterior evidence unit.
         public static final double POSTERIOR_SCORE_UNIT = 24.0;
         // Prior score mass assigned to each mode before live evidence arrives.

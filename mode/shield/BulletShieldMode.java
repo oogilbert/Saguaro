@@ -23,6 +23,7 @@ import oog.mega.saguaro.info.learning.ModeObservationPolicy;
 import oog.mega.saguaro.info.learning.NoOpLearningProfile;
 import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.info.persistence.BattleDataStore;
+import oog.mega.saguaro.info.persistence.OpponentDataSet;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.state.RobotSnapshot;
 import oog.mega.saguaro.info.wave.Wave;
@@ -30,6 +31,7 @@ import oog.mega.saguaro.math.PhysicsUtil;
 import oog.mega.saguaro.mode.BattleMode;
 import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleServices;
+import oog.mega.saguaro.mode.ModeId;
 import oog.mega.saguaro.render.RenderState;
 import robocode.Bullet;
 import robocode.BulletHitBulletEvent;
@@ -59,16 +61,7 @@ public final class BulletShieldMode implements BattleMode {
     private static final double SHARED_WAVE_ORIGIN_TOLERANCE = 0.6;
     private static final int PERSISTED_BOOTSTRAP_SECTION_VERSION = 1;
     private static final int PERSISTED_BOOTSTRAP_BYTES = 9;
-    private static final int[] OPTION_SCORES = new int[OPTIONS];
-    private static final int[] OPTION_OBSERVATION_COUNTS = new int[OPTIONS];
-    private static final double[] OPTION_SQUARED_ERROR_SUMS = new double[OPTIONS];
-    private static final int[] OFFSET_COUNTS = new int[BASE_OPTIONS];
-    private static final double[] OFFSETS = new double[BASE_OPTIONS];
-    private static final double[] DIR_OFFSETS = new double[BASE_OPTIONS];
-    private static boolean currentBattleShieldDataAvailable;
-    private static boolean persistedBootstrapLoaded;
-    private static int persistedBootstrapBestOptionIndex;
-    private static double persistedBootstrapAngleOffset;
+    private static final ShieldBootstrapState[] BOOTSTRAP_STATES = createBootstrapStates();
 
     private final Deque<Snapshot> myHistory = new ArrayDeque<Snapshot>();
     private final Deque<Snapshot> enemyHistory = new ArrayDeque<Snapshot>();
@@ -76,6 +69,10 @@ public final class BulletShieldMode implements BattleMode {
     private final Map<Wave, EnemyWave> enemyWavesBySharedWave = new HashMap<Wave, EnemyWave>();
 
     private final RoundOutcomeProfile roundOutcomeProfile = NoOpLearningProfile.INSTANCE;
+    private final ModeId modeId;
+    private final boolean allowOpeningCenterReposition;
+    private final Class<? extends OpponentDataSet> shieldDataSetType;
+    private final ShieldBootstrapState bootstrapState;
     private Info info;
     private Saguaro robot;
     private GunController gun;
@@ -90,6 +87,19 @@ public final class BulletShieldMode implements BattleMode {
     private long estimatedEnemyNextFireTime = Long.MIN_VALUE;
     private long lastDetectedEnemyShotTime = Long.MIN_VALUE;
     private double lastDetectedEnemyBulletPower = 2.0;
+
+    public BulletShieldMode(ModeId modeId,
+                            boolean allowOpeningCenterReposition,
+                            Class<? extends OpponentDataSet> shieldDataSetType) {
+        validateShieldModeId(modeId);
+        if (shieldDataSetType == null) {
+            throw new IllegalArgumentException("BulletShieldMode requires a non-null dataset type");
+        }
+        this.modeId = modeId;
+        this.allowOpeningCenterReposition = allowOpeningCenterReposition;
+        this.shieldDataSetType = shieldDataSetType;
+        this.bootstrapState = stateFor(modeId);
+    }
 
     @Override
     public RoundOutcomeProfile getRoundOutcomeProfile() {
@@ -138,7 +148,7 @@ public final class BulletShieldMode implements BattleMode {
     @Override
     public void onBattleEnded(Saguaro robot) {
         if (dataStore != null) {
-            dataStore.requestDataSetSave(BulletShieldDataSet.class);
+            dataStore.requestDataSetSave(shieldDataSetType);
         }
     }
 
@@ -154,6 +164,14 @@ public final class BulletShieldMode implements BattleMode {
 
     @Override
     public void applyColors(Saguaro robot) {
+        if (allowOpeningCenterReposition) {
+            robot.setBodyColor(new Color(18, 116, 140));
+            robot.setGunColor(new Color(12, 87, 106));
+            robot.setRadarColor(new Color(34, 148, 172));
+            robot.setBulletColor(new Color(70, 188, 214));
+            robot.setScanColor(new Color(40, 166, 190));
+            return;
+        }
         robot.setBodyColor(new Color(4, 137, 80));
         robot.setGunColor(new Color(2, 100, 58));
         robot.setRadarColor(new Color(20, 170, 100));
@@ -191,6 +209,10 @@ public final class BulletShieldMode implements BattleMode {
 
         if (activePlan != null) {
             return executeShieldPlan(activePlan, myNow);
+        }
+        BattlePlan openingMove = tryOpeningCenterReposition(myNow);
+        if (openingMove != null) {
+            return openingMove;
         }
         if (nextWave == null) {
             BattlePlan finisher = tryFireFinisher(myNow);
@@ -277,8 +299,9 @@ public final class BulletShieldMode implements BattleMode {
         predictedHeadings[3] = absoluteBearing(predictedNext.x, predictedNext.y, my2.x, my2.y);
 
         for (int i = 0; i < BASE_OPTIONS; i++) {
-            predictedHeadings[i + BASE_OPTIONS] = normalize(predictedHeadings[i] + OFFSETS[i]);
-            predictedHeadings[i + BASE_OPTIONS * 2] = normalize(predictedHeadings[i] + lateralDirection * DIR_OFFSETS[i]);
+            predictedHeadings[i + BASE_OPTIONS] = normalize(predictedHeadings[i] + bootstrapState.offsets[i]);
+            predictedHeadings[i + BASE_OPTIONS * 2] =
+                    normalize(predictedHeadings[i] + lateralDirection * bootstrapState.directionalOffsets[i]);
         }
 
         EnemyWave wave = new EnemyWave();
@@ -290,7 +313,7 @@ public final class BulletShieldMode implements BattleMode {
         wave.power = firepower;
         wave.speed = sharedWave.speed;
         wave.predictedHeadings = predictedHeadings;
-        wave.bestOptionIndex = selectBestOptionIndex();
+        wave.bestOptionIndex = selectBestOptionIndex(bootstrapState);
         wave.direction = lateralDirection;
         return wave;
     }
@@ -576,6 +599,42 @@ public final class BulletShieldMode implements BattleMode {
         return new BattlePlan(0.0, bodyTurn, gunTurn, 0.0);
     }
 
+    private BattlePlan tryOpeningCenterReposition(Snapshot myNow) {
+        if (!allowOpeningCenterReposition) {
+            return null;
+        }
+        if (latestEnemy == null || enemyShots > 0) {
+            return null;
+        }
+        EnemyInfo enemy = info != null ? info.getEnemy() : null;
+        if (enemy == null || !enemy.alive || !enemy.seenThisRound) {
+            return null;
+        }
+        if (!(myNow.gunCoolingRate > 0.0)) {
+            return null;
+        }
+        int ticksUntilEnemyGunReady = ticksUntilGunReady(enemy.gunHeat, myNow.gunCoolingRate);
+        if (ticksUntilEnemyGunReady <= BotConfig.Shield.OPENING_CENTER_STOP_LEAD_TICKS) {
+            return holdShieldStance(myNow);
+        }
+        double headingToEnemy = absoluteBearing(myNow.x, myNow.y, latestEnemy.x, latestEnemy.y);
+        double distanceToEnemy = Point2D.distance(myNow.x, myNow.y, latestEnemy.x, latestEnemy.y);
+        double closingVelocity = myNow.velocity * Math.cos(myNow.heading - headingToEnemy);
+        if (distanceToEnemy <= BotConfig.Shield.OPENING_CENTER_EMERGENCY_STOP_DISTANCE && closingVelocity > 1e-6) {
+            return holdShieldStance(myNow);
+        }
+
+        double[] movementInstruction = PhysicsUtil.computeMovementInstruction(
+                myNow.x,
+                myNow.y,
+                myNow.heading,
+                myNow.velocity,
+                0.5 * info.getBattlefieldWidth(),
+                0.5 * info.getBattlefieldHeight());
+        double gunTurn = Utils.normalRelativeAngle(latestEnemy.absoluteBearing - myNow.gunHeading);
+        return new BattlePlan(movementInstruction[0], movementInstruction[1], gunTurn, 0.0);
+    }
+
     private BattlePlan tryFireFinisher(Snapshot myNow) {
         if (latestEnemy == null || latestEnemy.energy >= Rules.MIN_BULLET_POWER) {
             return null;
@@ -815,25 +874,30 @@ public final class BulletShieldMode implements BattleMode {
 
         // The persisted bootstrap is only an opening prior. The first real shield observation
         // replaces it completely so stale opponent behavior never contaminates live battle data.
-        if (persistedBootstrapLoaded && !currentBattleShieldDataAvailable) {
-            clearShieldStatistics();
-            persistedBootstrapLoaded = false;
-            persistedBootstrapBestOptionIndex = 0;
-            persistedBootstrapAngleOffset = 0.0;
+        if (bootstrapState.persistedBootstrapLoaded && !bootstrapState.currentBattleShieldDataAvailable) {
+            clearShieldStatistics(bootstrapState);
+            bootstrapState.persistedBootstrapLoaded = false;
+            bootstrapState.persistedBootstrapBestOptionIndex = 0;
+            bootstrapState.persistedBootstrapAngleOffset = 0.0;
         }
-        currentBattleShieldDataAvailable = true;
+        bootstrapState.currentBattleShieldDataAvailable = true;
 
         for (int i = 0; i < OPTIONS; i++) {
             double diff = Utils.normalRelativeAngle(bullet.getHeadingRadians() - wave.predictedHeadings[i]);
-            OPTION_SQUARED_ERROR_SUMS[i] += diff * diff;
-            OPTION_OBSERVATION_COUNTS[i]++;
+            bootstrapState.optionSquaredErrorSums[i] += diff * diff;
+            bootstrapState.optionObservationCounts[i]++;
             if (Math.abs(diff) < MODEL_SCORE_MATCH_EPSILON) {
-                OPTION_SCORES[i]++;
+                bootstrapState.optionScores[i]++;
             }
             if (i < BASE_OPTIONS) {
-                OFFSETS[i] = (OFFSETS[i] * OFFSET_COUNTS[i] + diff) / (OFFSET_COUNTS[i] + 1);
-                DIR_OFFSETS[i] = (DIR_OFFSETS[i] * OFFSET_COUNTS[i] + wave.direction * diff) / (OFFSET_COUNTS[i] + 1);
-                OFFSET_COUNTS[i]++;
+                bootstrapState.offsets[i] =
+                        (bootstrapState.offsets[i] * bootstrapState.offsetCounts[i] + diff)
+                                / (bootstrapState.offsetCounts[i] + 1);
+                bootstrapState.directionalOffsets[i] =
+                        (bootstrapState.directionalOffsets[i] * bootstrapState.offsetCounts[i]
+                                + wave.direction * diff)
+                                / (bootstrapState.offsetCounts[i] + 1);
+                bootstrapState.offsetCounts[i]++;
             }
         }
 
@@ -894,18 +958,20 @@ public final class BulletShieldMode implements BattleMode {
         activePlan = null;
     }
 
-    public static void startBattlePersistence() {
-        clearShieldStatistics();
-        currentBattleShieldDataAvailable = false;
-        persistedBootstrapLoaded = false;
-        persistedBootstrapBestOptionIndex = 0;
-        persistedBootstrapAngleOffset = 0.0;
+    public static void startBattlePersistence(ModeId modeId) {
+        ShieldBootstrapState state = stateFor(modeId);
+        clearShieldStatistics(state);
+        state.currentBattleShieldDataAvailable = false;
+        state.persistedBootstrapLoaded = false;
+        state.persistedBootstrapBestOptionIndex = 0;
+        state.persistedBootstrapAngleOffset = 0.0;
     }
 
-    public static void loadPersistedBootstrap(int sectionVersion, byte[] payload) {
+    public static void loadPersistedBootstrap(ModeId modeId, int sectionVersion, byte[] payload) {
         if (payload == null) {
             return;
         }
+        ShieldBootstrapState state = stateFor(modeId);
         if (sectionVersion != PERSISTED_BOOTSTRAP_SECTION_VERSION) {
             throw new IllegalStateException("Unsupported shield-bootstrap section version " + sectionVersion);
         }
@@ -924,40 +990,45 @@ public final class BulletShieldMode implements BattleMode {
             if (in.available() != 0) {
                 throw new IllegalStateException("Shield-bootstrap payload contained trailing bytes");
             }
-            persistedBootstrapLoaded = true;
-            persistedBootstrapBestOptionIndex = bestOptionIndex;
-            persistedBootstrapAngleOffset = angleOffset;
-            applyPersistedBootstrap(bestOptionIndex, angleOffset);
+            state.persistedBootstrapLoaded = true;
+            state.persistedBootstrapBestOptionIndex = bestOptionIndex;
+            state.persistedBootstrapAngleOffset = angleOffset;
+            applyPersistedBootstrap(state, bestOptionIndex, angleOffset);
         } catch (IOException e) {
             throw new IllegalStateException("Unreadable shield-bootstrap payload", e);
         }
     }
 
-    public static boolean hasPersistedBootstrapData() {
-        return currentBattleShieldDataAvailable || persistedBootstrapLoaded;
+    public static boolean hasPersistedBootstrapData(ModeId modeId) {
+        ShieldBootstrapState state = stateFor(modeId);
+        return state.currentBattleShieldDataAvailable || state.persistedBootstrapLoaded;
     }
 
-    public static boolean isPersistedBootstrapLoaded() {
-        return persistedBootstrapLoaded;
+    public static boolean isAnyPersistedBootstrapLoaded() {
+        return stateFor(ModeId.BULLET_SHIELD).persistedBootstrapLoaded
+                || stateFor(ModeId.MOVING_BULLET_SHIELD).persistedBootstrapLoaded;
     }
 
-    public static int getPersistedBootstrapBestOptionIndex() {
-        return persistedBootstrapBestOptionIndex;
+    public static int getPersistedBootstrapBestOptionIndex(ModeId modeId) {
+        return stateFor(modeId).persistedBootstrapBestOptionIndex;
     }
 
-    public static double getPersistedBootstrapAngleOffset() {
-        return persistedBootstrapAngleOffset;
+    public static double getPersistedBootstrapAngleOffset(ModeId modeId) {
+        return stateFor(modeId).persistedBootstrapAngleOffset;
     }
 
-    public static byte[] createPersistedBootstrapPayload(int maxPayloadBytes, boolean includeCurrentBattleData) {
+    public static byte[] createPersistedBootstrapPayload(ModeId modeId,
+                                                         int maxPayloadBytes,
+                                                         boolean includeCurrentBattleData) {
+        ShieldBootstrapState state = stateFor(modeId);
         int bestOptionIndex;
         double angleOffset;
-        if (includeCurrentBattleData && currentBattleShieldDataAvailable) {
-            bestOptionIndex = selectBestOptionIndex();
-            angleOffset = angleOffsetForOption(bestOptionIndex);
-        } else if (persistedBootstrapLoaded) {
-            bestOptionIndex = persistedBootstrapBestOptionIndex;
-            angleOffset = persistedBootstrapAngleOffset;
+        if (includeCurrentBattleData && state.currentBattleShieldDataAvailable) {
+            bestOptionIndex = selectBestOptionIndex(state);
+            angleOffset = angleOffsetForOption(state, bestOptionIndex);
+        } else if (state.persistedBootstrapLoaded) {
+            bestOptionIndex = state.persistedBootstrapBestOptionIndex;
+            angleOffset = state.persistedBootstrapAngleOffset;
         } else {
             return null;
         }
@@ -1039,42 +1110,42 @@ public final class BulletShieldMode implements BattleMode {
         return Utils.normalRelativeAngle(angle);
     }
 
-    private static void clearShieldStatistics() {
+    private static void clearShieldStatistics(ShieldBootstrapState state) {
         for (int i = 0; i < OPTIONS; i++) {
-            OPTION_SCORES[i] = 0;
-            OPTION_OBSERVATION_COUNTS[i] = 0;
-            OPTION_SQUARED_ERROR_SUMS[i] = 0.0;
+            state.optionScores[i] = 0;
+            state.optionObservationCounts[i] = 0;
+            state.optionSquaredErrorSums[i] = 0.0;
         }
         for (int i = 0; i < BASE_OPTIONS; i++) {
-            OFFSET_COUNTS[i] = 0;
-            OFFSETS[i] = 0.0;
-            DIR_OFFSETS[i] = 0.0;
+            state.offsetCounts[i] = 0;
+            state.offsets[i] = 0.0;
+            state.directionalOffsets[i] = 0.0;
         }
     }
 
-    private static void applyPersistedBootstrap(int bestOptionIndex, double angleOffset) {
-        clearShieldStatistics();
-        OPTION_SCORES[bestOptionIndex] = 1;
+    private static void applyPersistedBootstrap(ShieldBootstrapState state, int bestOptionIndex, double angleOffset) {
+        clearShieldStatistics(state);
+        state.optionScores[bestOptionIndex] = 1;
         if (bestOptionIndex >= BASE_OPTIONS && bestOptionIndex < BASE_OPTIONS * 2) {
-            OFFSETS[bestOptionIndex - BASE_OPTIONS] = angleOffset;
+            state.offsets[bestOptionIndex - BASE_OPTIONS] = angleOffset;
         } else if (bestOptionIndex >= BASE_OPTIONS * 2) {
-            DIR_OFFSETS[bestOptionIndex - BASE_OPTIONS * 2] = angleOffset;
+            state.directionalOffsets[bestOptionIndex - BASE_OPTIONS * 2] = angleOffset;
         }
     }
 
-    private static int selectBestOptionIndex() {
+    private static int selectBestOptionIndex(ShieldBootstrapState state) {
         int bestIndex = 0;
-        int bestScore = OPTION_SCORES[0];
-        double bestAverageSquaredError = averageSquaredError(0);
+        int bestScore = state.optionScores[0];
+        double bestAverageSquaredError = averageSquaredError(state, 0);
         for (int i = 1; i < OPTIONS; i++) {
-            if (OPTION_SCORES[i] > bestScore) {
+            if (state.optionScores[i] > bestScore) {
                 bestIndex = i;
-                bestScore = OPTION_SCORES[i];
-                bestAverageSquaredError = averageSquaredError(i);
+                bestScore = state.optionScores[i];
+                bestAverageSquaredError = averageSquaredError(state, i);
                 continue;
             }
-            if (OPTION_SCORES[i] == bestScore) {
-                double candidateAverageSquaredError = averageSquaredError(i);
+            if (state.optionScores[i] == bestScore) {
+                double candidateAverageSquaredError = averageSquaredError(state, i);
                 if (candidateAverageSquaredError < bestAverageSquaredError) {
                     bestIndex = i;
                     bestAverageSquaredError = candidateAverageSquaredError;
@@ -1084,21 +1155,40 @@ public final class BulletShieldMode implements BattleMode {
         return bestIndex;
     }
 
-    private static double averageSquaredError(int optionIndex) {
-        if (OPTION_OBSERVATION_COUNTS[optionIndex] <= 0) {
+    private static double averageSquaredError(ShieldBootstrapState state, int optionIndex) {
+        if (state.optionObservationCounts[optionIndex] <= 0) {
             return Double.POSITIVE_INFINITY;
         }
-        return OPTION_SQUARED_ERROR_SUMS[optionIndex] / OPTION_OBSERVATION_COUNTS[optionIndex];
+        return state.optionSquaredErrorSums[optionIndex] / state.optionObservationCounts[optionIndex];
     }
 
-    private static double angleOffsetForOption(int optionIndex) {
+    private static double angleOffsetForOption(ShieldBootstrapState state, int optionIndex) {
         if (optionIndex >= BASE_OPTIONS && optionIndex < BASE_OPTIONS * 2) {
-            return OFFSETS[optionIndex - BASE_OPTIONS];
+            return state.offsets[optionIndex - BASE_OPTIONS];
         }
         if (optionIndex >= BASE_OPTIONS * 2) {
-            return DIR_OFFSETS[optionIndex - BASE_OPTIONS * 2];
+            return state.directionalOffsets[optionIndex - BASE_OPTIONS * 2];
         }
         return 0.0;
+    }
+
+    private static ShieldBootstrapState[] createBootstrapStates() {
+        ShieldBootstrapState[] states = new ShieldBootstrapState[ModeId.values().length];
+        for (ModeId modeId : ModeId.values()) {
+            states[modeId.ordinal()] = new ShieldBootstrapState();
+        }
+        return states;
+    }
+
+    private static ShieldBootstrapState stateFor(ModeId modeId) {
+        validateShieldModeId(modeId);
+        return BOOTSTRAP_STATES[modeId.ordinal()];
+    }
+
+    private static void validateShieldModeId(ModeId modeId) {
+        if (modeId != ModeId.BULLET_SHIELD && modeId != ModeId.MOVING_BULLET_SHIELD) {
+            throw new IllegalArgumentException("Shield bootstrap requires a shield mode id: " + modeId);
+        }
     }
 
     private static double bulletSpeed(double power) {
@@ -1279,6 +1369,19 @@ public final class BulletShieldMode implements BattleMode {
             return null;
         }
         return new double[] { min, max };
+    }
+
+    private static final class ShieldBootstrapState {
+        final int[] optionScores = new int[OPTIONS];
+        final int[] optionObservationCounts = new int[OPTIONS];
+        final double[] optionSquaredErrorSums = new double[OPTIONS];
+        final int[] offsetCounts = new int[BASE_OPTIONS];
+        final double[] offsets = new double[BASE_OPTIONS];
+        final double[] directionalOffsets = new double[BASE_OPTIONS];
+        boolean currentBattleShieldDataAvailable;
+        boolean persistedBootstrapLoaded;
+        int persistedBootstrapBestOptionIndex;
+        double persistedBootstrapAngleOffset;
     }
 
     private static final class Snapshot {

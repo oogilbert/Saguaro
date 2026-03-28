@@ -9,7 +9,9 @@ import java.io.IOException;
 public final class ModePerformanceProfile {
     // Opponent mode-performance records are disposable caches. When this layout changes, bump the
     // section version and let BattleDataStore discard stale files instead of maintaining migrations.
-    private static final int SECTION_VERSION = 4;
+    private static final int SECTION_VERSION = 5;
+    private static final int LEGACY_4_MODE_SECTION_VERSION = 4;
+    private static final int LEGACY_4_MODE_BYTES = 16 * 4;
     private static final int LEGACY_3_MODE_SECTION_VERSION = 3;
     private static final int LEGACY_3_MODE_BYTES = 16 * 3;
     private static final int MODE_BYTES = 16;
@@ -151,6 +153,10 @@ public final class ModePerformanceProfile {
     }
 
     private static void loadPersistedPayload(int sectionVersion, byte[] payload) {
+        if (sectionVersion == LEGACY_4_MODE_SECTION_VERSION) {
+            loadLegacy4ModePayload(payload);
+            return;
+        }
         if (sectionVersion == LEGACY_3_MODE_SECTION_VERSION) {
             loadLegacy3ModePayload(payload);
             return;
@@ -177,17 +183,47 @@ public final class ModePerformanceProfile {
         }
     }
 
+    private static void loadLegacy4ModePayload(byte[] payload) {
+        if (payload.length != LEGACY_4_MODE_BYTES) {
+            throw new IllegalStateException("Unexpected legacy 4-mode payload length");
+        }
+        ModeId[] legacyOrder = {
+                ModeId.SCORE_MAX,
+                ModeId.BULLET_SHIELD,
+                ModeId.PERFECT_PREDICTION,
+                ModeId.SHOT_DODGER
+        };
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
+            for (ModeId modeId : legacyOrder) {
+                double totalOurScore = in.readDouble();
+                double totalOpponentScore = in.readDouble();
+                validateLoadedStats(modeId, totalOurScore, totalOpponentScore);
+                persistedStats[modeId.ordinal()].set(totalOurScore, totalOpponentScore);
+            }
+            if (in.available() != 0) {
+                throw new IllegalStateException("Legacy 4-mode payload contained trailing bytes");
+            }
+            persistedModeStatsLoaded = true;
+        } catch (IOException e) {
+            throw new IllegalStateException("Unreadable legacy 4-mode payload", e);
+        }
+    }
+
     private static void loadLegacy3ModePayload(byte[] payload) {
         if (payload.length != LEGACY_3_MODE_BYTES) {
             throw new IllegalStateException("Unexpected legacy 3-mode payload length");
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
-            ModeId[] allModes = ModeId.values();
-            for (int i = 0; i < 3; i++) {
+            ModeId[] legacyOrder = {
+                    ModeId.SCORE_MAX,
+                    ModeId.BULLET_SHIELD,
+                    ModeId.PERFECT_PREDICTION
+            };
+            for (ModeId modeId : legacyOrder) {
                 double totalOurScore = in.readDouble();
                 double totalOpponentScore = in.readDouble();
-                validateLoadedStats(allModes[i], totalOurScore, totalOpponentScore);
-                persistedStats[allModes[i].ordinal()].set(totalOurScore, totalOpponentScore);
+                validateLoadedStats(modeId, totalOurScore, totalOpponentScore);
+                persistedStats[modeId.ordinal()].set(totalOurScore, totalOpponentScore);
             }
             if (in.available() != 0) {
                 throw new IllegalStateException("Legacy 3-mode payload contained trailing bytes");

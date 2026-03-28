@@ -3,6 +3,7 @@ package oog.mega.saguaro.mode;
 public enum ModeId {
     SCORE_MAX("scoreMax", "ScoreMax"),
     BULLET_SHIELD("bulletShield", "BulletShielding"),
+    MOVING_BULLET_SHIELD("movingBulletShield", "MovingBulletShielding"),
     PERFECT_PREDICTION("perfectPrediction", "PerfectPrediction"),
     SHOT_DODGER("shotDodger", "ShotDodger");
 

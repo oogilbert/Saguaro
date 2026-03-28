@@ -23,6 +23,7 @@ import oog.mega.saguaro.mode.shotdodger.ShotDodgerMode;
 import oog.mega.saguaro.mode.shotdodger.ShotDodgerObservationProfile;
 import oog.mega.saguaro.mode.shield.BulletShieldDataSet;
 import oog.mega.saguaro.mode.shield.BulletShieldMode;
+import oog.mega.saguaro.mode.shield.MovingBulletShieldDataSet;
 import oog.mega.saguaro.render.RenderState;
 import robocode.BulletHitEvent;
 import robocode.BulletHitBulletEvent;
@@ -33,7 +34,10 @@ import robocode.ScannedRobotEvent;
 
 public final class ModeController {
     private final ShotDodgerMode shotDodgerMode = new ShotDodgerMode();
-    private final BulletShieldMode bulletShieldMode = new BulletShieldMode();
+    private final BulletShieldMode bulletShieldMode =
+            new BulletShieldMode(ModeId.BULLET_SHIELD, false, BulletShieldDataSet.class);
+    private final BulletShieldMode movingBulletShieldMode =
+            new BulletShieldMode(ModeId.MOVING_BULLET_SHIELD, true, MovingBulletShieldDataSet.class);
     private final PerfectPredictionMode perfectPredictionMode = new PerfectPredictionMode();
     private final ScoreMaxMode scoreMaxMode = new ScoreMaxMode();
     private final ModeObservationProfile observationProfile = new ModeObservationProfile(ScoreMaxLearningProfile.INSTANCE);
@@ -48,7 +52,7 @@ public final class ModeController {
     private int initializedRound = -1;
     private boolean opponentContextLoaded;
     private boolean pendingOpponentContextResolution;
-    private boolean bulletShieldRetiredForBattle;
+    private ModeProgressionStage progressionStage = ModeProgressionStage.NON_MOVING_SHIELD;
     private boolean battleModeAnnouncementPrinted;
     private int remainingBulletShieldForgivenHits;
     private Saguaro colorAppliedRobot;
@@ -56,6 +60,7 @@ public final class ModeController {
 
     public ModeController() {
         dataStore.registerDataSet(new BulletShieldDataSet());
+        dataStore.registerDataSet(new MovingBulletShieldDataSet());
         dataStore.registerDataSet(new ShotDodgerDataSet());
         dataStore.registerDataSet(new ModePerformanceDataSet());
         dataStore.registerDataSet(new BulletPowerHitRateDataSet());
@@ -66,13 +71,14 @@ public final class ModeController {
         dataStore.startBattle();
         PrecisePredictionProfile.startBattle();
         startRoundOutcomeProfile(bulletShieldMode.getRoundOutcomeProfile(), null);
+        startRoundOutcomeProfile(movingBulletShieldMode.getRoundOutcomeProfile(), bulletShieldMode.getRoundOutcomeProfile());
         startRoundOutcomeProfile(scoreMaxMode.getRoundOutcomeProfile(), bulletShieldMode.getRoundOutcomeProfile());
         startRoundOutcomeProfile(shotDodgerMode.getRoundOutcomeProfile(), scoreMaxMode.getRoundOutcomeProfile());
         modesUsedThisBattle.clear();
         initializedRound = -1;
         opponentContextLoaded = false;
         pendingOpponentContextResolution = false;
-        bulletShieldRetiredForBattle = false;
+        progressionStage = ModeProgressionStage.NON_MOVING_SHIELD;
         battleModeAnnouncementPrinted = false;
         remainingBulletShieldForgivenHits = 0;
         colorAppliedRobot = null;
@@ -89,6 +95,7 @@ public final class ModeController {
         modeSelector.setInfo(info);
         shotDodgerMode.init(info, services);
         bulletShieldMode.init(info, services);
+        movingBulletShieldMode.init(info, services);
         perfectPredictionMode.init(info, services);
         scoreMaxMode.init(info, services);
         int roundNumber = info.getRobot().getRoundNum();
@@ -159,7 +166,7 @@ public final class ModeController {
 
     public void onHitByBullet(HitByBulletEvent event) {
         activeMode.onHitByBullet(event);
-        boolean forgivenThisHit = activeModeId == ModeId.BULLET_SHIELD && remainingBulletShieldForgivenHits > 0;
+        boolean forgivenThisHit = isShieldMode(activeModeId) && remainingBulletShieldForgivenHits > 0;
         if (forgivenThisHit) {
             remainingBulletShieldForgivenHits--;
         }
@@ -258,9 +265,7 @@ public final class ModeController {
         ModeId previousModeId = activeModeId;
         setActiveMode(selectedMode);
         roundScoreTracker.activateMode(selectedMode);
-        if (opponentContextLoaded && !pendingOpponentContextResolution && selectedMode != ModeId.BULLET_SHIELD) {
-            bulletShieldRetiredForBattle = true;
-        }
+        progressionStage = progressionStageAfterSelection(selectedMode, progressionStage);
         info.activateRoundOutcomeProfile(activeMode.getRoundOutcomeProfile());
         applyModeColorsIfNeeded();
         if (!battleModeAnnouncementPrinted || selectedMode != previousModeId) {
@@ -277,12 +282,35 @@ public final class ModeController {
         }
     }
 
-    private ModeId chooseOpeningMode() {
-        return modeSelector.chooseOpeningMode(bulletShieldRetiredForBattle);
+    private ModeId chooseModeForSwitch() {
+        if (progressionStage == ModeProgressionStage.NON_MOVING_SHIELD) {
+            return modeSelector.chooseModeForSwitch(
+                    activeModeId,
+                    new ModeId[] {ModeId.BULLET_SHIELD, ModeId.MOVING_BULLET_SHIELD});
+        }
+        if (progressionStage == ModeProgressionStage.MOVING_SHIELD) {
+            return modeSelector.chooseModeForSwitch(
+                    activeModeId,
+                    new ModeId[] {
+                            ModeId.MOVING_BULLET_SHIELD,
+                            ModeId.SCORE_MAX,
+                            ModeId.PERFECT_PREDICTION,
+                            ModeId.SHOT_DODGER
+                    });
+        }
+        return modeSelector.chooseModeForSwitch(
+                activeModeId,
+                new ModeId[] {ModeId.SCORE_MAX, ModeId.PERFECT_PREDICTION, ModeId.SHOT_DODGER});
     }
 
-    private ModeId chooseModeForSwitch() {
-        return modeSelector.chooseModeForSwitch(activeModeId, bulletShieldRetiredForBattle);
+    private ModeId chooseOpeningMode() {
+        return modeSelector.chooseOpeningMode(new ModeId[] {
+                ModeId.BULLET_SHIELD,
+                ModeId.MOVING_BULLET_SHIELD,
+                ModeId.SCORE_MAX,
+                ModeId.PERFECT_PREDICTION,
+                ModeId.SHOT_DODGER
+        });
     }
 
     private BattleMode modeFor(ModeId modeId) {
@@ -291,6 +319,9 @@ public final class ModeController {
         }
         if (modeId == ModeId.BULLET_SHIELD) {
             return bulletShieldMode;
+        }
+        if (modeId == ModeId.MOVING_BULLET_SHIELD) {
+            return movingBulletShieldMode;
         }
         if (modeId == ModeId.PERFECT_PREDICTION) {
             return perfectPredictionMode;
@@ -318,5 +349,26 @@ public final class ModeController {
         } else if (modeId == ModeId.SHOT_DODGER) {
             info.getRobot().out.println(ShotDodgerObservationProfile.describeBootstrapStatus());
         }
+    }
+
+    private static ModeProgressionStage progressionStageAfterSelection(ModeId selectedMode,
+                                                                       ModeProgressionStage currentStage) {
+        if (selectedMode == ModeId.MOVING_BULLET_SHIELD) {
+            return ModeProgressionStage.MOVING_SHIELD;
+        }
+        if (selectedMode != ModeId.BULLET_SHIELD) {
+            return ModeProgressionStage.OTHER_MODES;
+        }
+        return currentStage;
+    }
+
+    private static boolean isShieldMode(ModeId modeId) {
+        return modeId == ModeId.BULLET_SHIELD || modeId == ModeId.MOVING_BULLET_SHIELD;
+    }
+
+    private enum ModeProgressionStage {
+        NON_MOVING_SHIELD,
+        MOVING_SHIELD,
+        OTHER_MODES
     }
 }
