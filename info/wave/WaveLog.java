@@ -468,10 +468,11 @@ public class WaveLog {
 
     private static GuessFactorDistribution createDistribution(SegmentLog segment,
                                                               WaveContextFeatures.WaveContext context) {
+        int candidateCount = candidateCountForLogSize(segment.log.size());
         NeighborSelection selection = selectNeighbors(
                 segment,
                 createUncheckedContextPoint(segment, context),
-                MODEL_CANDIDATE_POOL);
+                candidateCount);
         if (selection == null) {
             return null;
         }
@@ -485,6 +486,13 @@ public class WaveLog {
         return shouldMirrorDistribution(context.lateralDirectionSign)
                 ? new MirroredGuessFactorDistribution(distribution)
                 : distribution;
+    }
+
+    private static int candidateCountForLogSize(int logSize) {
+        if (logSize <= 0) {
+            return 0;
+        }
+        return Math.min(MODEL_CANDIDATE_POOL, Math.max(1, logSize / 5));
     }
 
     private static NeighborSelection selectNeighbors(SegmentLog segment,
@@ -815,13 +823,22 @@ public class WaveLog {
                 segment.contextDistanceWeights,
                 segment.kdeBandwidth,
                 segment.contextWeightSigma,
-                isDefaultModel(segment, defaultModel));
+                isDefaultModel(segment, defaultModel),
+                candidateCountForLogSize(segment.log.size()));
     }
 
     private static String describeModel(double[] weights,
                                         double kdeBandwidth,
                                         double contextWeightSigma,
                                         boolean appendDefaultMarker) {
+        return describeModel(weights, kdeBandwidth, contextWeightSigma, appendDefaultMarker, MODEL_CANDIDATE_POOL);
+    }
+
+    private static String describeModel(double[] weights,
+                                        double kdeBandwidth,
+                                        double contextWeightSigma,
+                                        boolean appendDefaultMarker,
+                                        int candidateCount) {
         StringBuilder builder = new StringBuilder();
         for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
             double weight = weights[i];
@@ -842,7 +859,7 @@ public class WaveLog {
                 " bw=%.2f s=%.2f k=%d",
                 kdeBandwidth,
                 contextWeightSigma,
-                MODEL_CANDIDATE_POOL));
+                candidateCount));
         if (appendDefaultMarker) {
             builder.append(" (default)");
         }
