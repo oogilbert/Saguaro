@@ -9,6 +9,7 @@ import oog.mega.saguaro.info.Info;
 
 final class ModeSelector {
     private static final double MODE_UNCERTAINTY_PRIOR_EPSILON = 1e-6;
+    private static final double MODE_POSTERIOR_PROBABILITY_EPSILON = 1e-9;
 
     private final ModeRoundScoreTracker roundScoreTracker;
     private Info info;
@@ -47,8 +48,8 @@ final class ModeSelector {
         if (current == null) {
             return selectOpeningMode(posteriors);
         }
-        double bestOtherReferenceMean = bestOtherSwitchReferenceMean(posteriors, activeModeId);
-        if (current.upperBound >= bestOtherReferenceMean) {
+        double bestOtherComparisonMean = bestOtherComparisonMean(posteriors, activeModeId);
+        if (current.comparisonUpperBound >= bestOtherComparisonMean) {
             return activeModeId;
         }
         ModePosterior[] alternatives = excludeMode(posteriors, activeModeId);
@@ -112,11 +113,11 @@ final class ModeSelector {
                 best = posterior;
             }
         }
-        if (best.upperBound - best.lowerBound >= BotConfig.ModeSelection.SETTLED_CI_WIDTH) {
+        if (best.intervalWidth >= BotConfig.ModeSelection.SETTLED_CI_WIDTH) {
             return false;
         }
         for (ModePosterior posterior : legal) {
-            if (posterior.modeId != best.modeId && posterior.upperBound > best.posteriorMean) {
+            if (posterior.modeId != best.modeId && posterior.comparisonUpperBound > best.comparisonMean) {
                 return false;
             }
         }
@@ -154,17 +155,18 @@ final class ModeSelector {
         }
 
         for (ModePosterior candidate : ordered) {
-            double bestOtherMean = Double.NEGATIVE_INFINITY;
+            double bestOtherComparisonMean = Double.NEGATIVE_INFINITY;
             for (ModePosterior other : posteriors) {
                 if (other.modeId == candidate.modeId) {
                     continue;
                 }
-                if (other.posteriorMean > bestOtherMean) {
-                    bestOtherMean = other.posteriorMean;
+                if (other.comparisonMean > bestOtherComparisonMean) {
+                    bestOtherComparisonMean = other.comparisonMean;
                 }
             }
-            if (candidate.upperBound > bestOtherMean
-                    || (candidate.modeId == ModeId.BULLET_SHIELD && nearlyEqual(candidate.upperBound, bestOtherMean))) {
+            if (candidate.comparisonUpperBound > bestOtherComparisonMean
+                    || (candidate.modeId == ModeId.BULLET_SHIELD
+                    && nearlyEqual(candidate.comparisonUpperBound, bestOtherComparisonMean))) {
                 return candidate.modeId;
             }
         }
@@ -205,17 +207,44 @@ final class ModeSelector {
                 / ((uncertaintyAlpha + uncertaintyBeta)
                 * (uncertaintyAlpha + uncertaintyBeta)
                 * (uncertaintyAlpha + uncertaintyBeta + 1.0));
-        double uncertainty = Math.sqrt(Math.max(0.0, variance));
-        double lowerBound = clampUnitInterval(
-                posteriorMean - BotConfig.ModeSelection.CONFIDENCE_SCALE * uncertainty);
-        double upperBound = clampUnitInterval(
-                posteriorMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * uncertainty);
-        boolean hasEvidence = totalScore > 0.0;
-        return new ModePosterior(modeId, posteriorMean, uncertainty, lowerBound, upperBound, hasEvidence);
+        double shareUncertainty = Math.sqrt(Math.max(0.0, variance));
+        double clampedPosteriorMean = clampProbabilityToOpenInterval(posteriorMean);
+        double comparisonMean = logit(clampedPosteriorMean);
+        double comparisonUncertainty = shareUncertainty / (clampedPosteriorMean * (1.0 - clampedPosteriorMean));
+        double comparisonLowerBound =
+                comparisonMean - BotConfig.ModeSelection.CONFIDENCE_SCALE * comparisonUncertainty;
+        double comparisonUpperBound =
+                comparisonMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * comparisonUncertainty;
+        double lowerBound = sigmoid(comparisonLowerBound);
+        double upperBound = sigmoid(comparisonUpperBound);
+        double intervalWidth = upperBound - lowerBound;
+        return new ModePosterior(
+                modeId,
+                posteriorMean,
+                intervalWidth,
+                lowerBound,
+                upperBound,
+                comparisonMean,
+                comparisonUpperBound);
     }
 
-    private static double clampUnitInterval(double value) {
-        return Math.max(0.0, Math.min(1.0, value));
+    private static double clampProbabilityToOpenInterval(double value) {
+        return Math.max(
+                MODE_POSTERIOR_PROBABILITY_EPSILON,
+                Math.min(1.0 - MODE_POSTERIOR_PROBABILITY_EPSILON, value));
+    }
+
+    private static double logit(double probability) {
+        return Math.log(probability / (1.0 - probability));
+    }
+
+    private static double sigmoid(double x) {
+        if (x >= 0.0) {
+            double e = Math.exp(-x);
+            return 1.0 / (1.0 + e);
+        }
+        double e = Math.exp(x);
+        return e / (1.0 + e);
     }
 
     private static boolean prefersHigherMeanFallback(ModePosterior candidate, ModePosterior incumbent) {
@@ -229,10 +258,10 @@ final class ModeSelector {
     }
 
     private static boolean prefersOpeningOrder(ModePosterior candidate, ModePosterior incumbent) {
-        if (candidate.uncertainty > incumbent.uncertainty) {
+        if (candidate.intervalWidth > incumbent.intervalWidth) {
             return true;
         }
-        if (candidate.uncertainty < incumbent.uncertainty) {
+        if (candidate.intervalWidth < incumbent.intervalWidth) {
             return false;
         }
         if (candidate.upperBound > incumbent.upperBound) {
@@ -270,18 +299,17 @@ final class ModeSelector {
         return null;
     }
 
-    private static double bestOtherSwitchReferenceMean(ModePosterior[] posteriors, ModeId currentModeId) {
-        double bestOtherMean = Double.NEGATIVE_INFINITY;
+    private static double bestOtherComparisonMean(ModePosterior[] posteriors, ModeId currentModeId) {
+        double bestOtherComparisonMean = Double.NEGATIVE_INFINITY;
         for (ModePosterior other : posteriors) {
             if (other.modeId == currentModeId) {
                 continue;
             }
-            double referenceMean = other.hasEvidence ? other.posteriorMean : 1.0;
-            if (referenceMean > bestOtherMean) {
-                bestOtherMean = referenceMean;
+            if (other.comparisonMean > bestOtherComparisonMean) {
+                bestOtherComparisonMean = other.comparisonMean;
             }
         }
-        return bestOtherMean;
+        return bestOtherComparisonMean;
     }
 
     private static ModePosterior[] excludeMode(ModePosterior[] posteriors, ModeId modeId) {
@@ -297,23 +325,26 @@ final class ModeSelector {
     private static final class ModePosterior {
         final ModeId modeId;
         final double posteriorMean;
-        final double uncertainty;
+        final double intervalWidth;
         final double lowerBound;
         final double upperBound;
-        final boolean hasEvidence;
+        final double comparisonMean;
+        final double comparisonUpperBound;
 
         ModePosterior(ModeId modeId,
                       double posteriorMean,
-                      double uncertainty,
+                      double intervalWidth,
                       double lowerBound,
                       double upperBound,
-                      boolean hasEvidence) {
+                      double comparisonMean,
+                      double comparisonUpperBound) {
             this.modeId = modeId;
             this.posteriorMean = posteriorMean;
-            this.uncertainty = uncertainty;
+            this.intervalWidth = intervalWidth;
             this.lowerBound = lowerBound;
             this.upperBound = upperBound;
-            this.hasEvidence = hasEvidence;
+            this.comparisonMean = comparisonMean;
+            this.comparisonUpperBound = comparisonUpperBound;
         }
     }
 }

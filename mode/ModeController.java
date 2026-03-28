@@ -102,7 +102,7 @@ public final class ModeController {
                 activateModeForRound(ModeId.BULLET_SHIELD);
             } else {
                 pendingOpponentContextResolution = false;
-                activateModeForRound(activeModeId);
+                activateModeForRound(chooseModeForSwitch());
             }
         }
     }
@@ -155,7 +155,6 @@ public final class ModeController {
         double enemyEnergyBeforeHit = currentEnemyEnergyBeforeDamage();
         roundScoreTracker.onBulletHit(event.getBullet().getPower(), enemyEnergyBeforeHit);
         ScoreMaxScoreHistoryProfile.INSTANCE.onBulletHit(event.getBullet().getPower(), enemyEnergyBeforeHit);
-        maybeReevaluateModeSelection();
     }
 
     public void onHitByBullet(HitByBulletEvent event) {
@@ -167,7 +166,6 @@ public final class ModeController {
         double ourEnergyBeforeHit = info.getTrackedOurEnergy();
         roundScoreTracker.onHitByBullet(event.getPower(), ourEnergyBeforeHit, forgivenThisHit);
         ScoreMaxScoreHistoryProfile.INSTANCE.onHitByBullet(event.getPower(), ourEnergyBeforeHit);
-        maybeReevaluateModeSelection();
     }
 
     public void onHitRobot(HitRobotEvent event) {
@@ -179,7 +177,6 @@ public final class ModeController {
                 event.isMyFault(),
                 enemyEnergyBeforeCollision,
                 ourEnergyBeforeCollision);
-        maybeReevaluateModeSelection();
     }
 
     public void onScannedRobot(ScannedRobotEvent event) {
@@ -284,15 +281,8 @@ public final class ModeController {
         return modeSelector.chooseOpeningMode(bulletShieldRetiredForBattle);
     }
 
-    private void maybeReevaluateModeSelection() {
-        if (pendingOpponentContextResolution || !opponentContextLoaded) {
-            return;
-        }
-        ModeId selectedMode = modeSelector.chooseModeForSwitch(activeModeId, bulletShieldRetiredForBattle);
-        if (selectedMode == activeModeId) {
-            return;
-        }
-        activateModeForRound(selectedMode);
+    private ModeId chooseModeForSwitch() {
+        return modeSelector.chooseModeForSwitch(activeModeId, bulletShieldRetiredForBattle);
     }
 
     private BattleMode modeFor(ModeId modeId) {

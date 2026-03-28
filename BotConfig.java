@@ -189,8 +189,8 @@ public final class BotConfig {
         private ModeSelection() {
         }
 
-        // Scales uncertainty into the confidence score shown for mode selection.
-        public static final double CONFIDENCE_SCALE = 4.0;
+        // Scales the logit-space confidence interval used for mode selection and settling.
+        public static final double CONFIDENCE_SCALE = 5.0;
         // Raw score delta corresponding to one posterior evidence unit.
         public static final double POSTERIOR_SCORE_UNIT = 24.0;
         // Prior score mass assigned to each mode before live evidence arrives.
