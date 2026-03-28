@@ -15,6 +15,7 @@ import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.state.RobotSnapshot;
 import oog.mega.saguaro.info.wave.Wave;
+import oog.mega.saguaro.math.FastTrig;
 import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.PhysicsUtil;
 import oog.mega.saguaro.math.RobotHitbox;
@@ -44,6 +45,9 @@ public final class PerfectPredictionMode implements BattleMode {
     private static final int MAX_SEGMENT_ADVANCES_PER_TICK = 64;
     private static final int MAX_TAIL_EXTENSION_ATTEMPTS = 5;
     private static final int TAIL_EXTENSION_STEP_TICKS = 12;
+    private static final int OPENING_APPROACH_ANGLE_SAMPLES = 24;
+    private static final double[] OPENING_APPROACH_RADIUS_FRACTIONS = new double[]{0.35, 0.7, 1.0};
+    private static final double OPENING_APPROACH_MAX_SPEED = 8.0;
     // Gun cooldown at the configured firepower, scaled up to leave extra planning margin.
     private static final int MIN_TAIL_DURATION_TICKS = (int) Math.ceil(
             (1.0 + BotConfig.PerfectPrediction.FIRE_POWER / 5.0)
@@ -65,6 +69,7 @@ public final class PerfectPredictionMode implements BattleMode {
     private List<PathLeg> rememberedTentativeTailLegs = Collections.emptyList();
     private long rememberedTentativeTailTime = Long.MIN_VALUE;
     private int rememberedTentativeTailCommittedPrefixTicks;
+    private boolean openingApproachResolvedThisRound;
     private boolean openingShotFiredThisRound;
     private OpponentDriveSimulator.AimSolution lastAimSolution;
     private PhysicsUtil.Trajectory lastPlannedTrajectory;
@@ -99,6 +104,7 @@ public final class PerfectPredictionMode implements BattleMode {
         this.rememberedTentativeTailLegs = Collections.emptyList();
         this.rememberedTentativeTailTime = Long.MIN_VALUE;
         this.rememberedTentativeTailCommittedPrefixTicks = 0;
+        this.openingApproachResolvedThisRound = false;
         this.openingShotFiredThisRound = false;
         this.lastAimSolution = null;
         this.lastPlannedTrajectory = null;
@@ -126,6 +132,7 @@ public final class PerfectPredictionMode implements BattleMode {
         }
 
         EnemyInfo enemy = info.getEnemy();
+        initializeOpeningApproachIfNeeded(myNow, enemy);
         PredictedOpponentState opponentStart = buildOpponentStart(enemy, myNow);
         PlanState planState = currentPlanState(myNow);
         PredictionResult prediction = null;
@@ -307,7 +314,81 @@ public final class PerfectPredictionMode implements BattleMode {
             }
         }
         int impactCommitTicks = (int) Math.max(0L, Math.min(Integer.MAX_VALUE, latestImpactTime - currentTime));
-        return Math.max(impactCommitTicks, openingShotCommitTicks(myNow));
+        return Math.max(impactCommitTicks,
+                Math.max(openingApproachCommitTicks(myNow), openingShotCommitTicks(myNow)));
+    }
+
+    private int openingApproachCommitTicks(RobotSnapshot myNow) {
+        if (!openingApproachResolvedThisRound || openingShotFiredThisRound) {
+            return 0;
+        }
+        return openingApproachTickBudget(myNow);
+    }
+
+    private void initializeOpeningApproachIfNeeded(RobotSnapshot myNow, EnemyInfo enemy) {
+        if (openingApproachResolvedThisRound || enemy == null || !enemy.alive || !enemy.seenThisRound) {
+            return;
+        }
+        openingApproachResolvedThisRound = true;
+        if (!waypoints.isEmpty() || !tentativeTailLegs.isEmpty()) {
+            return;
+        }
+        int tickBudget = openingApproachTickBudget(myNow);
+        if (tickBudget <= 0) {
+            return;
+        }
+        ScriptedWaypoint openingWaypoint = selectOpeningApproachWaypoint(myNow, enemy, tickBudget);
+        if (openingWaypoint != null) {
+            waypoints.add(openingWaypoint);
+        }
+    }
+
+    private int openingApproachTickBudget(RobotSnapshot myNow) {
+        if (myNow.energy < BotConfig.PerfectPrediction.FIRE_POWER) {
+            return 0;
+        }
+        int ticksUntilGunReady = ticksUntilGunReady(myNow.gunHeat, myNow.gunCoolingRate);
+        return Math.max(0, ticksUntilGunReady - BotConfig.PerfectPrediction.OPENING_SHOT_COMMIT_LEAD_TICKS);
+    }
+
+    private ScriptedWaypoint selectOpeningApproachWaypoint(RobotSnapshot myNow, EnemyInfo enemy, int tickBudget) {
+        double bfWidth = info.getBattlefieldWidth();
+        double bfHeight = info.getBattlefieldHeight();
+        EnemyInfo.PredictedPosition opponentNow = enemy.predictPositionAtTime(myNow.time, bfWidth, bfHeight);
+        double maxRadius = OPENING_APPROACH_MAX_SPEED * tickBudget;
+
+        double bestX = myNow.x;
+        double bestY = myNow.y;
+        double bestWallDistance = distanceToNearestWall(myNow.x, myNow.y, bfWidth, bfHeight);
+        double bestScore = Math.min(
+                0.5 * RobotHitbox.minDistance(opponentNow.x, opponentNow.y, myNow.x, myNow.y),
+                bestWallDistance);
+        double bestTravelDistance = 0.0;
+
+        for (double radiusFraction : OPENING_APPROACH_RADIUS_FRACTIONS) {
+            double radius = maxRadius * radiusFraction;
+            for (int i = 0; i < OPENING_APPROACH_ANGLE_SAMPLES; i++) {
+                double angle = (Math.PI * 2.0 * i) / OPENING_APPROACH_ANGLE_SAMPLES;
+                double candidateX = clampToBattlefield(myNow.x + FastTrig.sin(angle) * radius, bfWidth);
+                double candidateY = clampToBattlefield(myNow.y + FastTrig.cos(angle) * radius, bfHeight);
+                double wallDistance = distanceToNearestWall(candidateX, candidateY, bfWidth, bfHeight);
+                double opponentDistance = RobotHitbox.minDistance(opponentNow.x, opponentNow.y, candidateX, candidateY);
+                double score = Math.min(0.5 * opponentDistance, wallDistance);
+                double travelDistance = Math.hypot(candidateX - myNow.x, candidateY - myNow.y);
+                if (score > bestScore + 1e-9
+                        || (Math.abs(score - bestScore) <= 1e-9 && wallDistance > bestWallDistance + 1e-9)
+                        || (Math.abs(score - bestScore) <= 1e-9
+                        && Math.abs(wallDistance - bestWallDistance) <= 1e-9
+                        && travelDistance < bestTravelDistance - 1e-9)) {
+                    bestScore = score;
+                    bestWallDistance = wallDistance;
+                    bestTravelDistance = travelDistance;
+                    bestX = candidateX;
+                    bestY = candidateY;
+                }
+            }
+        }
+        return new ScriptedWaypoint(bestX, bestY, tickBudget);
     }
 
     private int openingShotCommitTicks(RobotSnapshot myNow) {
@@ -589,6 +670,18 @@ public final class PerfectPredictionMode implements BattleMode {
 
     private static boolean canPredictOpponentFromTrajectory(PhysicsUtil.Trajectory trajectory) {
         return trajectory != null && trajectory.length() >= 3;
+    }
+
+    private static double distanceToNearestWall(double x, double y, double battlefieldWidth, double battlefieldHeight) {
+        double margin = RobotHitbox.HALF_WIDTH;
+        return Math.min(
+                Math.min(x - margin, battlefieldWidth - margin - x),
+                Math.min(y - margin, battlefieldHeight - margin - y));
+    }
+
+    private static double clampToBattlefield(double value, double battlefieldExtent) {
+        double margin = RobotHitbox.HALF_WIDTH;
+        return Math.max(margin, Math.min(battlefieldExtent - margin, value));
     }
 
     private static int ticksUntilGunReady(double gunHeat, double gunCoolingRate) {
