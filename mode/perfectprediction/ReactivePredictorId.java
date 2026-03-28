@@ -1,6 +1,7 @@
 package oog.mega.saguaro.mode.perfectprediction;
 
 public enum ReactivePredictorId {
+    LEARNED_PATTERN("learnedPattern"),
     ANTI_MIRROR("antiMirror"),
     ANTI_MIRROR_PERPENDICULAR("antiMirrorPerpendicular"),
     ANTI_MIRROR_COPY("antiMirrorCopy"),

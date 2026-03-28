@@ -144,6 +144,16 @@ public final class BotConfig {
         public static final double TAIL_DURATION_GUN_HEAT_MARGIN = 1.5;
         // Rolling sample window retained for each reactive-predictor error profile.
         public static final int MAX_RECENT_PROFILE_SAMPLES = 500;
+        // Number of recent motion steps matched when searching for a repeated enemy pattern.
+        public static final int LEARNED_PATTERN_CONTEXT_LENGTH = 12;
+        // Maximum number of observed enemy motion steps retained for learned-pattern replay.
+        public static final int LEARNED_PATTERN_MAX_HISTORY_STEPS = 4096;
+        // Maximum number of future learned-pattern steps replayed from a matched historical suffix.
+        public static final int LEARNED_PATTERN_MAX_SCRIPT_TICKS = 96;
+        // Quantization buckets used for raw turn-delta pattern matching.
+        public static final int LEARNED_PATTERN_TURN_BUCKET_COUNT = 19;
+        // Quantization buckets used for raw velocity pattern matching.
+        public static final int LEARNED_PATTERN_VELOCITY_BUCKET_COUNT = 17;
         // Minimum evidence required before the perfect-prediction detector can unlock.
         public static final int MIN_UNLOCK_SAMPLES = 500;
         // Highest acceptable weighted delta-error upper bound for unlocking perfect prediction.
