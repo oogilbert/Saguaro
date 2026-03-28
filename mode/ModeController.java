@@ -219,6 +219,7 @@ public final class ModeController {
         ScoreMaxScoreHistoryProfile.INSTANCE.setTrackingEnabled(scoreMaxTracking);
         if (info != null) {
             info.setScoreMaxTrackingEnabled(scoreMaxTracking);
+            info.setPrecisePredictionTrackingEnabled(nextModeId == ModeId.PERFECT_PREDICTION);
         }
         if (nextModeId == ModeId.SHOT_DODGER) {
             observationProfile.setDelegate(shotDodgerMode.getObservationProfile());

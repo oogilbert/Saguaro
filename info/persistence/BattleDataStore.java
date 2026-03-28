@@ -19,7 +19,6 @@ import java.util.Set;
 
 import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.Saguaro;
-import oog.mega.saguaro.info.learning.ScoreMaxScoreHistoryProfile;
 import oog.mega.saguaro.info.state.BulletPowerHitRateTracker;
 import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.mode.ModeController;
@@ -35,7 +34,6 @@ public final class BattleDataStore {
     private static final int CONTAINER_HEADER_BYTES = 6;
     private static final int SECTION_HEADER_BYTES = 3;
     private static final int MAX_OPPONENT_RECORD_BYTES = 167;
-    private final ScoreHistoryDataSet scoreHistoryDataSet = new ScoreHistoryDataSet();
     private final List<OpponentDataSet> registeredDataSets = new ArrayList<>();
     private final Map<Class<? extends OpponentDataSet>, OpponentDataSet> dataSetsByType = new LinkedHashMap<>();
     private final Map<String, OpponentDataSet> dataSetsByKey = new LinkedHashMap<>();
@@ -49,7 +47,6 @@ public final class BattleDataStore {
     private boolean trackedOpponentHadPersistedData;
 
     public BattleDataStore() {
-        registerDataSet(scoreHistoryDataSet);
     }
 
     public void startBattle() {
@@ -312,8 +309,7 @@ public final class BattleDataStore {
     }
 
     private static boolean hasAnyOpponentDataLoaded() {
-        return ScoreMaxScoreHistoryProfile.isPersistedScoreHistoryLoaded()
-                || ModePerformanceProfile.isPersistedModeStatsLoaded()
+        return ModePerformanceProfile.isPersistedModeStatsLoaded()
                 || BulletShieldMode.isAnyPersistedBootstrapLoaded()
                 || BulletPowerHitRateTracker.isPersistedBaselineLoaded()
                 || WaveLog.isPersistedModelLoaded();

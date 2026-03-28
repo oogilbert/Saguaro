@@ -24,6 +24,7 @@ public final class PrecisePredictionTracker {
     private long previousScanTime;
     private PhysicsUtil.PositionState previousRobotState;
     private PhysicsUtil.PositionState previousEnemyState;
+    private boolean trackingEnabled;
     private boolean perfectPredictionUnlocked;
 
     public void init(Saguaro robot, double battlefieldWidth, double battlefieldHeight) {
@@ -39,6 +40,7 @@ public final class PrecisePredictionTracker {
         this.previousScanTime = Long.MIN_VALUE;
         this.previousRobotState = null;
         this.previousEnemyState = null;
+        this.trackingEnabled = false;
     }
 
     public void onScannedRobot(RobotSnapshot robotSnapshot, EnemyInfo enemy) {
@@ -55,7 +57,8 @@ public final class PrecisePredictionTracker {
                 enemy.y,
                 enemy.heading,
                 enemy.velocity);
-        if (previousRobotState != null
+        if (trackingEnabled
+                && previousRobotState != null
                 && previousEnemyState != null
                 && previousScanTime == robotSnapshot.time - 1L) {
             evaluatePredictors(currentEnemyState);
@@ -63,6 +66,10 @@ public final class PrecisePredictionTracker {
         previousScanTime = robotSnapshot.time;
         previousRobotState = currentRobotState;
         previousEnemyState = currentEnemyState;
+    }
+
+    public void setTrackingEnabled(boolean enabled) {
+        trackingEnabled = enabled;
     }
 
     public boolean isPerfectPredictionUnlocked() {

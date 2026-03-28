@@ -376,6 +376,10 @@ public class Info {
         enemyBulletHitRateTracker.setTrackingEnabled(enabled);
     }
 
+    public void setPrecisePredictionTrackingEnabled(boolean enabled) {
+        precisePredictionTracker.setTrackingEnabled(enabled);
+    }
+
     public void onMyWavePassedEnemy(Wave wave) {
         bulletPowerHitRateTracker.onMyWaveMiss(wave);
     }

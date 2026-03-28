@@ -102,9 +102,6 @@ final class ModeSelector {
         if (ModePerformanceProfile.hasAnyCombinedSamples(ModeId.PERFECT_PREDICTION)) {
             return true;
         }
-        if (!info.isPerfectPredictionUnlocked()) {
-            return false;
-        }
         return !areComparisonModesSettled(candidateModes, ModeId.PERFECT_PREDICTION);
     }
 
@@ -214,9 +211,9 @@ final class ModeSelector {
         double priorScale = Math.max(0.0, 1.0 - totalScore / BotConfig.ModeSelection.PRIOR_FADE_SCORE);
         double priorOurScore = BotConfig.ModeSelection.PRIOR_SCORE * priorScale;
         double effectiveTotalScore = totalScore + priorOurScore;
-        double posteriorMean = effectiveTotalScore > 0.0
-                ? (totalOurScore + priorOurScore) / effectiveTotalScore
-                : 1.0;
+        double posteriorMean = totalScore > 0.0
+                ? (effectiveTotalScore > 0.0 ? (totalOurScore + priorOurScore) / effectiveTotalScore : 1.0)
+                : BotConfig.ModeSelection.UNTESTED_MODE_MEAN;
         double uncertaintyAlpha =
                 MODE_UNCERTAINTY_PRIOR_EPSILON
                         + BotConfig.ModeSelection.UNCERTAINTY_PRIOR_ALPHA * priorScale

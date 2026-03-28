@@ -197,6 +197,8 @@ public final class BotConfig {
 
         // Scales the logit-space confidence interval used for mode selection and settling.
         public static final double CONFIDENCE_SCALE = 7.0;
+        // Exploratory mean assigned to modes with no score evidence yet.
+        public static final double UNTESTED_MODE_MEAN = 0.90;
         // Raw score delta corresponding to one posterior evidence unit.
         public static final double POSTERIOR_SCORE_UNIT = 24.0;
         // Prior score mass assigned to each mode before live evidence arrives.
