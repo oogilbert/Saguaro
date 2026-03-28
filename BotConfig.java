@@ -138,6 +138,8 @@ public final class BotConfig {
 
         // Firepower used by the committed perfect-prediction mode once a firing line is available.
         public static final double FIRE_POWER = 3.0;
+        // Start committing the opening path this many ticks before the first expected shot.
+        public static final int OPENING_SHOT_COMMIT_LEAD_TICKS = 5;
         // Safety margin, in gun-cooldown lengths, used when choosing the committed tail horizon.
         public static final double TAIL_DURATION_GUN_HEAT_MARGIN = 1.5;
         // Rolling sample window retained for each reactive-predictor error profile.

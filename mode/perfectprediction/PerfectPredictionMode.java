@@ -65,6 +65,7 @@ public final class PerfectPredictionMode implements BattleMode {
     private List<PathLeg> rememberedTentativeTailLegs = Collections.emptyList();
     private long rememberedTentativeTailTime = Long.MIN_VALUE;
     private int rememberedTentativeTailCommittedPrefixTicks;
+    private boolean openingShotFiredThisRound;
     private OpponentDriveSimulator.AimSolution lastAimSolution;
     private PhysicsUtil.Trajectory lastPlannedTrajectory;
     private PhysicsUtil.Trajectory lastTentativeTailTrajectory;
@@ -98,6 +99,7 @@ public final class PerfectPredictionMode implements BattleMode {
         this.rememberedTentativeTailLegs = Collections.emptyList();
         this.rememberedTentativeTailTime = Long.MIN_VALUE;
         this.rememberedTentativeTailCommittedPrefixTicks = 0;
+        this.openingShotFiredThisRound = false;
         this.lastAimSolution = null;
         this.lastPlannedTrajectory = null;
         this.lastTentativeTailTrajectory = null;
@@ -116,7 +118,7 @@ public final class PerfectPredictionMode implements BattleMode {
         advanceWaypointQueue(myNow);
         tentativeTailLegs = currentRememberedTentativeTailLegs(myNow.time);
         pruneExpiredCommittedShotImpactTimes(myNow.time);
-        rebalanceCommittedPath(myNow, requiredCommittedTicks(myNow.time));
+        rebalanceCommittedPath(myNow, requiredCommittedTicks(myNow));
 
         BattlePlan ramPlan = buildDisabledRamPlan(myNow);
         if (ramPlan != null) {
@@ -200,8 +202,12 @@ public final class PerfectPredictionMode implements BattleMode {
                 }
             }
         } else {
-            tentativeTailLegs = Collections.emptyList();
-            lastTentativeTailTrajectory = null;
+            boolean activeTailParkingPhase = planState.activeWaypoint == null
+                    ? updateActiveLegParkingPhase(myNow, tentativeTailLegs)
+                    : false;
+            lastTentativeTailTrajectory = tentativeTailLegs.isEmpty()
+                    ? null
+                    : simulateTailTrajectory(planState.ourTrajectory, tentativeTailLegs, activeTailParkingPhase);
         }
 
         OpponentDriveSimulator.AimSolution aimSolution = prediction != null ? prediction.aimSolution : null;
@@ -212,8 +218,9 @@ public final class PerfectPredictionMode implements BattleMode {
                 ? BotConfig.PerfectPrediction.FIRE_POWER
                 : 0.0;
         if (firePower >= 0.1 && aimSolution != null) {
+            openingShotFiredThisRound = true;
             committedShotImpactTimes.add(myNow.time + 1L + aimSolution.interceptTick);
-            rebalanceCommittedPath(myNow, requiredCommittedTicks(myNow.time));
+            rebalanceCommittedPath(myNow, requiredCommittedTicks(myNow));
             planState = currentPlanState(myNow);
             if (enemy != null && enemy.alive && enemy.seenThisRound) {
                 boolean activeTailParkingPhase = planState.activeWaypoint == null
@@ -291,14 +298,28 @@ public final class PerfectPredictionMode implements BattleMode {
         }
     }
 
-    private int requiredCommittedTicks(long currentTime) {
+    private int requiredCommittedTicks(RobotSnapshot myNow) {
+        long currentTime = myNow.time;
         long latestImpactTime = currentTime;
         for (Long impactTime : committedShotImpactTimes) {
             if (impactTime != null && impactTime > latestImpactTime) {
                 latestImpactTime = impactTime;
             }
         }
-        return (int) Math.max(0L, Math.min(Integer.MAX_VALUE, latestImpactTime - currentTime));
+        int impactCommitTicks = (int) Math.max(0L, Math.min(Integer.MAX_VALUE, latestImpactTime - currentTime));
+        return Math.max(impactCommitTicks, openingShotCommitTicks(myNow));
+    }
+
+    private int openingShotCommitTicks(RobotSnapshot myNow) {
+        if (openingShotFiredThisRound || myNow.energy < BotConfig.PerfectPrediction.FIRE_POWER) {
+            return 0;
+        }
+        int ticksUntilGunReady = ticksUntilGunReady(myNow.gunHeat, myNow.gunCoolingRate);
+        if (ticksUntilGunReady <= 0
+                || ticksUntilGunReady > BotConfig.PerfectPrediction.OPENING_SHOT_COMMIT_LEAD_TICKS) {
+            return 0;
+        }
+        return ticksUntilGunReady;
     }
 
     private void rebalanceCommittedPath(RobotSnapshot myNow, int requiredCommittedTicks) {
@@ -568,6 +589,13 @@ public final class PerfectPredictionMode implements BattleMode {
 
     private static boolean canPredictOpponentFromTrajectory(PhysicsUtil.Trajectory trajectory) {
         return trajectory != null && trajectory.length() >= 3;
+    }
+
+    private static int ticksUntilGunReady(double gunHeat, double gunCoolingRate) {
+        if (gunHeat <= 0.0) {
+            return 0;
+        }
+        return (int) Math.ceil(gunHeat / gunCoolingRate);
     }
 
     private List<PathLeg> currentRememberedTentativeTailLegs(long currentTime) {
