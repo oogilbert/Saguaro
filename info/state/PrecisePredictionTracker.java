@@ -1,7 +1,6 @@
 package oog.mega.saguaro.info.state;
 
 import java.util.ArrayList;
-import java.util.Locale;
 import java.util.List;
 
 import oog.mega.saguaro.BotConfig;
@@ -24,14 +23,12 @@ public final class PrecisePredictionTracker {
     private static final double MIN_OBSERVED_VELOCITY = -8.0;
     private static final double MAX_OBSERVED_VELOCITY = 8.0;
 
-    private Saguaro robot;
     private double battlefieldWidth;
     private double battlefieldHeight;
     private long previousScanTime;
     private PhysicsUtil.PositionState previousRobotState;
     private PhysicsUtil.PositionState previousEnemyState;
     private boolean trackingEnabled;
-    private boolean perfectPredictionUnlocked;
     private final List<MotionStep> learnedMotionHistory = new ArrayList<MotionStep>();
     private ReactiveOpponentPredictor learnedPatternPredictor;
 
@@ -42,7 +39,6 @@ public final class PrecisePredictionTracker {
         if (!(battlefieldWidth > 0.0) || !(battlefieldHeight > 0.0)) {
             throw new IllegalArgumentException("Precise-prediction tracker requires positive battlefield dimensions");
         }
-        this.robot = robot;
         this.battlefieldWidth = battlefieldWidth;
         this.battlefieldHeight = battlefieldHeight;
         this.previousScanTime = Long.MIN_VALUE;
@@ -51,7 +47,6 @@ public final class PrecisePredictionTracker {
         this.trackingEnabled = false;
         this.learnedPatternPredictor = null;
         if (robot.getRoundNum() == 0) {
-            this.perfectPredictionUnlocked = false;
             this.learnedMotionHistory.clear();
             PrecisePredictionProfile.startBattle();
         }
@@ -97,16 +92,8 @@ public final class PrecisePredictionTracker {
         }
     }
 
-    public boolean isPerfectPredictionUnlocked() {
-        return perfectPredictionUnlocked;
-    }
-
     public ReactiveOpponentPredictor createBestPredictor() {
-        ReactivePredictorId predictorId = PrecisePredictionProfile.bestPredictorId(
-                false,
-                BotConfig.PerfectPrediction.MIN_UNLOCK_SAMPLES,
-                BotConfig.PerfectPrediction.MAX_UNLOCK_MEAN_DELTA_ERROR,
-                BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
+        ReactivePredictorId predictorId = PrecisePredictionProfile.bestPredictorId();
         if (predictorId == null && learnedPatternPredictor != null) {
             return learnedPatternPredictor;
         }
@@ -115,14 +102,6 @@ public final class PrecisePredictionTracker {
             return predictor;
         }
         return learnedPatternPredictor != null ? learnedPatternPredictor : AntiMirrorPredictor.predictor();
-    }
-
-    public ReactivePredictorId getBestPredictorId() {
-        return PrecisePredictionProfile.bestPredictorId(
-                false,
-                BotConfig.PerfectPrediction.MIN_UNLOCK_SAMPLES,
-                BotConfig.PerfectPrediction.MAX_UNLOCK_MEAN_DELTA_ERROR,
-                BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
     }
 
     private void evaluatePredictors(PhysicsUtil.PositionState actualNextEnemyState) {
@@ -140,17 +119,6 @@ public final class PrecisePredictionTracker {
                     battlefieldHeight);
             DeltaPredictionScore score = evaluatePredictionInDeltaSpace(predictedEnemyState, actualNextEnemyState);
             PrecisePredictionProfile.recordPredictionError(predictorId, score.error, score.sampleWeight);
-        }
-        if (!perfectPredictionUnlocked) {
-            ReactivePredictorId unlockedPredictorId = PrecisePredictionProfile.bestPredictorId(
-                    true,
-                    BotConfig.PerfectPrediction.MIN_UNLOCK_SAMPLES,
-                    BotConfig.PerfectPrediction.MAX_UNLOCK_MEAN_DELTA_ERROR,
-                    BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
-            if (unlockedPredictorId != null) {
-                perfectPredictionUnlocked = true;
-                announceUnlock(unlockedPredictorId);
-            }
         }
     }
 
@@ -301,22 +269,6 @@ public final class PrecisePredictionTracker {
             }
         }
         return bestEndIndex;
-    }
-
-    private void announceUnlock(ReactivePredictorId predictorId) {
-        if (robot == null || predictorId == null) {
-            return;
-        }
-        robot.out.println(String.format(
-                Locale.US,
-                "PrecisePrediction unlocked via %s: rolling mean weighted delta error %.2f, upper bound %.2f over %.1f weighted samples (%d raw)",
-                predictorId.displayName(),
-                PrecisePredictionProfile.getCombinedMeanError(predictorId),
-                PrecisePredictionProfile.getCombinedMeanErrorUpperBound(
-                        predictorId,
-                        BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE),
-                PrecisePredictionProfile.getCombinedWeightedSampleCount(predictorId),
-                PrecisePredictionProfile.getCombinedRawSampleCount(predictorId)));
     }
 
     private static double normalizeToUnit(double value, double minValue, double maxValue) {

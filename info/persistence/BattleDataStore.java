@@ -17,15 +17,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.info.state.BulletPowerHitRateTracker;
 import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.mode.ModeController;
 import oog.mega.saguaro.mode.ModeId;
 import oog.mega.saguaro.mode.ModePerformanceProfile;
-import oog.mega.saguaro.mode.perfectprediction.PrecisePredictionProfile;
-import oog.mega.saguaro.mode.perfectprediction.ReactivePredictorId;
 import oog.mega.saguaro.mode.shield.BulletShieldMode;
 
 public final class BattleDataStore {
@@ -281,7 +278,6 @@ public final class BattleDataStore {
                         + ModeController.describeModeEstimate(ModeId.PERFECT_PREDICTION));
         robot.out.println("ScoreMax mode estimate: " + ModeController.describeModeEstimate(ModeId.SCORE_MAX));
         robot.out.println("ShotDodger mode estimate: " + ModeController.describeModeEstimate(ModeId.SHOT_DODGER));
-        robot.out.println(describePrecisePredictionStatus());
         double historicalHitRate = BulletPowerHitRateTracker.getPersistedOverallHitRate();
         if (!Double.isNaN(historicalHitRate)) {
             robot.out.println(String.format(Locale.US, "Historical hit rate: %.2f%%", historicalHitRate * 100.0));
@@ -313,40 +309,6 @@ public final class BattleDataStore {
                 || BulletShieldMode.isAnyPersistedBootstrapLoaded()
                 || BulletPowerHitRateTracker.isPersistedBaselineLoaded()
                 || WaveLog.isPersistedModelLoaded();
-    }
-
-    private static String describePrecisePredictionStatus() {
-        ReactivePredictorId bestPredictorId = PrecisePredictionProfile.bestPredictorId(
-                false,
-                BotConfig.PerfectPrediction.MIN_UNLOCK_SAMPLES,
-                BotConfig.PerfectPrediction.MAX_UNLOCK_MEAN_DELTA_ERROR,
-                BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
-        boolean unlocked = PrecisePredictionProfile.isAnyPredictorUnlocked(
-                BotConfig.PerfectPrediction.MIN_UNLOCK_SAMPLES,
-                BotConfig.PerfectPrediction.MAX_UNLOCK_MEAN_DELTA_ERROR,
-                BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
-        if (bestPredictorId == null) {
-            return "PerfectPrediction detector: " + (unlocked ? "unlocked" : "locked") + ", no samples";
-        }
-        double weightedSampleCount = PrecisePredictionProfile.getCombinedWeightedSampleCount(bestPredictorId);
-        int rawSampleCount = PrecisePredictionProfile.getCombinedRawSampleCount(bestPredictorId);
-        double meanError = PrecisePredictionProfile.getCombinedMeanError(bestPredictorId);
-        double meanErrorUpperBound = PrecisePredictionProfile.getCombinedMeanErrorUpperBound(
-                bestPredictorId,
-                BotConfig.PerfectPrediction.UNLOCK_CONFIDENCE_SCALE);
-        if (!(weightedSampleCount > 0.0) || Double.isNaN(meanError)) {
-            return "PerfectPrediction detector: " + (unlocked ? "unlocked" : "locked") + ", no samples";
-        }
-        return String.format(
-                Locale.US,
-                unlocked
-                        ? "PrecisePrediction detector: unlocked via %s, rolling mean weighted delta error %.2f, upper bound %.2f over %.1f weighted samples (%d raw)"
-                        : "PrecisePrediction detector: locked, best candidate %s has rolling mean weighted delta error %.2f, upper bound %.2f over %.1f weighted samples (%d raw)",
-                bestPredictorId.displayName(),
-                meanError,
-                meanErrorUpperBound,
-                weightedSampleCount,
-                rawSampleCount);
     }
 
     private Map<Integer, StoredSection> loadSections(Saguaro robot, String opponentName, File dataFile) {

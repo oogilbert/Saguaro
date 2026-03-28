@@ -154,12 +154,8 @@ public final class BotConfig {
         public static final int LEARNED_PATTERN_TURN_BUCKET_COUNT = 19;
         // Quantization buckets used for raw velocity pattern matching.
         public static final int LEARNED_PATTERN_VELOCITY_BUCKET_COUNT = 17;
-        // Minimum evidence required before the perfect-prediction detector can unlock.
-        public static final int MIN_UNLOCK_SAMPLES = 500;
-        // Highest acceptable weighted delta-error upper bound for unlocking perfect prediction.
-        public static final double MAX_UNLOCK_MEAN_DELTA_ERROR = 0.20;
-        // Confidence multiplier used when comparing predictor error bounds for unlock decisions.
-        public static final double UNLOCK_CONFIDENCE_SCALE = 2.5;
+        // Confidence multiplier used when ranking competing precise-prediction predictors.
+        public static final double PREDICTOR_SELECTION_CONFIDENCE_SCALE = 2.5;
     }
 
     public static final class ScoreMax {

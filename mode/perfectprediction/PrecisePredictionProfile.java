@@ -80,36 +80,7 @@ public final class PrecisePredictionProfile {
         return meanError + confidenceScale * standardError;
     }
 
-    public static double getCombinedMeanErrorLowerBound(ReactivePredictorId predictorId, double confidenceScale) {
-        double meanError = getCombinedMeanError(predictorId);
-        double standardError = getCombinedMeanErrorStandardError(predictorId);
-        if (Double.isNaN(meanError) || Double.isNaN(standardError)) {
-            return Double.NaN;
-        }
-        return Math.max(0.0, meanError - confidenceScale * standardError);
-    }
-
-    public static boolean isPredictorUnlocked(ReactivePredictorId predictorId,
-                                              int minSampleCount,
-                                              double maxMeanError,
-                                              double confidenceScale) {
-        if (getCombinedRawSampleCount(predictorId) < minSampleCount) {
-            return false;
-        }
-        double upperBound = getCombinedMeanErrorUpperBound(predictorId, confidenceScale);
-        return !Double.isNaN(upperBound) && upperBound <= maxMeanError;
-    }
-
-    public static boolean isAnyPredictorUnlocked(int minSampleCount,
-                                                 double maxMeanError,
-                                                 double confidenceScale) {
-        return bestPredictorId(true, minSampleCount, maxMeanError, confidenceScale) != null;
-    }
-
-    public static ReactivePredictorId bestPredictorId(boolean unlockedOnly,
-                                                      int minSampleCount,
-                                                      double maxMeanError,
-                                                      double confidenceScale) {
+    public static ReactivePredictorId bestPredictorId() {
         ReactivePredictorId bestPredictor = null;
         double bestUpperBound = Double.POSITIVE_INFINITY;
         double bestMeanError = Double.POSITIVE_INFINITY;
@@ -120,10 +91,9 @@ public final class PrecisePredictionProfile {
             if (rawSampleCount <= 0 || !(getTotalSampleWeight(predictorId) > 0.0)) {
                 continue;
             }
-            if (unlockedOnly && !isPredictorUnlocked(predictorId, minSampleCount, maxMeanError, confidenceScale)) {
-                continue;
-            }
-            double upperBound = getCombinedMeanErrorUpperBound(predictorId, confidenceScale);
+            double upperBound = getCombinedMeanErrorUpperBound(
+                    predictorId,
+                    BotConfig.PerfectPrediction.PREDICTOR_SELECTION_CONFIDENCE_SCALE);
             double meanError = getCombinedMeanError(predictorId);
             double weightedSampleCount = getCombinedWeightedSampleCount(predictorId);
             if (Double.isNaN(upperBound) || Double.isNaN(meanError) || !Double.isFinite(weightedSampleCount)) {

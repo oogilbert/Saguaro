@@ -355,10 +355,6 @@ public class Info {
         return robotMotionTracker.getMotionHistoryHeadingDelta(index);
     }
 
-    public boolean isPerfectPredictionUnlocked() {
-        return precisePredictionTracker.isPerfectPredictionUnlocked();
-    }
-
     public ReactiveOpponentPredictor createPerfectPredictionPredictor() {
         return precisePredictionTracker.createBestPredictor();
     }
