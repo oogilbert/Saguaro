@@ -120,6 +120,17 @@ public final class PerfectPredictionMode implements BattleMode {
         }
 
         RobotSnapshot myNow = info.captureRobotSnapshot();
+        EnemyInfo enemy = info.getEnemy();
+        BattlePlan preScanOpeningPlan = buildPreScanOpeningPlan(myNow, enemy);
+        if (preScanOpeningPlan != null) {
+            lastAimSolution = null;
+            lastPlannedTrajectory = null;
+            lastTentativeTailTrajectory = null;
+            lastPredictedOpponentTrajectory = null;
+            activeLegParkingTracker.reset();
+            return preScanOpeningPlan;
+        }
+
         ReactiveOpponentPredictor predictor = currentPredictor();
         advanceWaypointQueue(myNow);
         tentativeTailLegs = currentRememberedTentativeTailLegs(myNow.time);
@@ -131,7 +142,6 @@ public final class PerfectPredictionMode implements BattleMode {
             return ramPlan;
         }
 
-        EnemyInfo enemy = info.getEnemy();
         initializeOpeningApproachIfNeeded(myNow, enemy);
         PredictedOpponentState opponentStart = buildOpponentStart(enemy, myNow);
         PlanState planState = currentPlanState(myNow);
@@ -555,6 +565,22 @@ public final class PerfectPredictionMode implements BattleMode {
         double[] instruction = PhysicsUtil.computeMovementInstruction(
                 myNow.x, myNow.y, myNow.heading, myNow.velocity,
                 predictedEnemy.x, predictedEnemy.y);
+        return new BattlePlan(instruction[0], instruction[1], 0.0, 0.0);
+    }
+
+    private BattlePlan buildPreScanOpeningPlan(RobotSnapshot myNow, EnemyInfo enemy) {
+        if (enemy != null && enemy.alive && enemy.seenThisRound) {
+            return null;
+        }
+        double centerX = info.getBattlefieldWidth() * 0.5;
+        double centerY = info.getBattlefieldHeight() * 0.5;
+        double[] instruction = PhysicsUtil.computeMovementInstruction(
+                myNow.x,
+                myNow.y,
+                myNow.heading,
+                myNow.velocity,
+                centerX,
+                centerY);
         return new BattlePlan(instruction[0], instruction[1], 0.0, 0.0);
     }
 
