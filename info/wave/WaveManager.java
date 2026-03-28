@@ -205,7 +205,6 @@ public class WaveManager {
             if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
             }
-            logFlattenerVisitForWave(match.wave, pendingEnemyBulletHit.hitX, pendingEnemyBulletHit.hitY);
             logResolvedMovementWaveInterval(match.wave, movementInterval);
             if (movementInterval != null) {
                 info.getObservationProfile().onResolvedMovementImpactWave(
@@ -415,21 +414,6 @@ public class WaveManager {
         }
     }
 
-    private void logFlattenerVisitForWave(Wave wave, double robotX, double robotY) {
-        if (wave.fireTimeContext == null
-                || Double.isNaN(wave.targetX) || Double.isNaN(wave.targetY)) {
-            return;
-        }
-        double referenceBearing = Math.atan2(
-                wave.targetX - wave.originX, wave.targetY - wave.originY);
-        double ourBearing = Math.atan2(
-                robotX - wave.originX, robotY - wave.originY);
-        double mea = MathUtils.maxEscapeAngle(wave.speed);
-        double ourGf = MathUtils.angleToGf(referenceBearing, ourBearing, mea);
-        ourGf = Math.max(-1.0, Math.min(1.0, ourGf));
-        WaveLog.logFlattenerVisit(wave.fireTimeContext, ourGf);
-    }
-
     private void removePassedMyWaves(long time, double maxDistance,
                                      double targetX, double targetY, boolean removeWhenPassedTarget) {
         Iterator<Wave> it = myWaves.iterator();
@@ -463,7 +447,6 @@ public class WaveManager {
                             robotX,
                             robotY,
                             removalCheckTime);
-                    logFlattenerVisitForWave(wave, robotX, robotY);
                     info.onEnemyWavePassedRobot(wave);
                     logResolvedMovementWaveInterval(wave, movementInterval);
                     if (movementInterval != null && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
@@ -521,7 +504,6 @@ public class WaveManager {
             if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
             }
-            logFlattenerVisitForWave(match.wave, bullet.getX(), bullet.getY());
             logResolvedMovementWaveInterval(match.wave, movementInterval);
             if (movementInterval != null) {
                 info.getObservationProfile().onResolvedMovementImpactWave(
@@ -564,7 +546,6 @@ public class WaveManager {
             if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
             }
-            logFlattenerVisitForWave(match.wave, robot.getX(), robot.getY());
             logResolvedMovementWaveInterval(match.wave, movementInterval);
             if (movementInterval != null) {
                 info.getObservationProfile().onResolvedMovementImpactWave(

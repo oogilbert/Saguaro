@@ -76,28 +76,9 @@ public class WaveLog {
             DEFAULT_MOVEMENT_DISTANCE_WEIGHTS,
             BotConfig.Learning.DEFAULT_MOVEMENT_KDE_BANDWIDTH,
             BotConfig.Learning.DEFAULT_MOVEMENT_CONTEXT_WEIGHT_SIGMA);
-    private static final double[] DEFAULT_ANTI_SURFER_GUN_WEIGHTS = new double[]{
-            2.00, 0.50, 0.30, 2.00, 1.50, 1.00, 4.00, 0.70, 0.80
-    };
-    private static final double[] DEFAULT_FLATTENER_WEIGHTS = new double[]{
-            4.00, 0.50, 0.30, 1.00, 2.00, 1.00, 1.50, 1.00, 1.00
-    };
-    private static final ModelSpec DEFAULT_ANTI_SURFER_GUN_MODEL = new ModelSpec(
-            "antiSurferGun-lat2p00-adv0p50-flight0p30-accel2p00-reversal1p50-decel1p00-wallAhead4p00-wallReverse0p70-currentGf0p80-bw0p40-k7-s0p45",
-            DEFAULT_ANTI_SURFER_GUN_WEIGHTS,
-            0.40,
-            0.45);
-    private static final ModelSpec DEFAULT_FLATTENER_MODEL = new ModelSpec(
-            "flattener-lat4p00-adv0p50-flight0p30-accel1p00-reversal2p00-decel1p00-wallAhead1p50-wallReverse1p00-currentGf1p00-bw0p36-k7-s0p65",
-            DEFAULT_FLATTENER_WEIGHTS,
-            0.36,
-            0.65);
     // Nearest-neighbor lookups use Rednaxela's third-gen KD-tree implementation.
     private static final SegmentLog gunSegment = new SegmentLog("targeting", DEFAULT_TARGETING_MODEL, true);
     private static final SegmentLog movementSegment = new SegmentLog("surfing", DEFAULT_MOVEMENT_MODEL, false);
-    private static final SegmentLog antiSurferGunSegment = new SegmentLog("antiSurferTargeting", DEFAULT_ANTI_SURFER_GUN_MODEL, true);
-    private static final SegmentLog antiSurferMovementSegment = new SegmentLog("antiSurferSurfing", DEFAULT_FLATTENER_MODEL, false);
-    private static final SegmentLog flattenerSegment = new SegmentLog("flattener", DEFAULT_FLATTENER_MODEL, false);
     // Stack-trace source tagging was added for KD-tree diagnostics and is too expensive for normal logging.
     private static final int TRACE_BUFFER_CAPACITY = 80;
     private static final int TRACE_DUMP_LINES_ON_FAILURE = 24;
@@ -108,10 +89,6 @@ public class WaveLog {
     private static int traceCount = 0;
     private static String trackedOpponentName;
     private static boolean persistedModelLoaded;
-    private static double antiSurferMovementBlendWeight = 0.5;
-    private static double antiSurferFlattenerBlendWeight = 0.25;
-    private static boolean antiSurferGunModelUpdatesEnabled = false;
-    private static boolean antiSurferMovementModelUpdatesEnabled = false;
     private static final class TraceEntry {
         final long seq;
         final String stage;
@@ -274,34 +251,10 @@ public class WaveLog {
     public static void startBattlePersistence() {
         trackedOpponentName = null;
         persistedModelLoaded = false;
-        antiSurferMovementBlendWeight = 0.5;
-        antiSurferFlattenerBlendWeight = 0.25;
-        antiSurferGunModelUpdatesEnabled = false;
-        antiSurferMovementModelUpdatesEnabled = false;
         gunSegment.resetModelToDefault();
         movementSegment.resetModelToDefault();
         gunSegment.resetBattleState();
         movementSegment.resetBattleState();
-        antiSurferGunSegment.resetModelToDefault();
-        antiSurferGunSegment.resetBattleState();
-        antiSurferMovementSegment.resetModelToDefault();
-        antiSurferMovementSegment.resetBattleState();
-        flattenerSegment.setModel(new ModelSpec(
-                flattenerSegment.defaultModel.name,
-                antiSurferMovementSegment.contextDistanceWeights.clone(),
-                antiSurferMovementSegment.kdeBandwidth,
-                antiSurferMovementSegment.contextWeightSigma));
-        flattenerSegment.resetBattleState();
-    }
-
-    public static void setAntiSurferBlendWeights(double movementWeight, double flattenerWeight) {
-        antiSurferMovementBlendWeight = movementWeight;
-        antiSurferFlattenerBlendWeight = flattenerWeight;
-    }
-
-    public static void setAntiSurferModelUpdatesEnabled(boolean gun, boolean movement) {
-        antiSurferGunModelUpdatesEnabled = gun;
-        antiSurferMovementModelUpdatesEnabled = movement;
     }
 
     public static void ensureOpponentBaselineLoaded(String opponentName, int sectionVersion, byte[] payload) {
@@ -383,7 +336,6 @@ public class WaveLog {
                                       boolean saveObservation,
                                       boolean updateModel) {
         logResult(gunSegment, context, gfMin, gfMax, saveObservation, updateModel);
-        logResult(antiSurferGunSegment, context, gfMin, gfMax, saveObservation, antiSurferGunModelUpdatesEnabled);
     }
 
     public static void logMovementResult(WaveContextFeatures.WaveContext context, double gf) {
@@ -401,12 +353,6 @@ public class WaveLog {
                                          boolean saveObservation,
                                          boolean updateModel) {
         logResult(movementSegment, context, gf, gf, saveObservation, updateModel);
-        logResult(antiSurferMovementSegment, context, gf, gf, saveObservation, false);
-        if (antiSurferMovementModelUpdatesEnabled) {
-            double[] contextPoint = createContextPoint(context);
-            double[] canonicalGfRange = canonicalizeGuessFactorRange(gf, gf, context.lateralDirectionSign);
-            updateCombinedAntiSurferMovementModel(contextPoint, canonicalGfRange[0], canonicalGfRange[1]);
-        }
     }
 
     /**
@@ -429,36 +375,6 @@ public class WaveLog {
             return null;
         }
         return createDistribution(movementSegment, context);
-    }
-
-    public static void logFlattenerVisit(WaveContextFeatures.WaveContext context, double gf) {
-        logResult(flattenerSegment, context, gf, gf, true, false);
-        if (antiSurferMovementModelUpdatesEnabled) {
-            double[] contextPoint = createContextPoint(context);
-            double[] canonicalGfRange = canonicalizeGuessFactorRange(gf, gf, context.lateralDirectionSign);
-            updateCombinedAntiSurferMovementModel(contextPoint, canonicalGfRange[0], canonicalGfRange[1]);
-        }
-    }
-
-    public static GuessFactorDistribution createAntiSurferGunDistribution(WaveContextFeatures.WaveContext context) {
-        if (antiSurferGunSegment.log.size() < BotConfig.Learning.MIN_TARGETING_SAMPLE_COUNT) {
-            return null;
-        }
-        return createDistribution(antiSurferGunSegment, context);
-    }
-
-    public static GuessFactorDistribution createAntiSurferMovementDistribution(WaveContextFeatures.WaveContext context) {
-        if (antiSurferMovementSegment.log.size() < BotConfig.Learning.MIN_MOVEMENT_SAMPLE_COUNT) {
-            return null;
-        }
-        return createDistribution(antiSurferMovementSegment, context);
-    }
-
-    public static GuessFactorDistribution createFlattenerDistribution(WaveContextFeatures.WaveContext context) {
-        if (flattenerSegment.log.size() < BotConfig.Learning.MIN_MOVEMENT_SAMPLE_COUNT) {
-            return null;
-        }
-        return createDistribution(flattenerSegment, context);
     }
 
     private static void logResult(SegmentLog segment,
@@ -511,63 +427,6 @@ public class WaveLog {
             return;
         }
         applyGradient(segment, gradient);
-    }
-
-    private static void updateCombinedAntiSurferMovementModel(
-            double[] queryPoint, double observedGfMin, double observedGfMax) {
-        GradientStep movGrad = null;
-        GradientStep flatGrad = null;
-
-        if (antiSurferMovementSegment.log.size() > 0) {
-            NeighborSelection sel = selectNeighbors(
-                    antiSurferMovementSegment, queryPoint, MODEL_CANDIDATE_POOL);
-            if (sel != null) {
-                movGrad = computeGradient(
-                        antiSurferMovementSegment, sel, queryPoint, observedGfMin, observedGfMax);
-            }
-        }
-        if (flattenerSegment.log.size() > 0) {
-            NeighborSelection sel = selectNeighbors(
-                    flattenerSegment, queryPoint, MODEL_CANDIDATE_POOL);
-            if (sel != null) {
-                flatGrad = computeGradient(
-                        flattenerSegment, sel, queryPoint, observedGfMin, observedGfMax);
-            }
-        }
-
-        GradientStep combined = blendGradients(movGrad, flatGrad,
-                antiSurferMovementBlendWeight, antiSurferFlattenerBlendWeight);
-        if (combined == null) {
-            return;
-        }
-        applyGradient(antiSurferMovementSegment, combined);
-        syncAntiSurferMovementModel();
-    }
-
-    private static GradientStep blendGradients(
-            GradientStep a, GradientStep b,
-            double weightA, double weightB) {
-        if (a == null && b == null) return null;
-        if (a == null) return b;
-        if (b == null) return a;
-        double totalWeight = weightA + weightB;
-        if (!(totalWeight > 0.0)) return null;
-        double wA = weightA / totalWeight;
-        double wB = weightB / totalWeight;
-        double[] blended = new double[CONTEXT_DIMENSIONS];
-        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
-            blended[i] = wA * a.distanceWeightGradients[i] + wB * b.distanceWeightGradients[i];
-        }
-        return new GradientStep(blended,
-                wA * a.bandwidthGradient + wB * b.bandwidthGradient,
-                wA * a.contextSigmaGradient + wB * b.contextSigmaGradient);
-    }
-
-    private static void syncAntiSurferMovementModel() {
-        flattenerSegment.applyModel(
-                antiSurferMovementSegment.contextDistanceWeights,
-                antiSurferMovementSegment.kdeBandwidth,
-                antiSurferMovementSegment.contextWeightSigma);
     }
 
     private static GradientStep computeGradient(SegmentLog segment,
@@ -1053,9 +912,6 @@ public class WaveLog {
     public static void startBattle() {
         gunSegment.resetBattleState();
         movementSegment.resetBattleState();
-        antiSurferGunSegment.resetBattleState();
-        antiSurferMovementSegment.resetBattleState();
-        flattenerSegment.resetBattleState();
     }
 
     public static String getTargetingModelName() {
@@ -1072,33 +928,6 @@ public class WaveLog {
 
     public static int getTargetingSampleCount() {
         return gunSegment.log.size();
-    }
-
-    public static String getAntiSurferGunModelSummary() {
-        return describeModelSummary(antiSurferGunSegment, DEFAULT_ANTI_SURFER_GUN_MODEL);
-    }
-
-    public static String getAntiSurferMovementModelSummary() {
-        return describeModelSummary(antiSurferMovementSegment, DEFAULT_FLATTENER_MODEL);
-    }
-
-    public static String getFlattenerModelSummary() {
-        return describeModelSummary(flattenerSegment, DEFAULT_FLATTENER_MODEL);
-    }
-
-    public static String getAntiSurferBlendSummary() {
-        double movementWeight = Math.max(0.0, antiSurferMovementBlendWeight);
-        double flattenerWeight = Math.max(0.0, antiSurferFlattenerBlendWeight);
-        double totalWeight = movementWeight + flattenerWeight;
-        double movementPercent = totalWeight > 0.0 ? 100.0 * movementWeight / totalWeight : 0.0;
-        double flattenerPercent = totalWeight > 0.0 ? 100.0 * flattenerWeight / totalWeight : 0.0;
-        return String.format(
-                Locale.US,
-                "hitLog=%.3f flattener=%.3f (%.1f%% / %.1f%%)",
-                movementWeight,
-                flattenerWeight,
-                movementPercent,
-                flattenerPercent);
     }
 
     public static String getMovementModelName() {
@@ -1169,17 +998,14 @@ public class WaveLog {
     }
 
     private static void loadLegacy4ModelPayload(byte[] payload) {
+        // Legacy save format with 4 models - we only load the first 2 (gun and movement)
         if (payload.length != LEGACY_MODEL_SECTION_BYTES * 2) {
             throw new IllegalStateException("Unexpected legacy 4-model WaveLog payload length");
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
             gunSegment.setModel(readModel(in, DEFAULT_TARGETING_MODEL));
             movementSegment.setModel(readModel(in, DEFAULT_MOVEMENT_MODEL));
-            readModel(in, DEFAULT_ANTI_SURFER_GUN_MODEL);
-            readModel(in, DEFAULT_FLATTENER_MODEL);
-            if (in.available() != 0) {
-                throw new IllegalStateException("Legacy 4-model WaveLog payload contained trailing bytes");
-            }
+            // Skip the remaining antiSurfer models (no longer used)
             persistedModelLoaded = true;
         } catch (IOException e) {
             throw new IllegalStateException("Unreadable legacy 4-model WaveLog payload", e);

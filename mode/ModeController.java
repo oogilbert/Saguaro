@@ -284,6 +284,10 @@ public final class ModeController {
     }
 
     private ModeId chooseModeForSwitch() {
+        ModeId lockedMode = getLockedModeFromConfig();
+        if (lockedMode != null) {
+            return lockedMode;
+        }
         if (progressionStage == ModeProgressionStage.NON_MOVING_SHIELD) {
             return modeSelector.chooseModeForSwitch(
                     activeModeId,
@@ -311,6 +315,10 @@ public final class ModeController {
     }
 
     private ModeId chooseOpeningMode() {
+        ModeId lockedMode = getLockedModeFromConfig();
+        if (lockedMode != null) {
+            return lockedMode;
+        }
         return modeSelector.chooseOpeningMode(new ModeId[] {
                 ModeId.BULLET_SHIELD,
                 ModeId.MOVING_BULLET_SHIELD,
@@ -337,6 +345,19 @@ public final class ModeController {
             return shotDodgerMode;
         }
         throw new IllegalArgumentException("Unsupported mode id " + modeId);
+    }
+
+    private ModeId getLockedModeFromConfig() {
+        String lockedModeLabel = oog.mega.saguaro.BotConfig.ModeSelection.LOCKED_MODE;
+        if (lockedModeLabel == null || lockedModeLabel.isEmpty()) {
+            return null;
+        }
+        for (ModeId mode : ModeId.values()) {
+            if (mode.label().equals(lockedModeLabel)) {
+                return mode;
+            }
+        }
+        throw new IllegalArgumentException("Invalid locked mode in config: " + lockedModeLabel);
     }
 
     private void announceMode(ModeId fromModeId, ModeId toModeId) {
