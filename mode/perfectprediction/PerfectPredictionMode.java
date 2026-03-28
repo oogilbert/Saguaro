@@ -62,6 +62,9 @@ public final class PerfectPredictionMode implements BattleMode {
     private MovementController movement;
     private long planStartTime;
     private List<PathLeg> tentativeTailLegs = Collections.emptyList();
+    private List<PathLeg> rememberedTentativeTailLegs = Collections.emptyList();
+    private long rememberedTentativeTailTime = Long.MIN_VALUE;
+    private int rememberedTentativeTailCommittedPrefixTicks;
     private OpponentDriveSimulator.AimSolution lastAimSolution;
     private PhysicsUtil.Trajectory lastPlannedTrajectory;
     private PhysicsUtil.Trajectory lastTentativeTailTrajectory;
@@ -92,6 +95,9 @@ public final class PerfectPredictionMode implements BattleMode {
         this.waypoints.clear();
         this.committedShotImpactTimes.clear();
         this.tentativeTailLegs = Collections.emptyList();
+        this.rememberedTentativeTailLegs = Collections.emptyList();
+        this.rememberedTentativeTailTime = Long.MIN_VALUE;
+        this.rememberedTentativeTailCommittedPrefixTicks = 0;
         this.lastAimSolution = null;
         this.lastPlannedTrajectory = null;
         this.lastTentativeTailTrajectory = null;
@@ -108,6 +114,7 @@ public final class PerfectPredictionMode implements BattleMode {
         RobotSnapshot myNow = info.captureRobotSnapshot();
         ReactiveOpponentPredictor predictor = currentPredictor();
         advanceWaypointQueue(myNow);
+        tentativeTailLegs = currentRememberedTentativeTailLegs(myNow.time);
         pruneExpiredCommittedShotImpactTimes(myNow.time);
         rebalanceCommittedPath(myNow, requiredCommittedTicks(myNow.time));
 
@@ -122,30 +129,75 @@ public final class PerfectPredictionMode implements BattleMode {
         PredictionResult prediction = null;
         PhysicsUtil.Trajectory effectiveTrajectory = planState.ourTrajectory;
         if (enemy != null && enemy.alive && enemy.seenThisRound) {
-            int requiredTailTicks = MIN_TAIL_DURATION_TICKS;
-            for (int attempt = 0; attempt < MAX_TAIL_EXTENSION_ATTEMPTS; attempt++) {
-                tentativeTailLegs = movement.generateBestRandomTail(
-                        planState.ourTrajectory,
-                        myNow.time,
-                        opponentStart,
-                        predictor,
-                        requiredTailTicks,
-                        tentativeTailLegs);
+            if (myNow.gunHeat == 0.0 && !tentativeTailLegs.isEmpty()) {
+                List<PathLeg> frozenTailLegs = tentativeTailLegs;
                 boolean activeTailParkingPhase = planState.activeWaypoint == null
-                        ? updateActiveLegParkingPhase(myNow, tentativeTailLegs)
+                        ? updateActiveLegParkingPhase(myNow, frozenTailLegs)
                         : false;
-                lastTentativeTailTrajectory = simulateTailTrajectory(
-                        planState.ourTrajectory, tentativeTailLegs, activeTailParkingPhase);
-                effectiveTrajectory = buildEffectiveTrajectory(planState.ourTrajectory, lastTentativeTailTrajectory);
-                if (effectiveTrajectory.length() >= 2) {
+                PhysicsUtil.Trajectory frozenTailTrajectory = simulateTailTrajectory(
+                        planState.ourTrajectory, frozenTailLegs, activeTailParkingPhase);
+                PhysicsUtil.Trajectory frozenTrajectory = buildEffectiveTrajectory(
+                        planState.ourTrajectory, frozenTailTrajectory);
+                effectiveTrajectory = frozenTrajectory;
+                if (canPredictOpponentFromTrajectory(effectiveTrajectory)) {
                     prediction = predictOpponent(myNow, effectiveTrajectory, predictor);
                 }
-                if (prediction != null && prediction.wavePassed) {
-                    break;
+                List<PathLeg> extensionTailLegs = Collections.emptyList();
+                if (prediction == null || !prediction.wavePassed) {
+                    int requiredTailTicks = MIN_TAIL_DURATION_TICKS;
+                    for (int attempt = 0; attempt < MAX_TAIL_EXTENSION_ATTEMPTS; attempt++) {
+                        extensionTailLegs = movement.generateBestRandomTail(
+                                frozenTrajectory,
+                                myNow.time,
+                                opponentStart,
+                                predictor,
+                                requiredTailTicks,
+                                extensionTailLegs);
+                        PhysicsUtil.Trajectory extensionTailTrajectory = simulateTailTrajectory(
+                                frozenTrajectory,
+                                extensionTailLegs,
+                                false);
+                        effectiveTrajectory = buildEffectiveTrajectory(frozenTrajectory, extensionTailTrajectory);
+                        if (canPredictOpponentFromTrajectory(effectiveTrajectory)) {
+                            prediction = predictOpponent(myNow, effectiveTrajectory, predictor);
+                        }
+                        if (prediction != null && prediction.wavePassed) {
+                            break;
+                        }
+                        int currentTailTicks = Math.max(0, effectiveTrajectory.length() - frozenTrajectory.length());
+                        requiredTailTicks = Math.max(requiredTailTicks + TAIL_EXTENSION_STEP_TICKS,
+                                currentTailTicks + TAIL_EXTENSION_STEP_TICKS);
+                    }
                 }
-                int currentTailTicks = Math.max(0, effectiveTrajectory.length() - planState.ourTrajectory.length());
-                requiredTailTicks = Math.max(requiredTailTicks + TAIL_EXTENSION_STEP_TICKS,
-                        currentTailTicks + TAIL_EXTENSION_STEP_TICKS);
+                tentativeTailLegs = appendLegs(frozenTailLegs, extensionTailLegs);
+                lastTentativeTailTrajectory = simulateTailTrajectory(
+                        planState.ourTrajectory, tentativeTailLegs, activeTailParkingPhase);
+            } else {
+                int requiredTailTicks = MIN_TAIL_DURATION_TICKS;
+                for (int attempt = 0; attempt < MAX_TAIL_EXTENSION_ATTEMPTS; attempt++) {
+                    tentativeTailLegs = movement.generateBestRandomTail(
+                            planState.ourTrajectory,
+                            myNow.time,
+                            opponentStart,
+                            predictor,
+                            requiredTailTicks,
+                            tentativeTailLegs);
+                    boolean activeTailParkingPhase = planState.activeWaypoint == null
+                            ? updateActiveLegParkingPhase(myNow, tentativeTailLegs)
+                            : false;
+                    lastTentativeTailTrajectory = simulateTailTrajectory(
+                            planState.ourTrajectory, tentativeTailLegs, activeTailParkingPhase);
+                    effectiveTrajectory = buildEffectiveTrajectory(planState.ourTrajectory, lastTentativeTailTrajectory);
+                    if (canPredictOpponentFromTrajectory(effectiveTrajectory)) {
+                        prediction = predictOpponent(myNow, effectiveTrajectory, predictor);
+                    }
+                    if (prediction != null && prediction.wavePassed) {
+                        break;
+                    }
+                    int currentTailTicks = Math.max(0, effectiveTrajectory.length() - planState.ourTrajectory.length());
+                    requiredTailTicks = Math.max(requiredTailTicks + TAIL_EXTENSION_STEP_TICKS,
+                            currentTailTicks + TAIL_EXTENSION_STEP_TICKS);
+                }
             }
         } else {
             tentativeTailLegs = Collections.emptyList();
@@ -175,6 +227,7 @@ public final class PerfectPredictionMode implements BattleMode {
         lastPlannedTrajectory = planState != null ? planState.ourTrajectory : null;
         lastAimSolution = aimSolution;
         lastPredictedOpponentTrajectory = prediction != null ? prediction.opponentTrajectory : null;
+        rememberTentativeTailSelection(myNow.time, planState);
 
         if (planState != null && planState.activeWaypoint != null) {
             return planState.movementPlan.createExecutionPlan(
@@ -511,6 +564,83 @@ public final class PerfectPredictionMode implements BattleMode {
                 info.getBattlefieldWidth(),
                 info.getBattlefieldHeight(),
                 waypoints);
+    }
+
+    private static boolean canPredictOpponentFromTrajectory(PhysicsUtil.Trajectory trajectory) {
+        return trajectory != null && trajectory.length() >= 3;
+    }
+
+    private List<PathLeg> currentRememberedTentativeTailLegs(long currentTime) {
+        if (rememberedTentativeTailTime == Long.MIN_VALUE || rememberedTentativeTailLegs.isEmpty()) {
+            return Collections.emptyList();
+        }
+        long elapsedTicksLong = Math.max(0L, currentTime - rememberedTentativeTailTime);
+        int elapsedTicks = (int) Math.min(Integer.MAX_VALUE, elapsedTicksLong);
+        int consumedTailTicks = Math.max(0, elapsedTicks - rememberedTentativeTailCommittedPrefixTicks);
+        return trimConsumedLegs(rememberedTentativeTailLegs, consumedTailTicks);
+    }
+
+    private void rememberTentativeTailSelection(long currentTime, PlanState planState) {
+        if (planState == null || tentativeTailLegs == null || tentativeTailLegs.isEmpty()) {
+            rememberedTentativeTailLegs = Collections.emptyList();
+            rememberedTentativeTailTime = Long.MIN_VALUE;
+            rememberedTentativeTailCommittedPrefixTicks = 0;
+            return;
+        }
+        rememberedTentativeTailLegs = copyLegs(tentativeTailLegs);
+        rememberedTentativeTailTime = currentTime;
+        rememberedTentativeTailCommittedPrefixTicks = Math.max(0, planState.ourTrajectory.length() - 1);
+    }
+
+    private static List<PathLeg> copyLegs(List<PathLeg> sourceLegs) {
+        if (sourceLegs == null || sourceLegs.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<PathLeg> copied = new ArrayList<PathLeg>(sourceLegs.size());
+        for (PathLeg leg : sourceLegs) {
+            copied.add(new PathLeg(leg.targetX, leg.targetY, leg.durationTicks, leg.steeringMode));
+        }
+        return copied;
+    }
+
+    private static List<PathLeg> appendLegs(List<PathLeg> firstLegs, List<PathLeg> secondLegs) {
+        if (firstLegs == null || firstLegs.isEmpty()) {
+            return copyLegs(secondLegs);
+        }
+        if (secondLegs == null || secondLegs.isEmpty()) {
+            return copyLegs(firstLegs);
+        }
+        List<PathLeg> combined = new ArrayList<PathLeg>(firstLegs.size() + secondLegs.size());
+        combined.addAll(firstLegs);
+        combined.addAll(secondLegs);
+        return combined;
+    }
+
+    private static List<PathLeg> trimConsumedLegs(List<PathLeg> sourceLegs, int elapsedTicks) {
+        if (sourceLegs == null || sourceLegs.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int remainingTicks = Math.max(0, elapsedTicks);
+        boolean keepingRemainder = false;
+        List<PathLeg> remainingLegs = new ArrayList<PathLeg>(sourceLegs.size());
+        for (PathLeg leg : sourceLegs) {
+            if (keepingRemainder) {
+                remainingLegs.add(leg);
+                continue;
+            }
+            if (remainingTicks >= leg.durationTicks) {
+                remainingTicks -= leg.durationTicks;
+                continue;
+            }
+            remainingLegs.add(new PathLeg(
+                    leg.targetX,
+                    leg.targetY,
+                    leg.durationTicks - remainingTicks,
+                    leg.steeringMode));
+            remainingTicks = 0;
+            keepingRemainder = true;
+        }
+        return remainingLegs.isEmpty() ? Collections.<PathLeg>emptyList() : remainingLegs;
     }
 
     private PlanState currentPlanState(RobotSnapshot myNow) {
