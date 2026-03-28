@@ -137,6 +137,11 @@ public final class CommittedWaypointPlan {
     }
 
     public PhysicsUtil.Trajectory simulateRemainingTrajectory(RobotSnapshot currentState) {
+        return simulateRemainingTrajectory(currentState, false);
+    }
+
+    public PhysicsUtil.Trajectory simulateRemainingTrajectory(RobotSnapshot currentState,
+                                                              boolean activeWaypointEndpointPhase) {
         if (currentState == null) {
             throw new IllegalArgumentException("Committed waypoint plan requires a non-null current snapshot");
         }
@@ -148,6 +153,7 @@ public final class CommittedWaypointPlan {
                 toPositionState(currentState),
                 currentState.time,
                 remaining,
+                activeWaypointEndpointPhase,
                 battlefieldWidth,
                 battlefieldHeight);
     }
@@ -159,6 +165,13 @@ public final class CommittedWaypointPlan {
     public BattlePlan createExecutionPlan(RobotSnapshot currentState,
                                           double gunTurnAngle,
                                           double firePower) {
+        return createExecutionPlan(currentState, gunTurnAngle, firePower, false);
+    }
+
+    public BattlePlan createExecutionPlan(RobotSnapshot currentState,
+                                          double gunTurnAngle,
+                                          double firePower,
+                                          boolean activeWaypointEndpointPhase) {
         if (currentState == null) {
             throw new IllegalArgumentException("Committed waypoint plan requires a non-null current snapshot");
         }
@@ -174,6 +187,10 @@ public final class CommittedWaypointPlan {
                 waypoint.x,
                 waypoint.y,
                 PhysicsUtil.EndpointBehavior.PARK_AND_WAIT);
+        if (activeWaypointEndpointPhase) {
+            instruction[0] = 0.0;
+            instruction[1] = 0.0;
+        }
         return new BattlePlan(instruction[0], instruction[1], gunTurnAngle, firePower);
     }
 
@@ -209,6 +226,7 @@ public final class CommittedWaypointPlan {
     private static PhysicsUtil.Trajectory buildTrajectory(PhysicsUtil.PositionState startState,
                                                           long startTime,
                                                           List<ScriptedWaypoint> waypoints,
+                                                          boolean initialEndpointPhase,
                                                           double battlefieldWidth,
                                                           double battlefieldHeight) {
         List<PhysicsUtil.PositionState> states = new ArrayList<PhysicsUtil.PositionState>();
@@ -228,7 +246,8 @@ public final class CommittedWaypointPlan {
                     PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
                     PhysicsUtil.SteeringMode.DIRECT,
                     battlefieldWidth,
-                    battlefieldHeight);
+                    battlefieldHeight,
+                    i == 0 && initialEndpointPhase);
             appendSegmentStates(states, segment);
             int segmentTicks = segment.length() - 1;
             currentState = segment.stateAt(segmentTicks);

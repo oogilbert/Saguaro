@@ -224,6 +224,27 @@ public final class PhysicsUtil {
                                                       SteeringMode steeringMode,
                                                       double bfWidth,
                                                       double bfHeight) {
+        return computeMovementInstruction(
+                x,
+                y,
+                heading,
+                velocity,
+                targetX,
+                targetY,
+                endpointBehavior,
+                steeringMode,
+                bfWidth,
+                bfHeight,
+                false);
+    }
+
+    public static double[] computeMovementInstruction(double x, double y, double heading, double velocity,
+                                                      double targetX, double targetY,
+                                                      EndpointBehavior endpointBehavior,
+                                                      SteeringMode steeringMode,
+                                                      double bfWidth,
+                                                      double bfHeight,
+                                                      boolean endpointPhase) {
         double[] instruction = new double[2];
         computeMovementInstructionInto(
                 x,
@@ -236,6 +257,7 @@ public final class PhysicsUtil {
                 steeringMode,
                 bfWidth,
                 bfHeight,
+                endpointPhase,
                 instruction);
         return instruction;
     }
@@ -274,10 +296,42 @@ public final class PhysicsUtil {
                                                       double bfWidth,
                                                       double bfHeight,
                                                       double[] out) {
+        computeMovementInstructionInto(
+                x,
+                y,
+                heading,
+                velocity,
+                targetX,
+                targetY,
+                endpointBehavior,
+                steeringMode,
+                bfWidth,
+                bfHeight,
+                false,
+                out);
+    }
+
+    public static void computeMovementInstructionInto(double x, double y, double heading, double velocity,
+                                                      double targetX, double targetY,
+                                                      EndpointBehavior endpointBehavior,
+                                                      SteeringMode steeringMode,
+                                                      double bfWidth,
+                                                      double bfHeight,
+                                                      boolean endpointPhase,
+                                                      double[] out) {
         if (endpointBehavior == null) {
             throw new IllegalArgumentException("Endpoint behavior must be non-null");
         }
         PositionState state = new PositionState(x, y, heading, velocity);
+        if (endpointPhase) {
+            if (endpointBehavior == EndpointBehavior.PARK_AND_WAIT) {
+                out[0] = 0.0;
+                out[1] = 0.0;
+            } else {
+                computePassThroughInstructionInto(state, out);
+            }
+            return;
+        }
         if (endpointBehavior == EndpointBehavior.PARK_AND_WAIT) {
             if (shouldStartParking(state, targetX, targetY)) {
                 out[0] = 0.0;
@@ -603,6 +657,31 @@ public final class PhysicsUtil {
                                                 SteeringMode steeringMode,
                                                 double bfWidth,
                                                 double bfHeight) {
+        return simulateTrajectory(
+                start,
+                targetX,
+                targetY,
+                startTime,
+                trackedWave,
+                stopTime,
+                endpointBehavior,
+                steeringMode,
+                bfWidth,
+                bfHeight,
+                false);
+    }
+
+    public static Trajectory simulateTrajectory(PositionState start,
+                                                double targetX,
+                                                double targetY,
+                                                long startTime,
+                                                Wave trackedWave,
+                                                Long stopTime,
+                                                EndpointBehavior endpointBehavior,
+                                                SteeringMode steeringMode,
+                                                double bfWidth,
+                                                double bfHeight,
+                                                boolean initialEndpointPhase) {
         if (trackedWave == null && stopTime == null) {
             throw new IllegalStateException(
                     "simulateTrajectory requires at least one stop condition (wave or stopTime)");
@@ -616,7 +695,7 @@ public final class PhysicsUtil {
 
         PositionState current = start;
         long currentTime = startTime;
-        boolean endpointPhase = false;
+        boolean endpointPhase = initialEndpointPhase;
         double[] instruction = new double[2];
 
         for (int tick = 0; tick < MAX_SIMULATION_TICKS; tick++) {
@@ -918,6 +997,26 @@ public final class PhysicsUtil {
         }
         double distance = Math.hypot(targetX - state.x, targetY - state.y);
         return distance <= estimateStoppingDistance(state.velocity) + STOPPING_DISTANCE_EPS;
+    }
+
+    public static boolean updateParkAndWaitPhase(PositionState state,
+                                                 double targetX,
+                                                 double targetY,
+                                                 boolean currentPhase) {
+        if (state == null) {
+            throw new IllegalArgumentException("Park-and-wait phase update requires a non-null position state");
+        }
+        return currentPhase || shouldStartParking(state, targetX, targetY);
+    }
+
+    public static boolean updateParkAndWaitPhase(double x,
+                                                 double y,
+                                                 double heading,
+                                                 double velocity,
+                                                 double targetX,
+                                                 double targetY,
+                                                 boolean currentPhase) {
+        return updateParkAndWaitPhase(new PositionState(x, y, heading, velocity), targetX, targetY, currentPhase);
     }
 
     private static double estimateStoppingDistance(double velocity) {

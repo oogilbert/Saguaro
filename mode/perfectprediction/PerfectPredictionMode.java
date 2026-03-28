@@ -66,6 +66,7 @@ public final class PerfectPredictionMode implements BattleMode {
     private PhysicsUtil.Trajectory lastPlannedTrajectory;
     private PhysicsUtil.Trajectory lastTentativeTailTrajectory;
     private PhysicsUtil.Trajectory lastPredictedOpponentTrajectory;
+    private final ActiveLegParkingTracker activeLegParkingTracker = new ActiveLegParkingTracker();
 
     @Override
     public RoundOutcomeProfile getRoundOutcomeProfile() {
@@ -95,6 +96,7 @@ public final class PerfectPredictionMode implements BattleMode {
         this.lastPlannedTrajectory = null;
         this.lastTentativeTailTrajectory = null;
         this.lastPredictedOpponentTrajectory = null;
+        this.activeLegParkingTracker.reset();
     }
 
     @Override
@@ -129,8 +131,11 @@ public final class PerfectPredictionMode implements BattleMode {
                         predictor,
                         requiredTailTicks,
                         tentativeTailLegs);
+                boolean activeTailParkingPhase = planState.activeWaypoint == null
+                        ? updateActiveLegParkingPhase(myNow, tentativeTailLegs)
+                        : false;
                 lastTentativeTailTrajectory = simulateTailTrajectory(
-                        planState.ourTrajectory, tentativeTailLegs);
+                        planState.ourTrajectory, tentativeTailLegs, activeTailParkingPhase);
                 effectiveTrajectory = buildEffectiveTrajectory(planState.ourTrajectory, lastTentativeTailTrajectory);
                 if (effectiveTrajectory.length() >= 2) {
                     prediction = predictOpponent(myNow, effectiveTrajectory, predictor);
@@ -159,7 +164,11 @@ public final class PerfectPredictionMode implements BattleMode {
             rebalanceCommittedPath(myNow, requiredCommittedTicks(myNow.time));
             planState = currentPlanState(myNow);
             if (enemy != null && enemy.alive && enemy.seenThisRound) {
-                lastTentativeTailTrajectory = simulateTailTrajectory(planState.ourTrajectory, tentativeTailLegs);
+                boolean activeTailParkingPhase = planState.activeWaypoint == null
+                        ? updateActiveLegParkingPhase(myNow, tentativeTailLegs)
+                        : false;
+                lastTentativeTailTrajectory = simulateTailTrajectory(
+                        planState.ourTrajectory, tentativeTailLegs, activeTailParkingPhase);
             }
         }
 
@@ -167,12 +176,23 @@ public final class PerfectPredictionMode implements BattleMode {
         lastAimSolution = aimSolution;
         lastPredictedOpponentTrajectory = prediction != null ? prediction.opponentTrajectory : null;
 
-        if (planState != null && planState.movementPlan.activeWaypoint(myNow.time) != null) {
-            return planState.movementPlan.createExecutionPlan(myNow, gunTurn, firePower);
+        if (planState != null && planState.activeWaypoint != null) {
+            return planState.movementPlan.createExecutionPlan(
+                    myNow,
+                    gunTurn,
+                    firePower,
+                    planState.activeWaypointParkingPhase);
         }
         if (!tentativeTailLegs.isEmpty()) {
-            return createExecutionPlanForLeg(myNow, tentativeTailLegs.get(0), gunTurn, firePower);
+            boolean activeTailParkingPhase = updateActiveLegParkingPhase(myNow, tentativeTailLegs);
+            return createExecutionPlanForLeg(
+                    myNow,
+                    tentativeTailLegs.get(0),
+                    activeTailParkingPhase,
+                    gunTurn,
+                    firePower);
         }
+        activeLegParkingTracker.reset();
         return new BattlePlan(0.0, 0.0, gunTurn, firePower);
     }
 
@@ -192,6 +212,7 @@ public final class PerfectPredictionMode implements BattleMode {
 
     private BattlePlan createExecutionPlanForLeg(RobotSnapshot myNow,
                                                  PathLeg leg,
+                                                 boolean activeLegParkingPhase,
                                                  double gunTurn,
                                                  double firePower) {
         double[] instruction = PhysicsUtil.computeMovementInstruction(
@@ -204,7 +225,8 @@ public final class PerfectPredictionMode implements BattleMode {
                 PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
                 leg.steeringMode,
                 info.getBattlefieldWidth(),
-                info.getBattlefieldHeight());
+                info.getBattlefieldHeight(),
+                activeLegParkingPhase);
         return new BattlePlan(instruction[0], instruction[1], gunTurn, firePower);
     }
 
@@ -255,7 +277,7 @@ public final class PerfectPredictionMode implements BattleMode {
 
     private List<PathLeg> buildEffectiveLegs(RobotSnapshot myNow) {
         List<PathLeg> effectiveLegs = new ArrayList<PathLeg>();
-        List<ScriptedWaypoint> remainingWaypoints = currentPlanState(myNow).movementPlan.remainingWaypoints(myNow.time);
+        List<ScriptedWaypoint> remainingWaypoints = currentMovementPlan().remainingWaypoints(myNow.time);
         for (ScriptedWaypoint waypoint : remainingWaypoints) {
             effectiveLegs.add(new PathLeg(
                     waypoint.x,
@@ -414,7 +436,8 @@ public final class PerfectPredictionMode implements BattleMode {
     }
 
     private PhysicsUtil.Trajectory simulateTailTrajectory(PhysicsUtil.Trajectory committedTrajectory,
-                                                            List<PathLeg> tailLegs) {
+                                                          List<PathLeg> tailLegs,
+                                                          boolean activeLegEndpointPhase) {
         if (tailLegs == null || tailLegs.isEmpty() || committedTrajectory == null || committedTrajectory.length() < 1) {
             return null;
         }
@@ -435,7 +458,8 @@ public final class PerfectPredictionMode implements BattleMode {
                     PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
                     leg.steeringMode,
                     bfWidth,
-                    bfHeight);
+                    bfHeight,
+                    states.size() == 1 && activeLegEndpointPhase);
             for (int i = 1; i < segment.states.length; i++) {
                 states.add(segment.states[i]);
             }
@@ -481,13 +505,44 @@ public final class PerfectPredictionMode implements BattleMode {
         return predictor;
     }
 
-    private PlanState currentPlanState(RobotSnapshot myNow) {
-        CommittedWaypointPlan movementPlan = new CommittedWaypointPlan(
+    private CommittedWaypointPlan currentMovementPlan() {
+        return new CommittedWaypointPlan(
                 planStartTime,
                 info.getBattlefieldWidth(),
                 info.getBattlefieldHeight(),
                 waypoints);
-        return new PlanState(movementPlan, movementPlan.simulateRemainingTrajectory(myNow));
+    }
+
+    private PlanState currentPlanState(RobotSnapshot myNow) {
+        CommittedWaypointPlan movementPlan = currentMovementPlan();
+        ScriptedWaypoint activeWaypoint = movementPlan.activeWaypoint(myNow.time);
+        boolean activeWaypointParkingPhase = updateActiveLegParkingPhase(myNow, activeWaypoint);
+        return new PlanState(
+                movementPlan,
+                activeWaypoint,
+                activeWaypointParkingPhase,
+                movementPlan.simulateRemainingTrajectory(myNow, activeWaypointParkingPhase));
+    }
+
+    private boolean updateActiveLegParkingPhase(RobotSnapshot myNow, ScriptedWaypoint activeWaypoint) {
+        if (activeWaypoint == null) {
+            activeLegParkingTracker.reset();
+            return false;
+        }
+        return activeLegParkingTracker.update(
+                myNow,
+                activeWaypoint.x,
+                activeWaypoint.y,
+                PhysicsUtil.SteeringMode.DIRECT);
+    }
+
+    private boolean updateActiveLegParkingPhase(RobotSnapshot myNow, List<PathLeg> tailLegs) {
+        if (tailLegs == null || tailLegs.isEmpty()) {
+            activeLegParkingTracker.reset();
+            return false;
+        }
+        PathLeg leg = tailLegs.get(0);
+        return activeLegParkingTracker.update(myNow, leg.targetX, leg.targetY, leg.steeringMode);
     }
 
     private static boolean waveHasFullyPassedOpponent(double shooterX,
@@ -508,11 +563,61 @@ public final class PerfectPredictionMode implements BattleMode {
 
     private static final class PlanState {
         final CommittedWaypointPlan movementPlan;
+        final ScriptedWaypoint activeWaypoint;
+        final boolean activeWaypointParkingPhase;
         final PhysicsUtil.Trajectory ourTrajectory;
 
-        PlanState(CommittedWaypointPlan movementPlan, PhysicsUtil.Trajectory ourTrajectory) {
+        PlanState(CommittedWaypointPlan movementPlan,
+                  ScriptedWaypoint activeWaypoint,
+                  boolean activeWaypointParkingPhase,
+                  PhysicsUtil.Trajectory ourTrajectory) {
             this.movementPlan = movementPlan;
+            this.activeWaypoint = activeWaypoint;
+            this.activeWaypointParkingPhase = activeWaypointParkingPhase;
             this.ourTrajectory = ourTrajectory;
+        }
+    }
+
+    private static final class ActiveLegParkingTracker {
+        private boolean latched;
+        private double targetX = Double.NaN;
+        private double targetY = Double.NaN;
+        private PhysicsUtil.SteeringMode steeringMode;
+
+        boolean update(RobotSnapshot currentState,
+                       double nextTargetX,
+                       double nextTargetY,
+                       PhysicsUtil.SteeringMode nextSteeringMode) {
+            if (!matches(nextTargetX, nextTargetY, nextSteeringMode)) {
+                latched = false;
+                targetX = nextTargetX;
+                targetY = nextTargetY;
+                steeringMode = nextSteeringMode;
+            }
+            latched = PhysicsUtil.updateParkAndWaitPhase(
+                    currentState.x,
+                    currentState.y,
+                    currentState.heading,
+                    currentState.velocity,
+                    targetX,
+                    targetY,
+                    latched);
+            return latched;
+        }
+
+        void reset() {
+            latched = false;
+            targetX = Double.NaN;
+            targetY = Double.NaN;
+            steeringMode = null;
+        }
+
+        private boolean matches(double nextTargetX,
+                                double nextTargetY,
+                                PhysicsUtil.SteeringMode nextSteeringMode) {
+            return steeringMode == nextSteeringMode
+                    && Double.doubleToLongBits(targetX) == Double.doubleToLongBits(nextTargetX)
+                    && Double.doubleToLongBits(targetY) == Double.doubleToLongBits(nextTargetY);
         }
     }
 
