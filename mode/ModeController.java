@@ -286,7 +286,13 @@ public final class ModeController {
         if (progressionStage == ModeProgressionStage.NON_MOVING_SHIELD) {
             return modeSelector.chooseModeForSwitch(
                     activeModeId,
-                    new ModeId[] {ModeId.BULLET_SHIELD, ModeId.MOVING_BULLET_SHIELD});
+                    new ModeId[] {
+                            ModeId.BULLET_SHIELD,
+                            ModeId.MOVING_BULLET_SHIELD,
+                            ModeId.SCORE_MAX,
+                            ModeId.PERFECT_PREDICTION,
+                            ModeId.SHOT_DODGER
+                    });
         }
         if (progressionStage == ModeProgressionStage.MOVING_SHIELD) {
             return modeSelector.chooseModeForSwitch(
