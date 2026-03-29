@@ -206,8 +206,10 @@ public final class BotConfig {
         //               "perfectPrediction", "shotDodger", "wavePoison"
         public static final String LOCKED_MODE = null;
 
-        // Scales the logit-space confidence interval used for mode selection and settling.
+        // Scales the mode-selection confidence bound used to disqualify candidates.
         public static final double CONFIDENCE_SCALE = 6.0;
+        // Invisible share offset subtracted before mapping into top-heavy comparison space.
+        public static final double COMPARISON_SHARE_OFFSET = 0.01;
         // Exploratory mean assigned to modes with no score evidence yet.
         public static final double UNTESTED_MODE_MEAN = 0.90;
         // Raw score delta corresponding to one posterior evidence unit.

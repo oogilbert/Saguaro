@@ -87,16 +87,16 @@ final class ModeSelector {
         if (candidate == null || posteriors == null || posteriors.length < 2) {
             return false;
         }
-        double bestOtherMean = Double.NEGATIVE_INFINITY;
+        double bestOtherComparisonMean = Double.NEGATIVE_INFINITY;
         for (ModePosterior other : posteriors) {
             if (other.modeId == candidate.modeId) {
                 continue;
             }
-            if (other.posteriorMean > bestOtherMean) {
-                bestOtherMean = other.posteriorMean;
+            if (other.comparisonMean > bestOtherComparisonMean) {
+                bestOtherComparisonMean = other.comparisonMean;
             }
         }
-        return candidate.upperBound + 1e-9 < bestOtherMean;
+        return candidate.comparisonUpperBound + 1e-9 < bestOtherComparisonMean;
     }
 
     private static ModePosterior estimateMode(ModeId modeId, ModePerformanceProfile.ModeStatsSnapshot stats) {
@@ -133,23 +133,44 @@ final class ModeSelector {
                 * (uncertaintyAlpha + uncertaintyBeta)
                 * (uncertaintyAlpha + uncertaintyBeta + 1.0));
         double shareUncertainty = Math.sqrt(Math.max(0.0, variance));
+        double evidenceOnlyShareUncertainty = 0.5 / Math.sqrt(uncertaintyAlpha + uncertaintyBeta + 1.0);
         double lowerBound = clampProbabilityToUnitInterval(
                 posteriorMean - BotConfig.ModeSelection.CONFIDENCE_SCALE * shareUncertainty);
         double upperBound = clampProbabilityToUnitInterval(
                 posteriorMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * shareUncertainty);
         double intervalWidth = upperBound - lowerBound;
-        return new ModePosterior(modeId, posteriorMean, intervalWidth, lowerBound, upperBound);
+        double comparisonMean = topHeavyComparisonMean(posteriorMean);
+        double comparisonUpperBound =
+                comparisonMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * evidenceOnlyShareUncertainty;
+        return new ModePosterior(
+                modeId,
+                posteriorMean,
+                intervalWidth,
+                evidenceOnlyShareUncertainty,
+                lowerBound,
+                upperBound,
+                comparisonMean,
+                comparisonUpperBound);
     }
 
     private static double clampProbabilityToUnitInterval(double value) {
         return Math.max(0.0, Math.min(1.0, value));
     }
 
+    private static double topHeavyComparisonMean(double probability) {
+        double shiftedProbability = Math.max(0.0, probability - BotConfig.ModeSelection.COMPARISON_SHARE_OFFSET);
+        if (shiftedProbability <= 0.0) {
+            return 0.0;
+        }
+        double openProbability = Math.min(1.0 - MODE_UNCERTAINTY_PRIOR_EPSILON, shiftedProbability);
+        return openProbability / (1.0 - openProbability);
+    }
+
     private static boolean prefersSelection(ModePosterior candidate, ModePosterior incumbent) {
-        if (candidate.intervalWidth > incumbent.intervalWidth) {
+        if (candidate.selectionUncertainty > incumbent.selectionUncertainty) {
             return true;
         }
-        if (candidate.intervalWidth < incumbent.intervalWidth) {
+        if (candidate.selectionUncertainty < incumbent.selectionUncertainty) {
             return false;
         }
         int candidatePriority = selectionPriority(candidate.modeId);
@@ -201,19 +222,28 @@ final class ModeSelector {
         final ModeId modeId;
         final double posteriorMean;
         final double intervalWidth;
+        final double selectionUncertainty;
         final double lowerBound;
         final double upperBound;
+        final double comparisonMean;
+        final double comparisonUpperBound;
 
         ModePosterior(ModeId modeId,
                       double posteriorMean,
                       double intervalWidth,
+                      double selectionUncertainty,
                       double lowerBound,
-                      double upperBound) {
+                      double upperBound,
+                      double comparisonMean,
+                      double comparisonUpperBound) {
             this.modeId = modeId;
             this.posteriorMean = posteriorMean;
             this.intervalWidth = intervalWidth;
+            this.selectionUncertainty = selectionUncertainty;
             this.lowerBound = lowerBound;
             this.upperBound = upperBound;
+            this.comparisonMean = comparisonMean;
+            this.comparisonUpperBound = comparisonUpperBound;
         }
     }
 }
