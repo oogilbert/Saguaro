@@ -56,6 +56,7 @@ public final class BulletShieldMode implements BattleMode {
     private static final double BODY_HALF_WIDTH = 18.0;
     private static final double BODY_HALF_DIAGONAL = 18.1 * Math.sqrt(2.0);
     private static final double WIGGLE_SIZE = 0.1;
+    private static final double OPENING_ANTI_GRAVITY_COMMAND_DISTANCE = 1000.0;
     private static final double MODEL_SCORE_MATCH_EPSILON = 1e-5;
     private static final double WAVE_MATCH_POWER_TOLERANCE = 1e-3;
     private static final double SHARED_WAVE_ORIGIN_TOLERANCE = 0.6;
@@ -896,15 +897,52 @@ public final class BulletShieldMode implements BattleMode {
             return holdShieldStance(myNow);
         }
 
-        double[] movementInstruction = PhysicsUtil.computeMovementInstruction(
-                myNow.x,
-                myNow.y,
-                myNow.heading,
-                myNow.velocity,
-                0.5 * info.getBattlefieldWidth(),
-                0.5 * info.getBattlefieldHeight());
+        double desiredHeading = openingAntiGravityHeading(myNow);
+        double[] movementInstruction = movementInstructionForHeading(myNow, desiredHeading);
         double gunTurn = Utils.normalRelativeAngle(latestEnemy.absoluteBearing - myNow.gunHeading);
         return new BattlePlan(movementInstruction[0], movementInstruction[1], gunTurn, 0.0);
+    }
+
+    private double openingAntiGravityHeading(Snapshot myNow) {
+        if (myNow == null || latestEnemy == null || info == null) {
+            return 0.0;
+        }
+        double battlefieldWidth = info.getBattlefieldWidth();
+        double battlefieldHeight = info.getBattlefieldHeight();
+        double margin = PhysicsUtil.WALL_MARGIN;
+
+        double leftDistance = Math.max(1.0, myNow.x - margin);
+        double rightDistance = Math.max(1.0, battlefieldWidth - margin - myNow.x);
+        double bottomDistance = Math.max(1.0, myNow.y - margin);
+        double topDistance = Math.max(1.0, battlefieldHeight - margin - myNow.y);
+
+        double forceX = 1.0 / (leftDistance * leftDistance) - 1.0 / (rightDistance * rightDistance);
+        double forceY = 1.0 / (bottomDistance * bottomDistance) - 1.0 / (topDistance * topDistance);
+
+        double enemyDx = myNow.x - latestEnemy.x;
+        double enemyDy = myNow.y - latestEnemy.y;
+        double enemyDistanceSquared = enemyDx * enemyDx + enemyDy * enemyDy;
+        if (enemyDistanceSquared > 1e-9) {
+            double enemyDistance = Math.sqrt(enemyDistanceSquared);
+            double enemyForceScale = 2.0 / (enemyDistanceSquared * enemyDistance);
+            forceX += enemyDx * enemyForceScale;
+            forceY += enemyDy * enemyForceScale;
+        }
+
+        if (Math.abs(forceX) <= 1e-12 && Math.abs(forceY) <= 1e-12) {
+            return normalize(latestEnemy.absoluteBearing + Math.PI);
+        }
+        return absoluteBearing(0.0, 0.0, forceX, forceY);
+    }
+
+    private double[] movementInstructionForHeading(Snapshot myNow, double desiredHeading) {
+        double turnAngle = Utils.normalRelativeAngle(desiredHeading - myNow.heading);
+        double moveDistance = OPENING_ANTI_GRAVITY_COMMAND_DISTANCE;
+        if (Math.abs(turnAngle) > 0.5 * Math.PI) {
+            turnAngle = Utils.normalRelativeAngle(turnAngle + Math.PI);
+            moveDistance = -OPENING_ANTI_GRAVITY_COMMAND_DISTANCE;
+        }
+        return new double[] { moveDistance, turnAngle };
     }
 
     private BattlePlan tryFireFinisher(Snapshot myNow) {
@@ -1047,9 +1085,6 @@ public final class BulletShieldMode implements BattleMode {
     }
 
     private boolean isShieldDeadlineAggressionAllowed(Snapshot myNow) {
-        if (modeId != ModeId.BULLET_SHIELD) {
-            return true;
-        }
         return myNow.time >= BotConfig.Shield.EARLY_ROUND_DEADLINE_AGGRESSION_GUARD_TICKS;
     }
 
