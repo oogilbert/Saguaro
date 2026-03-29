@@ -118,6 +118,24 @@ public final class PathRenderer {
 
         graphics.setColor(marker.color);
         graphics.setStroke(new BasicStroke(marker.strokeWidth > 0.0f ? marker.strokeWidth : 1.0f));
+        if (marker.style == PathOverlay.Marker.Style.CROSSHAIR) {
+            int x = (int) Math.round(marker.x);
+            int y = (int) Math.round(marker.y);
+            int halfLength = Math.max(1, marker.halfLength);
+            graphics.drawLine(x - halfLength, y, x + halfLength, y);
+            graphics.drawLine(x, y - halfLength, x, y + halfLength);
+            return;
+        }
+        if (marker.style == PathOverlay.Marker.Style.BOX) {
+            int halfLength = Math.max(1, marker.halfLength);
+            int size = halfLength * 2;
+            graphics.drawRect(
+                    (int) Math.round(marker.x) - halfLength,
+                    (int) Math.round(marker.y) - halfLength,
+                    size,
+                    size);
+            return;
+        }
         double radialX = FastTrig.sin(marker.angle);
         double radialY = FastTrig.cos(marker.angle);
         int x1 = (int) Math.round(marker.x - radialX * marker.halfLength);

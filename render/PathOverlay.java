@@ -10,12 +10,19 @@ import oog.mega.saguaro.math.PhysicsUtil;
 
 public final class PathOverlay {
     public static final class Marker {
+        public enum Style {
+            LINE,
+            CROSSHAIR,
+            BOX
+        }
+
         public final double x;
         public final double y;
         public final double angle;
         public final Color color;
         public final float strokeWidth;
         public final int halfLength;
+        public final Style style;
 
         public Marker(double x,
                       double y,
@@ -23,12 +30,23 @@ public final class PathOverlay {
                       Color color,
                       float strokeWidth,
                       int halfLength) {
+            this(x, y, angle, color, strokeWidth, halfLength, Style.LINE);
+        }
+
+        public Marker(double x,
+                      double y,
+                      double angle,
+                      Color color,
+                      float strokeWidth,
+                      int halfLength,
+                      Style style) {
             this.x = x;
             this.y = y;
             this.angle = angle;
             this.color = color;
             this.strokeWidth = strokeWidth;
             this.halfLength = halfLength;
+            this.style = style != null ? style : Style.LINE;
         }
     }
 

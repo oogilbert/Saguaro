@@ -32,6 +32,7 @@ import oog.mega.saguaro.mode.BattleMode;
 import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleServices;
 import oog.mega.saguaro.mode.ModeId;
+import oog.mega.saguaro.render.PathOverlay;
 import oog.mega.saguaro.render.RenderState;
 import robocode.Bullet;
 import robocode.BulletHitBulletEvent;
@@ -58,6 +59,16 @@ public final class BulletShieldMode implements BattleMode {
     private static final double MODEL_SCORE_MATCH_EPSILON = 1e-5;
     private static final double WAVE_MATCH_POWER_TOLERANCE = 1e-3;
     private static final double SHARED_WAVE_ORIGIN_TOLERANCE = 0.6;
+    private static final Color SHIELD_COLLISION_PATH_COLOR = new Color(255, 244, 128, 220);
+    private static final Color ENEMY_COLLISION_PATH_COLOR = new Color(255, 118, 118, 220);
+    private static final Color SHIELD_COLLISION_CROSSHAIR_COLOR = new Color(255, 255, 255, 220);
+    private static final float SHIELD_COLLISION_PATH_STROKE_WIDTH = 2.2f;
+    private static final float SHIELD_COLLISION_CROSSHAIR_STROKE_WIDTH = 1.8f;
+    private static final int SHIELD_COLLISION_CROSSHAIR_HALF_LENGTH = 6;
+    private static final Color AGGRESSIVE_SHOT_PATH_COLOR = new Color(120, 214, 255, 220);
+    private static final Color AGGRESSIVE_SHOT_BOX_COLOR = new Color(255, 255, 255, 220);
+    private static final float AGGRESSIVE_SHOT_BOX_STROKE_WIDTH = 1.8f;
+    private static final int AGGRESSIVE_SHOT_BOX_HALF_LENGTH = 18;
     private static final int PERSISTED_BOOTSTRAP_SECTION_VERSION = 1;
     private static final int PERSISTED_BOOTSTRAP_BYTES = 9;
     private static final ShieldBootstrapState[] BOOTSTRAP_STATES = createBootstrapStates();
@@ -65,6 +76,8 @@ public final class BulletShieldMode implements BattleMode {
     private final Deque<Snapshot> myHistory = new ArrayDeque<Snapshot>();
     private final Deque<Snapshot> enemyHistory = new ArrayDeque<Snapshot>();
     private final List<EnemyWave> enemyWaves = new ArrayList<EnemyWave>();
+    private final List<ShieldCollisionPath> firedShieldCollisionPaths = new ArrayList<ShieldCollisionPath>();
+    private final List<AggressiveShotPath> firedAggressiveShotPaths = new ArrayList<AggressiveShotPath>();
     private final Map<Wave, EnemyWave> enemyWavesBySharedWave = new HashMap<Wave, EnemyWave>();
 
     private final RoundOutcomeProfile roundOutcomeProfile = NoOpLearningProfile.INSTANCE;
@@ -86,6 +99,7 @@ public final class BulletShieldMode implements BattleMode {
     private long estimatedEnemyNextFireTime = Long.MIN_VALUE;
     private long lastDetectedEnemyShotTime = Long.MIN_VALUE;
     private double lastDetectedEnemyBulletPower = 2.0;
+    private long pendingAggressiveShotTime = Long.MIN_VALUE;
 
     public BulletShieldMode(ModeId modeId,
                             boolean allowOpeningCenterReposition,
@@ -138,9 +152,12 @@ public final class BulletShieldMode implements BattleMode {
         this.estimatedEnemyNextFireTime = Long.MIN_VALUE;
         this.lastDetectedEnemyShotTime = Long.MIN_VALUE;
         this.lastDetectedEnemyBulletPower = 2.0;
+        this.pendingAggressiveShotTime = Long.MIN_VALUE;
         this.myHistory.clear();
         this.enemyHistory.clear();
         this.enemyWaves.clear();
+        this.firedShieldCollisionPaths.clear();
+        this.firedAggressiveShotPaths.clear();
         this.enemyWavesBySharedWave.clear();
     }
 
@@ -158,22 +175,266 @@ public final class BulletShieldMode implements BattleMode {
 
     @Override
     public void onFireResult(Bullet bullet, BattlePlan plan) {
-        if (activePlan == null || plan == null) {
+        if (plan == null) {
             return;
         }
         Snapshot myNow = captureSelf();
-        if (myNow.time != activePlan.fireTime || activePlan.fireIssued || plan.firePower < 0.1) {
-            return;
+        if (activePlan != null
+                && myNow.time == activePlan.fireTime
+                && !activePlan.fireIssued
+                && plan.firePower >= 0.1) {
+            if (bullet != null) {
+                activePlan.fireIssued = true;
+                activePlan.wave.shieldAttempted = true;
+                recordFiredShieldCollisionPath(activePlan, bullet);
+            }
+        } else if (bullet != null && pendingAggressiveShotTime == myNow.time) {
+            recordFiredAggressiveShotPath(myNow, bullet);
         }
-        if (bullet != null) {
-            activePlan.fireIssued = true;
-            activePlan.wave.shieldAttempted = true;
-        }
+        pendingAggressiveShotTime = Long.MIN_VALUE;
     }
 
     @Override
     public RenderState getRenderState() {
-        return new RenderState(null);
+        return new RenderState(buildShieldModePathOverlays(), false);
+    }
+
+    private void recordFiredShieldCollisionPath(ShieldPlan plan, Bullet bullet) {
+        if (plan == null || plan.wave == null || bullet == null) {
+            return;
+        }
+        if (!Double.isFinite(plan.collisionX) || !Double.isFinite(plan.collisionY)) {
+            return;
+        }
+        BulletLinePath myPath = buildBulletLinePath(
+                plan.fireTime,
+                bullet.getX(),
+                bullet.getY(),
+                bullet.getVelocity(),
+                plan.interceptTime,
+                plan.collisionX,
+                plan.collisionY);
+        BulletLinePath enemyPath = buildBulletLinePath(
+                plan.wave.fireTime,
+                plan.wave.originX,
+                plan.wave.originY,
+                plan.wave.speed,
+                plan.interceptTime,
+                plan.collisionX,
+                plan.collisionY);
+        if (myPath == null || enemyPath == null) {
+            return;
+        }
+        firedShieldCollisionPaths.add(new ShieldCollisionPath(myPath, enemyPath, plan.interceptTime));
+    }
+
+    private List<PathOverlay> buildShieldModePathOverlays() {
+        List<PathOverlay> overlays = new ArrayList<PathOverlay>();
+        if (robot == null) {
+            return overlays;
+        }
+        appendShieldCollisionPathOverlays(overlays);
+        appendAggressiveShotPathOverlays(overlays);
+        return overlays;
+    }
+
+    private void appendShieldCollisionPathOverlays(List<PathOverlay> overlays) {
+        if (overlays == null || firedShieldCollisionPaths.isEmpty() || robot == null) {
+            return;
+        }
+        long currentTime = robot.getTime();
+        Iterator<ShieldCollisionPath> iterator = firedShieldCollisionPaths.iterator();
+        while (iterator.hasNext()) {
+            ShieldCollisionPath collisionPath = iterator.next();
+            if (currentTime > collisionPath.interceptTime) {
+                iterator.remove();
+                continue;
+            }
+            PathOverlay enemyOverlay =
+                    buildShieldCollisionOverlay(collisionPath.enemyPath, currentTime, ENEMY_COLLISION_PATH_COLOR, null);
+            if (enemyOverlay != null) {
+                overlays.add(enemyOverlay);
+            }
+            PathOverlay myOverlay = buildShieldCollisionOverlay(
+                    collisionPath.myPath,
+                    currentTime,
+                    SHIELD_COLLISION_PATH_COLOR,
+                    new PathOverlay.Marker(
+                            collisionPath.myPath.endX,
+                            collisionPath.myPath.endY,
+                            0.0,
+                            SHIELD_COLLISION_CROSSHAIR_COLOR,
+                            SHIELD_COLLISION_CROSSHAIR_STROKE_WIDTH,
+                            SHIELD_COLLISION_CROSSHAIR_HALF_LENGTH,
+                            PathOverlay.Marker.Style.CROSSHAIR));
+            if (myOverlay != null) {
+                overlays.add(myOverlay);
+            }
+        }
+    }
+
+    private void recordFiredAggressiveShotPath(Snapshot myNow, Bullet bullet) {
+        if (myNow == null || bullet == null || latestEnemy == null || info == null) {
+            return;
+        }
+        double targetDistance = Point2D.distance(myNow.x, myNow.y, latestEnemy.x, latestEnemy.y);
+        if (!(targetDistance > 1e-9)) {
+            return;
+        }
+        Point2D.Double projectedImpact = projectInsideBattlefieldAlongAngle(
+                bullet.getX(),
+                bullet.getY(),
+                bullet.getHeadingRadians(),
+                targetDistance,
+                info.getBattlefieldWidth(),
+                info.getBattlefieldHeight());
+        BulletLinePath shotPath = buildBulletLinePath(
+                myNow.time,
+                bullet.getX(),
+                bullet.getY(),
+                bullet.getVelocity(),
+                estimateImpactTime(myNow.time, bullet.getX(), bullet.getY(), bullet.getVelocity(), projectedImpact),
+                projectedImpact.x,
+                projectedImpact.y);
+        if (shotPath == null) {
+            return;
+        }
+        firedAggressiveShotPaths.add(new AggressiveShotPath(shotPath));
+    }
+
+    private void appendAggressiveShotPathOverlays(List<PathOverlay> overlays) {
+        if (overlays == null || firedAggressiveShotPaths.isEmpty() || robot == null) {
+            return;
+        }
+        long currentTime = robot.getTime();
+        Iterator<AggressiveShotPath> iterator = firedAggressiveShotPaths.iterator();
+        while (iterator.hasNext()) {
+            AggressiveShotPath shotPath = iterator.next();
+            if (currentTime > shotPath.bulletPath.interceptTime) {
+                iterator.remove();
+                continue;
+            }
+            PathOverlay overlay = buildShieldCollisionOverlay(
+                    shotPath.bulletPath,
+                    currentTime,
+                    AGGRESSIVE_SHOT_PATH_COLOR,
+                    new PathOverlay.Marker(
+                            shotPath.bulletPath.endX,
+                            shotPath.bulletPath.endY,
+                            0.0,
+                            AGGRESSIVE_SHOT_BOX_COLOR,
+                            AGGRESSIVE_SHOT_BOX_STROKE_WIDTH,
+                            AGGRESSIVE_SHOT_BOX_HALF_LENGTH,
+                            PathOverlay.Marker.Style.BOX));
+            if (overlay != null) {
+                overlays.add(overlay);
+            }
+        }
+    }
+
+    private PathOverlay buildShieldCollisionOverlay(BulletLinePath linePath,
+                                                    long currentTime,
+                                                    Color color,
+                                                    PathOverlay.Marker marker) {
+        if (linePath == null || color == null) {
+            return null;
+        }
+        Point2D.Double currentPosition = currentBulletLinePosition(linePath, currentTime);
+        PhysicsUtil.Trajectory trajectory = new PhysicsUtil.Trajectory(new PhysicsUtil.PositionState[] {
+                new PhysicsUtil.PositionState(currentPosition.x, currentPosition.y, 0.0, 0.0),
+                new PhysicsUtil.PositionState(linePath.endX, linePath.endY, 0.0, 0.0)
+        });
+        return new PathOverlay(
+                trajectory,
+                currentTime,
+                null,
+                color,
+                color,
+                SHIELD_COLLISION_PATH_STROKE_WIDTH,
+                false,
+                marker);
+    }
+
+    private static BulletLinePath buildBulletLinePath(long startTime,
+                                                      double startX,
+                                                      double startY,
+                                                      double speed,
+                                                      long interceptTime,
+                                                      double endX,
+                                                      double endY) {
+        if (!Double.isFinite(startX) || !Double.isFinite(startY) || !Double.isFinite(endX) || !Double.isFinite(endY)) {
+            return null;
+        }
+        if (!(speed > 0.0) || interceptTime < startTime) {
+            return null;
+        }
+        double pathLength = Point2D.distance(startX, startY, endX, endY);
+        if (!(pathLength > 1e-9)) {
+            return null;
+        }
+        return new BulletLinePath(
+                startTime,
+                interceptTime,
+                startX,
+                startY,
+                endX,
+                endY,
+                speed,
+                (endX - startX) / pathLength,
+                (endY - startY) / pathLength,
+                pathLength);
+    }
+
+    private static long estimateImpactTime(long fireTime,
+                                           double startX,
+                                           double startY,
+                                           double bulletSpeed,
+                                           Point2D.Double impactPoint) {
+        if (!(bulletSpeed > 0.0) || impactPoint == null) {
+            return fireTime;
+        }
+        double pathLength = Point2D.distance(startX, startY, impactPoint.x, impactPoint.y);
+        return fireTime + Math.max(1L, (long) Math.ceil(pathLength / bulletSpeed));
+    }
+
+    private static Point2D.Double projectInsideBattlefieldAlongAngle(double startX,
+                                                                     double startY,
+                                                                     double angle,
+                                                                     double distance,
+                                                                     double battlefieldWidth,
+                                                                     double battlefieldHeight) {
+        double directionX = Math.sin(angle);
+        double directionY = Math.cos(angle);
+        double maxDistance = Math.max(0.0, distance);
+        double minX = PhysicsUtil.WALL_MARGIN;
+        double minY = PhysicsUtil.WALL_MARGIN;
+        double maxX = battlefieldWidth - PhysicsUtil.WALL_MARGIN;
+        double maxY = battlefieldHeight - PhysicsUtil.WALL_MARGIN;
+
+        if (directionX > 1e-9) {
+            maxDistance = Math.min(maxDistance, (maxX - startX) / directionX);
+        } else if (directionX < -1e-9) {
+            maxDistance = Math.min(maxDistance, (minX - startX) / directionX);
+        }
+
+        if (directionY > 1e-9) {
+            maxDistance = Math.min(maxDistance, (maxY - startY) / directionY);
+        } else if (directionY < -1e-9) {
+            maxDistance = Math.min(maxDistance, (minY - startY) / directionY);
+        }
+
+        double clampedDistance = Math.max(0.0, maxDistance);
+        return new Point2D.Double(
+                startX + directionX * clampedDistance,
+                startY + directionY * clampedDistance);
+    }
+
+    private static Point2D.Double currentBulletLinePosition(BulletLinePath linePath, long currentTime) {
+        long elapsedTicks = Math.max(0L, currentTime - linePath.startTime);
+        double traveledDistance = Math.min(linePath.pathLength, elapsedTicks * linePath.speed);
+        return new Point2D.Double(
+                linePath.startX + linePath.unitX * traveledDistance,
+                linePath.startY + linePath.unitY * traveledDistance);
     }
 
     @Override
@@ -559,6 +820,8 @@ public final class BulletShieldMode implements BattleMode {
         plan.wiggleDistance = wiggleDistance;
         plan.width = shadow.width;
         plan.interceptTime = shadow.time;
+        plan.collisionX = shadow.collisionX;
+        plan.collisionY = shadow.collisionY;
         plan.score = score;
         return plan;
     }
@@ -697,6 +960,7 @@ public final class BulletShieldMode implements BattleMode {
         double firePower = 0.0;
         if (isGunReady(myNow.gunHeat)) {
             firePower = attackPower;
+            pendingAggressiveShotTime = myNow.time;
         }
 
         double bodyHeading = parallelHeading(
@@ -1003,6 +1267,9 @@ public final class BulletShieldMode implements BattleMode {
     @Override
     public void onRobotDeath(RobotDeathEvent event) {
         activePlan = null;
+        firedShieldCollisionPaths.clear();
+        firedAggressiveShotPaths.clear();
+        pendingAggressiveShotTime = Long.MIN_VALUE;
     }
 
     public static void startBattlePersistence(ModeId modeId) {
@@ -1330,9 +1597,41 @@ public final class BulletShieldMode implements BattleMode {
             shadow.fireAngle = normalize(edge1 - 0.5 * edgeDiff);
             shadow.width = width;
             shadow.time = time;
+            Point2D.Double collisionPoint = raySegmentIntersection(fireLocation, shadow.fireAngle, shadowStart, shadowEnd);
+            if (collisionPoint == null) {
+                collisionPoint = new Point2D.Double(
+                        0.5 * (shadowStart.x + shadowEnd.x),
+                        0.5 * (shadowStart.y + shadowEnd.y));
+            }
+            shadow.collisionX = collisionPoint.x;
+            shadow.collisionY = collisionPoint.y;
             lastShadow = shadow;
         }
         return lastShadow;
+    }
+
+    private static Point2D.Double raySegmentIntersection(Point2D.Double origin,
+                                                         double angle,
+                                                         Point2D.Double segmentStart,
+                                                         Point2D.Double segmentEnd) {
+        double rayX = Math.sin(angle);
+        double rayY = Math.cos(angle);
+        double segmentX = segmentEnd.x - segmentStart.x;
+        double segmentY = segmentEnd.y - segmentStart.y;
+        double cross = rayX * segmentY - rayY * segmentX;
+        if (Math.abs(cross) < 1e-9) {
+            return null;
+        }
+        double offsetX = segmentStart.x - origin.x;
+        double offsetY = segmentStart.y - origin.y;
+        double rayDistance = (offsetX * segmentY - offsetY * segmentX) / cross;
+        double segmentFraction = (offsetX * rayY - offsetY * rayX) / cross;
+        if (rayDistance < -1e-9 || segmentFraction < -1e-9 || segmentFraction > 1.0 + 1e-9) {
+            return null;
+        }
+        return new Point2D.Double(
+                origin.x + Math.max(0.0, rayDistance) * rayX,
+                origin.y + Math.max(0.0, rayDistance) * rayY);
     }
 
     private static Point2D.Double circleSegmentIntersection(Point2D.Double origin,
@@ -1503,14 +1802,73 @@ public final class BulletShieldMode implements BattleMode {
         double firePower;
         double wiggleDistance;
         double width;
+        double collisionX;
+        double collisionY;
         double score;
         boolean wiggleIssued;
         boolean fireIssued;
+    }
+
+    private static final class BulletLinePath {
+        final long startTime;
+        final long interceptTime;
+        final double startX;
+        final double startY;
+        final double endX;
+        final double endY;
+        final double speed;
+        final double unitX;
+        final double unitY;
+        final double pathLength;
+
+        BulletLinePath(long startTime,
+                       long interceptTime,
+                       double startX,
+                       double startY,
+                       double endX,
+                       double endY,
+                       double speed,
+                       double unitX,
+                       double unitY,
+                       double pathLength) {
+            this.startTime = startTime;
+            this.interceptTime = interceptTime;
+            this.startX = startX;
+            this.startY = startY;
+            this.endX = endX;
+            this.endY = endY;
+            this.speed = speed;
+            this.unitX = unitX;
+            this.unitY = unitY;
+            this.pathLength = pathLength;
+        }
+    }
+
+    private static final class ShieldCollisionPath {
+        final BulletLinePath myPath;
+        final BulletLinePath enemyPath;
+        final long interceptTime;
+
+        ShieldCollisionPath(BulletLinePath myPath, BulletLinePath enemyPath, long interceptTime) {
+            this.myPath = myPath;
+            this.enemyPath = enemyPath;
+            this.interceptTime = interceptTime;
+        }
+    }
+
+    private static final class AggressiveShotPath {
+        final BulletLinePath bulletPath;
+
+        AggressiveShotPath(BulletLinePath bulletPath) {
+            this.bulletPath = bulletPath;
+        }
     }
 
     private static final class PreciseShadow {
         long time;
         double fireAngle;
         double width;
+        double collisionX;
+        double collisionY;
     }
 }
