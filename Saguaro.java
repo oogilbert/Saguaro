@@ -40,8 +40,12 @@ public class Saguaro extends AdvancedRobot {
             setAhead(plan.moveDistance);
             setTurnRightRadians(plan.turnAngle);
             setTurnGunRightRadians(plan.gunTurnAngle);
-            if (plan.firePower >= 0.1 && getGunHeat() == 0 && getEnergy() >= plan.firePower) {
-                info.onBulletFired(setFireBullet(plan.firePower));
+            if (plan.firePower >= 0.1 && getEnergy() >= plan.firePower) {
+                Bullet bullet = setFireBullet(plan.firePower);
+                if (bullet != null) {
+                    info.onBulletFired(bullet);
+                }
+                mode.onFireResult(bullet, plan);
             }
 
             execute();

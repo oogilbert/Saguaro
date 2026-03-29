@@ -74,6 +74,9 @@ public class Info {
     }
 
     public void onBulletFired(Bullet bullet) {
+        if (bullet == null) {
+            return;
+        }
         Wave wave = waveManager.onBulletFired(bullet);
         bulletPowerHitRateTracker.onMyWaveFired(wave);
         trackedOurEnergy = robot.getEnergy();

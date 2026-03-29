@@ -27,6 +27,7 @@ import oog.mega.saguaro.mode.shield.BulletShieldDataSet;
 import oog.mega.saguaro.mode.shield.BulletShieldMode;
 import oog.mega.saguaro.mode.shield.MovingBulletShieldDataSet;
 import oog.mega.saguaro.render.RenderState;
+import robocode.Bullet;
 import robocode.BulletHitEvent;
 import robocode.BulletHitBulletEvent;
 import robocode.HitByBulletEvent;
@@ -147,6 +148,10 @@ public final class ModeController {
     public BattlePlan getPlan() {
         // Modes own behavior even when the opponent is currently unscanned or already dead.
         return activeMode.getPlan();
+    }
+
+    public void onFireResult(Bullet bullet, BattlePlan plan) {
+        activeMode.onFireResult(bullet, plan);
     }
 
     public RenderState getRenderState() {

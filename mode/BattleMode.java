@@ -5,6 +5,7 @@ import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ModeObservationPolicy;
 import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.render.RenderState;
+import robocode.Bullet;
 import robocode.BulletHitEvent;
 import robocode.BulletHitBulletEvent;
 import robocode.HitByBulletEvent;
@@ -40,6 +41,9 @@ public interface BattleMode {
     }
 
     default void onHitRobot(HitRobotEvent event) {
+    }
+
+    default void onFireResult(Bullet bullet, BattlePlan plan) {
     }
 
     default void onScannedRobot(ScannedRobotEvent event) {

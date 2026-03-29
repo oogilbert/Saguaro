@@ -55,7 +55,6 @@ public final class BulletShieldMode implements BattleMode {
     private static final double BODY_HALF_WIDTH = 18.0;
     private static final double BODY_HALF_DIAGONAL = 18.1 * Math.sqrt(2.0);
     private static final double WIGGLE_SIZE = 0.1;
-    private static final double FIRE_ALIGNMENT_EPSILON = 1e-3;
     private static final double MODEL_SCORE_MATCH_EPSILON = 1e-5;
     private static final double WAVE_MATCH_POWER_TOLERANCE = 1e-3;
     private static final double SHARED_WAVE_ORIGIN_TOLERANCE = 0.6;
@@ -158,6 +157,21 @@ public final class BulletShieldMode implements BattleMode {
     }
 
     @Override
+    public void onFireResult(Bullet bullet, BattlePlan plan) {
+        if (activePlan == null || plan == null) {
+            return;
+        }
+        Snapshot myNow = captureSelf();
+        if (myNow.time != activePlan.fireTime || activePlan.fireIssued || plan.firePower < 0.1) {
+            return;
+        }
+        if (bullet != null) {
+            activePlan.fireIssued = true;
+            activePlan.wave.shieldAttempted = true;
+        }
+    }
+
+    @Override
     public RenderState getRenderState() {
         return new RenderState(null);
     }
@@ -199,7 +213,7 @@ public final class BulletShieldMode implements BattleMode {
                 if (candidate != null) {
                     activePlan = candidate;
                 } else {
-                    BattlePlan directAttack = tryFireDirectAttack(myNow, nextWave);
+                    BattlePlan directAttack = tryFireDirectAttack(myNow);
                     if (directAttack != null) {
                         return directAttack;
                     }
@@ -220,7 +234,7 @@ public final class BulletShieldMode implements BattleMode {
                 return finisher;
             }
         }
-        BattlePlan directAttack = tryFireDirectAttack(myNow, null);
+        BattlePlan directAttack = tryFireDirectAttack(myNow);
         if (directAttack != null) {
             return directAttack;
         }
@@ -395,7 +409,7 @@ public final class BulletShieldMode implements BattleMode {
     }
 
     private ShieldPlan buildShieldPlan(EnemyWave wave, Snapshot myNow) {
-        long fireTime = myNow.time + Math.max(1, ticksUntilGunReady(myNow.gunHeat, myNow.gunCoolingRate));
+        long fireTime = myNow.time + Math.max(1, ticksUntilShieldGunReady(myNow.gunHeat, myNow.gunCoolingRate));
         ShieldPlan best = buildShieldPlanForFireTime(wave, myNow, fireTime);
         return best;
     }
@@ -559,13 +573,8 @@ public final class BulletShieldMode implements BattleMode {
         }
 
         if (myNow.time == plan.fireTime && !plan.fireIssued) {
-            if (Math.abs(gunTurn) <= FIRE_ALIGNMENT_EPSILON && myNow.gunHeat == 0.0) {
-                plan.fireIssued = true;
-                plan.wave.shieldAttempted = true;
-                double unwind = Math.abs(plan.wiggleDistance) > 1e-9 ? -plan.wiggleDistance : 0.0;
-                return new BattlePlan(unwind, bodyTurn, gunTurn, plan.firePower);
-            }
-            return new BattlePlan(0.0, bodyTurn, gunTurn, 0.0);
+            double unwind = Math.abs(plan.wiggleDistance) > 1e-9 ? -plan.wiggleDistance : 0.0;
+            return new BattlePlan(unwind, bodyTurn, gunTurn, plan.firePower);
         }
 
         if (myNow.time > plan.fireTime) {
@@ -656,7 +665,7 @@ public final class BulletShieldMode implements BattleMode {
         }
         double gunTurn = Utils.normalRelativeAngle(fireAngle - myNow.gunHeading);
         double firePower = 0.0;
-        if (Math.abs(gunTurn) <= FIRE_ALIGNMENT_EPSILON && myNow.gunHeat == 0.0) {
+        if (isGunReady(myNow.gunHeat)) {
             firePower = Rules.MIN_BULLET_POWER;
         }
         return new BattlePlan(0.0, bodyTurn, gunTurn, firePower);
@@ -671,21 +680,22 @@ public final class BulletShieldMode implements BattleMode {
         return false;
     }
 
-    private BattlePlan tryFireDirectAttack(Snapshot myNow, EnemyWave blockingWave) {
+    private BattlePlan tryFireDirectAttack(Snapshot myNow) {
         if (latestEnemy == null || latestEnemy.energy < Rules.MIN_BULLET_POWER) {
             return null;
         }
-        double attackPower = selectDirectAttackPower(myNow, blockingWave);
-        if (!(attackPower >= Rules.MIN_BULLET_POWER)) {
+        AggressiveAttackDecision attackDecision = selectDirectAttackDecision(myNow);
+        if (attackDecision == null || !(attackDecision.power >= Rules.MIN_BULLET_POWER)) {
             return null;
         }
+        double attackPower = attackDecision.power;
         double fireAngle = aggressiveFireAngle(attackPower);
         if (!Double.isFinite(fireAngle)) {
             return null;
         }
         double gunTurn = Utils.normalRelativeAngle(fireAngle - myNow.gunHeading);
         double firePower = 0.0;
-        if (myNow.gunHeat == 0.0) {
+        if (isGunReady(myNow.gunHeat)) {
             firePower = attackPower;
         }
 
@@ -706,59 +716,48 @@ public final class BulletShieldMode implements BattleMode {
         return gun.getOptimalUnconstrainedFiringAngle(firePower);
     }
 
-    private double selectDirectAttackPower(Snapshot myNow, EnemyWave blockingWave) {
+    private AggressiveAttackDecision selectDirectAttackDecision(Snapshot myNow) {
+        EnemyInfo enemy = info != null ? info.getEnemy() : null;
+        if (!isAggressiveAttackAllowed(myNow, enemy)) {
+            return null;
+        }
         double aggressivePower = Math.min(3.0, myNow.energy);
         aggressivePower = Math.min(aggressivePower, latestEnemy.energy);
         aggressivePower = Math.min(aggressivePower, PhysicsUtil.requiredBulletPowerForDamage(latestEnemy.energy));
         if (aggressivePower < Rules.MIN_BULLET_POWER) {
-            return Double.NaN;
+            return null;
         }
         double distance = Point2D.distance(myNow.x, myNow.y, latestEnemy.x, latestEnemy.y);
         if (distance <= BotConfig.Shield.AGGRESSIVE_CLOSE_RANGE_RADIUS) {
-            return aggressivePower;
+            return new AggressiveAttackDecision(aggressivePower, "close-range");
         }
         aggressivePower = Math.min(aggressivePower, Math.max(Rules.MIN_BULLET_POWER, Math.min(3,
                 distance < 100 ? 3 : Math.min(latestEnemy.energy / 4,
                         Math.min(myNow.energy / 10, 1 + 400 / distance)))));
-        if (isImmediateShieldingImpossible(myNow)) {
-            return aggressivePower;
-        }
-
         double maxPower = Math.min(aggressivePower, myNow.energy - Rules.MIN_BULLET_POWER);
         double maxPowerForEnergyLead = myNow.energy - latestEnemy.energy;
         maxPower = Math.min(maxPower, maxPowerForEnergyLead);
         if (maxPower < Rules.MIN_BULLET_POWER) {
-            return Double.NaN;
+            return null;
         }
         if (shouldUseIdleAggressiveShot(myNow)) {
-            return Math.floor(maxPower * 10.0) / 10.0;
+            return new AggressiveAttackDecision(Math.floor(maxPower * 10.0) / 10.0, "idle");
         }
         if (!isShieldDeadlineAggressionAllowed(myNow)) {
-            return Double.NaN;
+            return null;
         }
-
-        long shieldDeadline = blockingWave == null
-                ? latestShieldDeadlineForExpectedNextWave(myNow)
-                : latestShieldFireTime(blockingWave, myNow);
-        if (shieldDeadline == Long.MIN_VALUE) {
-            if (blockingWave == null) {
-                return Double.NaN;
-            }
-            return Math.floor(maxPower * 10.0) / 10.0;
+        if (!BotConfig.Shield.ENABLE_SHIELD_SLACK_AGGRESSION) {
+            return null;
         }
 
         double candidate = Math.floor(maxPower * 10.0) / 10.0;
         while (candidate >= Rules.MIN_BULLET_POWER - 1e-9) {
-            int readyTicks = Math.max(1, ticksUntilGunReady(Rules.getGunHeat(candidate), myNow.gunCoolingRate));
-            long nextShieldReadyTime = myNow.time + readyTicks;
-            // Be slightly conservative when spending gun heat for a direct attack:
-            // keep one extra tick of slack before the latest shieldable fire time.
-            if (nextShieldReadyTime + BotConfig.Shield.AGGRESSIVE_SHOT_SHIELD_SAFETY_TICKS <= shieldDeadline) {
-                return candidate;
+            if (canShieldNextExpectedShotAfterAggressiveFire(myNow, enemy, candidate)) {
+                return new AggressiveAttackDecision(candidate, "slack");
             }
             candidate -= 0.1;
         }
-        return Double.NaN;
+        return null;
     }
 
     private boolean shouldUseIdleAggressiveShot(Snapshot myNow) {
@@ -785,25 +784,42 @@ public final class BulletShieldMode implements BattleMode {
         return myNow.time >= BotConfig.Shield.EARLY_ROUND_DEADLINE_AGGRESSION_GUARD_TICKS;
     }
 
-    private boolean isImmediateShieldingImpossible(Snapshot myNow) {
-        if (latestEnemy == null) {
+    private boolean isAggressiveAttackAllowed(Snapshot myNow, EnemyInfo enemy) {
+        if (enemy == null || !enemy.alive || !enemy.seenThisRound) {
             return false;
         }
-        Snapshot cleanImmediateSnapshot = snapshotWithGunHeat(myNow, 0.0);
-        EnemyWave immediateThreat = buildImmediateThreatWave(cleanImmediateSnapshot);
-        return latestShieldFireTime(immediateThreat, cleanImmediateSnapshot, cleanImmediateSnapshot.time)
-                == Long.MIN_VALUE;
+        if (!(myNow.gunCoolingRate > 0.0)) {
+            return false;
+        }
+        if (hasUnshieldedEnemyWavesInFlight()) {
+            return false;
+        }
+        return myNow.gunHeat <= enemy.gunHeat + 1e-9;
     }
 
-    private long latestShieldDeadlineForExpectedNextWave(Snapshot myNow) {
-        if (latestEnemy == null || estimatedEnemyNextFireTime <= myNow.time) {
-            return Long.MIN_VALUE;
+    private boolean hasUnshieldedEnemyWavesInFlight() {
+        for (int i = 0; i < enemyWaves.size(); i++) {
+            EnemyWave wave = enemyWaves.get(i);
+            if (!wave.resolved && !wave.shieldAttempted) {
+                return true;
+            }
         }
-        EnemyWave expected = buildExpectedNextWave(myNow);
-        if (expected == null) {
-            return Long.MIN_VALUE;
+        return false;
+    }
+
+    private boolean canShieldNextExpectedShotAfterAggressiveFire(Snapshot myNow,
+                                                                 EnemyInfo enemy,
+                                                                 double firePower) {
+        long expectedEnemyFireTime = expectedNextEnemyFireTime(myNow, enemy);
+        if (expectedEnemyFireTime == Long.MIN_VALUE) {
+            return false;
         }
-        return latestShieldFireTime(expected, myNow);
+        EnemyWave expectedWave = buildPessimisticExpectedNextWave(myNow, expectedEnemyFireTime);
+        if (expectedWave == null) {
+            return false;
+        }
+        long conservativeShieldReadyTime = conservativeShieldReadyTimeAfterAggressiveFire(myNow, firePower);
+        return latestShieldFireTime(expectedWave, myNow, conservativeShieldReadyTime) != Long.MIN_VALUE;
     }
 
     private long latestShieldFireTime(EnemyWave wave, Snapshot myNow) {
@@ -824,26 +840,47 @@ public final class BulletShieldMode implements BattleMode {
         return buildSyntheticHeadOnWave(latestEnemy.x, latestEnemy.y, myNow.time, myNow);
     }
 
-    private EnemyWave buildExpectedNextWave(Snapshot myNow) {
+    private long expectedNextEnemyFireTime(Snapshot myNow, EnemyInfo enemy) {
+        if (enemy == null || !(myNow.gunCoolingRate > 0.0)) {
+            return Long.MIN_VALUE;
+        }
+        long enemyReadyTicks = Math.max(0L, ticksUntilGunReady(enemy.gunHeat, myNow.gunCoolingRate));
+        long expectedFireTime = myNow.time + enemyReadyTicks;
+        if (estimatedEnemyNextFireTime > myNow.time) {
+            expectedFireTime = Math.min(expectedFireTime, estimatedEnemyNextFireTime);
+        }
+        return expectedFireTime;
+    }
+
+    private long conservativeShieldReadyTimeAfterAggressiveFire(Snapshot myNow, double firePower) {
+        double conservativeGunHeat = myNow.gunHeat + Rules.getGunHeat(firePower);
+        long readyTicks = Math.max(1L, ticksUntilShieldGunReady(conservativeGunHeat, myNow.gunCoolingRate));
+        return myNow.time + readyTicks + BotConfig.Shield.AGGRESSIVE_SHOT_SHIELD_SAFETY_TICKS;
+    }
+
+    private EnemyWave buildPessimisticExpectedNextWave(Snapshot myNow, long expectedEnemyFireTime) {
         if (latestEnemy == null) {
             return null;
         }
-        Point2D.Double expectedSource = projectExpectedEnemySource(myNow);
-        return buildSyntheticHeadOnWave(expectedSource.x, expectedSource.y, estimatedEnemyNextFireTime, myNow);
+        Point2D.Double expectedSource = projectPessimisticEnemySource(myNow, expectedEnemyFireTime);
+        return buildSyntheticHeadOnWave(expectedSource.x, expectedSource.y, expectedEnemyFireTime, myNow);
     }
 
-    private Point2D.Double projectExpectedEnemySource(Snapshot myNow) {
+    private Point2D.Double projectPessimisticEnemySource(Snapshot myNow, long expectedEnemyFireTime) {
         double headingToMe = absoluteBearing(latestEnemy.x, latestEnemy.y, myNow.x, myNow.y);
-        double distance = Point2D.distance(latestEnemy.x, latestEnemy.y, myNow.x, myNow.y);
+        double currentDistance = Point2D.distance(latestEnemy.x, latestEnemy.y, myNow.x, myNow.y);
         double advancingVelocity = latestEnemy.velocity * Math.cos(latestEnemy.heading - headingToMe);
-        long ticks = Math.max(0L, estimatedEnemyNextFireTime - myNow.time);
+        long ticks = Math.max(0L, expectedEnemyFireTime - myNow.time);
+        double projectedDistance = currentDistance;
 
         for (long i = 0; i < ticks; i++) {
-            distance = Math.max(0.0, distance - advancingVelocity);
+            projectedDistance = Math.max(0.0, projectedDistance - advancingVelocity);
             advancingVelocity = Math.min(Rules.MAX_VELOCITY, advancingVelocity + Rules.ACCELERATION);
         }
 
-        return project(myNow.x, myNow.y, normalize(headingToMe + Math.PI), distance);
+        double straightLineClosingDistance = Math.max(0.0, currentDistance - Rules.MAX_VELOCITY * ticks);
+        double pessimisticDistance = Math.min(projectedDistance, straightLineClosingDistance);
+        return project(myNow.x, myNow.y, normalize(headingToMe + Math.PI), pessimisticDistance);
     }
 
     private EnemyWave buildSyntheticHeadOnWave(double originX, double originY, long fireTime, Snapshot myNow) {
@@ -876,7 +913,7 @@ public final class BulletShieldMode implements BattleMode {
         return unwrapped >= interval[0] - 0.02 && unwrapped <= interval[1] + 0.02;
     }
 
-    private void observeEnemyBullet(Bullet bullet, long time, String source) {
+    private void observeEnemyBullet(Bullet bullet, long time) {
         EnemyWave wave = matchEnemyWave(bullet, time);
         if (wave == null) {
             return;
@@ -946,12 +983,12 @@ public final class BulletShieldMode implements BattleMode {
 
     @Override
     public void onHitByBullet(HitByBulletEvent event) {
-        observeEnemyBullet(event.getBullet(), event.getTime(), "hbb");
+        observeEnemyBullet(event.getBullet(), event.getTime());
     }
 
     @Override
     public void onBulletHitBullet(BulletHitBulletEvent event) {
-        observeEnemyBullet(event.getHitBullet(), event.getTime(), "bhb");
+        observeEnemyBullet(event.getHitBullet(), event.getTime());
     }
 
     @Override
@@ -1081,20 +1118,6 @@ public final class BulletShieldMode implements BattleMode {
                 snapshot.gunCoolingRate);
     }
 
-    private static Snapshot snapshotWithGunHeat(Snapshot snapshot, double gunHeat) {
-        return new Snapshot(
-                snapshot.x,
-                snapshot.y,
-                snapshot.heading,
-                snapshot.velocity,
-                snapshot.energy,
-                snapshot.absoluteBearing,
-                snapshot.time,
-                snapshot.gunHeading,
-                gunHeat,
-                snapshot.gunCoolingRate);
-    }
-
     private static void pushFront(Deque<Snapshot> history, Snapshot snapshot) {
         history.addFirst(snapshot);
         while (history.size() > BotConfig.Shield.SNAPSHOT_HISTORY_LIMIT) {
@@ -1205,11 +1228,28 @@ public final class BulletShieldMode implements BattleMode {
         return 20.0 - 3.0 * power;
     }
 
+    private static boolean isGunReady(double gunHeat) {
+        return gunHeat <= BotConfig.GUN_HEAT_READY_EPSILON;
+    }
+
     private static int ticksUntilGunReady(double gunHeat, double gunCoolingRate) {
-        if (gunHeat <= 0.0) {
+        if (isGunReady(gunHeat)) {
             return 0;
         }
-        return (int) Math.ceil(gunHeat / gunCoolingRate);
+        return (int) Math.ceil((gunHeat - BotConfig.GUN_HEAT_READY_EPSILON) / gunCoolingRate);
+    }
+
+    private static int ticksUntilShieldGunReady(double gunHeat, double gunCoolingRate) {
+        if (isGunReady(gunHeat)) {
+            return 0;
+        }
+        double readyTicks = gunHeat / gunCoolingRate;
+        int ceilTicks = (int) Math.ceil(readyTicks);
+        long nearestInteger = Math.round(readyTicks);
+        if (Math.abs(readyTicks - nearestInteger) <= BotConfig.Shield.SHIELD_READY_TICK_EDGE_EPSILON) {
+            return Math.max(ceilTicks, (int) nearestInteger + 1);
+        }
+        return ceilTicks;
     }
 
     private static boolean isGunTurnReachable(double desiredAngle, double gunHeading, int ticksUntilFire) {
@@ -1442,6 +1482,16 @@ public final class BulletShieldMode implements BattleMode {
         double direction;
         boolean shieldAttempted;
         boolean resolved;
+    }
+
+    private static final class AggressiveAttackDecision {
+        final double power;
+        final String reason;
+
+        AggressiveAttackDecision(double power, String reason) {
+            this.power = power;
+            this.reason = reason;
+        }
     }
 
     private static final class ShieldPlan {
