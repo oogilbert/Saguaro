@@ -307,10 +307,6 @@ public final class ModeController {
         ModeId[] allModes = ModeId.values();
         ModeId[] selectableModes = selectableModes();
         if (modeSelector.isModeDisqualified(activeModeId, allModes)) {
-            ModeId forcedFallback = preferredUntestedShieldSuccessor(selectableModes);
-            if (forcedFallback != null) {
-                return forcedFallback;
-            }
             return modeSelector.selectMode(selectableModes, allModes);
         }
         return activeModeId;
@@ -428,35 +424,6 @@ public final class ModeController {
         for (String line : lines) {
             info.getRobot().out.println("  " + line);
         }
-    }
-
-    private ModeId preferredUntestedShieldSuccessor(ModeId[] selectableModes) {
-        if (activeModeId != ModeId.BULLET_SHIELD
-                || selectableModes == null
-                || !containsMode(selectableModes, ModeId.MOVING_BULLET_SHIELD)) {
-            return null;
-        }
-        for (ModeId modeId : selectableModes) {
-            if (modeId == null || modeId == ModeId.BULLET_SHIELD) {
-                continue;
-            }
-            if (ModePerformanceProfile.hasAnyCombinedSamples(modeId)) {
-                return null;
-            }
-        }
-        return ModeId.MOVING_BULLET_SHIELD;
-    }
-
-    private static boolean containsMode(ModeId[] modes, ModeId target) {
-        if (modes == null || target == null) {
-            return false;
-        }
-        for (ModeId mode : modes) {
-            if (mode == target) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static boolean isShieldMode(ModeId modeId) {

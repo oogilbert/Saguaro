@@ -138,6 +138,7 @@ final class ModeSelector {
         return new ModePosterior(
                 modeId,
                 posteriorMean,
+                totalScore <= 0.0,
                 intervalWidth,
                 selectionUncertainty,
                 lowerBound,
@@ -191,13 +192,15 @@ final class ModeSelector {
         if (candidate.selectionUncertainty < incumbent.selectionUncertainty) {
             return false;
         }
-        int candidatePriority = selectionPriority(candidate.modeId);
-        int incumbentPriority = selectionPriority(incumbent.modeId);
-        if (candidatePriority < incumbentPriority) {
-            return true;
-        }
-        if (candidatePriority > incumbentPriority) {
-            return false;
+        if (candidate.untested && incumbent.untested) {
+            int candidatePriority = untestedSelectionPriority(candidate.modeId);
+            int incumbentPriority = untestedSelectionPriority(incumbent.modeId);
+            if (candidatePriority < incumbentPriority) {
+                return true;
+            }
+            if (candidatePriority > incumbentPriority) {
+                return false;
+            }
         }
         if (candidate.upperBound > incumbent.upperBound) {
             return true;
@@ -234,25 +237,30 @@ final class ModeSelector {
         if (candidate.selectionUncertainty < incumbent.selectionUncertainty) {
             return false;
         }
-        int candidatePriority = selectionPriority(candidate.modeId);
-        int incumbentPriority = selectionPriority(incumbent.modeId);
-        if (candidatePriority < incumbentPriority) {
-            return true;
-        }
-        if (candidatePriority > incumbentPriority) {
-            return false;
+        if (candidate.untested && incumbent.untested) {
+            int candidatePriority = untestedSelectionPriority(candidate.modeId);
+            int incumbentPriority = untestedSelectionPriority(incumbent.modeId);
+            if (candidatePriority < incumbentPriority) {
+                return true;
+            }
+            if (candidatePriority > incumbentPriority) {
+                return false;
+            }
         }
         return candidate.modeId.ordinal() < incumbent.modeId.ordinal();
     }
 
-    private static int selectionPriority(ModeId modeId) {
+    private static int untestedSelectionPriority(ModeId modeId) {
         if (modeId == ModeId.BULLET_SHIELD) {
             return 0;
         }
-        if (modeId == ModeId.WAVE_POISON) {
+        if (modeId == ModeId.MOVING_BULLET_SHIELD) {
             return 1;
         }
-        return 2;
+        if (modeId == ModeId.WAVE_POISON) {
+            return 2;
+        }
+        return 3;
     }
 
     private static ModePosterior findPosterior(ModePosterior[] posteriors, ModeId modeId) {
@@ -270,6 +278,7 @@ final class ModeSelector {
     private static final class ModePosterior {
         final ModeId modeId;
         final double posteriorMean;
+        final boolean untested;
         final double intervalWidth;
         final double selectionUncertainty;
         final double lowerBound;
@@ -279,6 +288,7 @@ final class ModeSelector {
 
         ModePosterior(ModeId modeId,
                       double posteriorMean,
+                      boolean untested,
                       double intervalWidth,
                       double selectionUncertainty,
                       double lowerBound,
@@ -287,6 +297,7 @@ final class ModeSelector {
                       double comparisonUpperBound) {
             this.modeId = modeId;
             this.posteriorMean = posteriorMean;
+            this.untested = untested;
             this.intervalWidth = intervalWidth;
             this.selectionUncertainty = selectionUncertainty;
             this.lowerBound = lowerBound;
