@@ -22,6 +22,9 @@ final class ShotDodgerSourceExpertCatalog {
                 ConstantDivisorLinearExpert.createMovementPrediction(context, linearConstantDivisor));
         snapshot.set(ShotDodgerExpertId.CIRCULAR, CircularTargetingExpert.createMovementPrediction(context));
         snapshot.set(
+                ShotDodgerExpertId.BATTLEFIELD_CENTER,
+                BattlefieldCenterTargetingExpert.createMovementPrediction(context));
+        snapshot.set(
                 ShotDodgerExpertId.AVERAGED_LINEAR_NO_GUN_ADJUST,
                 AveragedLinearTargetingExpert.createMovementPrediction(context, averagedLinearNoAdjustLateralVelocity));
         snapshot.set(

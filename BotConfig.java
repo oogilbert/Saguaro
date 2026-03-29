@@ -207,7 +207,7 @@ public final class BotConfig {
         public static final String LOCKED_MODE = null;
 
         // Scales the logit-space confidence interval used for mode selection and settling.
-        public static final double CONFIDENCE_SCALE = 7.0;
+        public static final double CONFIDENCE_SCALE = 6.0;
         // Exploratory mean assigned to modes with no score evidence yet.
         public static final double UNTESTED_MODE_MEAN = 0.90;
         // Raw score delta corresponding to one posterior evidence unit.
