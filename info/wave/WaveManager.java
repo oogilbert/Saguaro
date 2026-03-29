@@ -363,7 +363,31 @@ public class WaveManager {
                 wave.fireTimeContext,
                 gf,
                 true,
-                wave.allowMovementModelUpdate);
+                wave.allowMovementModelUpdate,
+                true);
+        return new MovementObservationResult(true, gf);
+    }
+
+    private MovementObservationResult logEnemyWaveMovementPassResult(Wave wave,
+                                                                     double[] gfInterval) {
+        if (wave == null
+                || gfInterval == null
+                || gfInterval.length < 2
+                || !Double.isFinite(gfInterval[0])
+                || !Double.isFinite(gfInterval[1])) {
+            return new MovementObservationResult(false, Double.NaN);
+        }
+        if (!wave.allowMovementObservationLogging) {
+            return new MovementObservationResult(false, Double.NaN);
+        }
+        double gf = 0.5 * (gfInterval[0] + gfInterval[1]);
+        gf = Math.max(-1.0, Math.min(1.0, gf));
+        info.getObservationProfile().logMovementResult(
+                wave.fireTimeContext,
+                gf,
+                true,
+                false,
+                false);
         return new MovementObservationResult(true, gf);
     }
 
@@ -458,12 +482,10 @@ public class WaveManager {
                             robotX,
                             robotY,
                             removalCheckTime);
+                    logEnemyWaveMovementPassResult(wave, movementInterval);
                     info.onEnemyWavePassedRobot(wave);
                     lastEnemyWaveHitRobot = false;
                     logResolvedMovementWaveInterval(wave, movementInterval);
-                    if (movementInterval != null && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
-                        refreshEnemyWaveDistributions();
-                    }
                 }
                 it.remove();
             }

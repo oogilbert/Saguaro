@@ -50,6 +50,14 @@ public interface ObservationProfile {
         logMovementResult(context, gf, saveObservation);
     }
 
+    default void logMovementResult(WaveContextFeatures.WaveContext context,
+                                   double gf,
+                                   boolean saveObservation,
+                                   boolean updateModel,
+                                   boolean actualBulletObservation) {
+        logMovementResult(context, gf, saveObservation, updateModel);
+    }
+
     void logMovementResult(WaveContextFeatures.WaveContext context,
                            double gf,
                            boolean saveObservation);

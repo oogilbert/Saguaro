@@ -1,5 +1,10 @@
 package oog.mega.saguaro.info.wave;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -38,6 +43,7 @@ public class WaveLog {
     private static final int FEATURE_DID_HIT = 19;
     private static final int FEATURE_BATTLE_TIME = 20;
     private static final int MODEL_CANDIDATE_POOL = 7;
+    private static final int PERSISTENCE_SECTION_VERSION = 1;
     private static final double MAX_LATERAL_VELOCITY = 8.0;
     private static final double MIN_VELOCITY_DELTA = -2.0;
     private static final double MAX_VELOCITY_DELTA = 1.0;
@@ -51,12 +57,18 @@ public class WaveLog {
     private static final double DISTANCE_LAST_20_SCALE = 20.0 * MAX_LATERAL_VELOCITY;
     private static final double BATTLE_TIME_SCALE = 500.0;
     private static final double FEATURE_TRANSFORM_EPSILON = 1e-4;
+    private static final double MIN_FEATURE_BIAS = 0.0;
+    private static final double MAX_FEATURE_BIAS = 1.0;
+    private static final double MIN_FEATURE_EXPONENT = 0.15;
+    private static final double MAX_FEATURE_EXPONENT = 2.0;
     private static final double MIN_GF = -1.0;
     private static final double MAX_GF = 1.0;
     private static final double MIN_INTERVAL_WIDTH = 1e-9;
     private static final double SQRT_2PI = Math.sqrt(2.0 * Math.PI);
     private static final double WEIGHT_ZERO_EPSILON = 1e-6;
     private static final double MODEL_EPSILON = 1e-9;
+    private static final double PROBABILITY_EPSILON = 1e-12;
+    private static final double BANDWIDTH_FINITE_DIFFERENCE_LOG_DELTA = 0.04;
     private static final double[] DEFAULT_TARGETING_DISTANCE_WEIGHTS = new double[]{
             0.65,
             3.86,
@@ -100,7 +112,7 @@ public class WaveLog {
             0.80,
             0.70,
             0.75,
-            0.60,
+            1.40,
             0.85
     };
     private static final double[] DEFAULT_TARGETING_FEATURE_BIASES = new double[]{
@@ -131,10 +143,8 @@ public class WaveLog {
             BotConfig.Learning.DEFAULT_MOVEMENT_CONTEXT_WEIGHT_SIGMA,
             DEFAULT_MOVEMENT_FEATURE_BIASES,
             DEFAULT_MOVEMENT_FEATURE_EXPONENTS);
-    // Nearest-neighbor lookups use Rednaxela's third-gen KD-tree implementation.
     private static final SegmentLog gunSegment = new SegmentLog("targeting", DEFAULT_TARGETING_MODEL, true);
     private static final SegmentLog movementSegment = new SegmentLog("surfing", DEFAULT_MOVEMENT_MODEL, false);
-    // Stack-trace source tagging was added for KD-tree diagnostics and is too expensive for normal logging.
     private static final int TRACE_BUFFER_CAPACITY = 80;
     private static final int TRACE_DUMP_LINES_ON_FAILURE = 24;
     private static final Object TRACE_LOCK = new Object();
@@ -142,6 +152,11 @@ public class WaveLog {
     private static long traceSequence = 0L;
     private static int traceWriteIndex = 0;
     private static int traceCount = 0;
+    private static boolean persistedSectionLoaded;
+    private static boolean currentBattleModelUpdated;
+    private static ModelSpec persistedTargetingModel;
+    private static ModelSpec persistedMovementModel;
+
     private static final class TraceEntry {
         final long seq;
         final String stage;
@@ -169,11 +184,16 @@ public class WaveLog {
     }
 
     static final class DataPoint {
-        final double[] contextPoint;
+        final double[] normalizedContextPoint;
+        double[] contextPoint;
         final double gfMin;
         final double gfMax;
 
-        DataPoint(double[] contextPoint, double gfMin, double gfMax) {
+        DataPoint(double[] normalizedContextPoint,
+                  double[] contextPoint,
+                  double gfMin,
+                  double gfMax) {
+            this.normalizedContextPoint = normalizedContextPoint;
             this.contextPoint = contextPoint;
             this.gfMin = gfMin;
             this.gfMax = gfMax;
@@ -209,7 +229,7 @@ public class WaveLog {
         }
     }
 
-    private static class NeighborSelection {
+    private static final class NeighborSelection {
         final DataPoint[] candidatePool;
         final double[] gfMins;
         final double[] gfMaxs;
@@ -226,6 +246,23 @@ public class WaveLog {
         }
     }
 
+    private static final class KernelEvaluation {
+        final double[] signalKernels;
+        final double[] totalKernels;
+        final double signalSum;
+        final double totalSum;
+
+        KernelEvaluation(double[] signalKernels,
+                         double[] totalKernels,
+                         double signalSum,
+                         double totalSum) {
+            this.signalKernels = signalKernels;
+            this.totalKernels = totalKernels;
+            this.signalSum = signalSum;
+            this.totalSum = totalSum;
+        }
+    }
+
     static final class SegmentLog {
         final String label;
         final ModelSpec defaultModel;
@@ -233,6 +270,8 @@ public class WaveLog {
         KdTree<DataPoint> log = new KdTree<DataPoint>(CONTEXT_DIMENSIONS);
         final List<DataPoint> currentBattleSamples = new ArrayList<>();
         final double[] contextDistanceWeights = new double[CONTEXT_DIMENSIONS];
+        final double[] featureBiases = new double[CONTEXT_DIMENSIONS];
+        final double[] featureExponents = new double[CONTEXT_DIMENSIONS];
         final double[] kdTreeDistanceWeights = new double[CONTEXT_DIMENSIONS];
         final WeightedSquareEuclideanDistanceFunction distanceFunction =
                 new WeightedSquareEuclideanDistanceFunction(kdTreeDistanceWeights);
@@ -254,28 +293,72 @@ public class WaveLog {
         }
 
         void resetModelToDefault() {
-            applyModel(defaultModel.contextDistanceWeights, defaultModel.kdeBandwidth, defaultModel.contextWeightSigma);
+            applyModel(defaultModel);
         }
 
-        private void applyModel(double[] weights, double kdeBandwidth, double contextWeightSigma) {
+        void applyModel(ModelSpec model) {
+            if (model == null) {
+                throw new IllegalArgumentException("Segment model must be non-null");
+            }
+            applyModel(
+                    model.contextDistanceWeights,
+                    model.kdeBandwidth,
+                    model.contextWeightSigma,
+                    model.featureBiases,
+                    model.featureExponents);
+        }
+
+        void applyModel(double[] weights,
+                        double kdeBandwidth,
+                        double contextWeightSigma,
+                        double[] featureBiases,
+                        double[] featureExponents) {
             if (weights == null || weights.length != CONTEXT_DIMENSIONS) {
                 throw new IllegalArgumentException("Segment weights must match context dimension count");
+            }
+            if (featureBiases == null || featureBiases.length != CONTEXT_DIMENSIONS) {
+                throw new IllegalArgumentException("Segment feature biases must match context dimension count");
+            }
+            if (featureExponents == null || featureExponents.length != CONTEXT_DIMENSIONS) {
+                throw new IllegalArgumentException("Segment feature exponents must match context dimension count");
             }
             for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
                 double weight = weights[i];
                 contextDistanceWeights[i] = Double.isFinite(weight) && weight > 0.0 ? weight : 0.0;
             }
-            normalizeWeightMass(contextDistanceWeights, defaultWeightMass);
+            if (!normalizeWeightMass(contextDistanceWeights, defaultWeightMass)) {
+                System.arraycopy(defaultModel.contextDistanceWeights, 0, contextDistanceWeights, 0, CONTEXT_DIMENSIONS);
+            }
+            for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+                double bias = featureBiases[i];
+                double exponent = featureExponents[i];
+                this.featureBiases[i] = clamp(
+                        Double.isFinite(bias) ? bias : defaultModel.featureBiases[i],
+                        MIN_FEATURE_BIAS,
+                        MAX_FEATURE_BIAS);
+                this.featureExponents[i] = clamp(
+                        Double.isFinite(exponent) ? exponent : defaultModel.featureExponents[i],
+                        MIN_FEATURE_EXPONENT,
+                        MAX_FEATURE_EXPONENT);
+            }
             syncDistanceFunctionWeights();
             this.kdeBandwidth = clamp(
                     kdeBandwidth,
                     BotConfig.Learning.MIN_KDE_BANDWIDTH,
                     BotConfig.Learning.MAX_KDE_BANDWIDTH);
-            this.contextWeightSigma =
-                    clamp(
-                            contextWeightSigma,
-                            BotConfig.Learning.MIN_CONTEXT_WEIGHT_SIGMA,
-                            BotConfig.Learning.MAX_CONTEXT_WEIGHT_SIGMA);
+            this.contextWeightSigma = clamp(
+                    contextWeightSigma,
+                    BotConfig.Learning.MIN_CONTEXT_WEIGHT_SIGMA,
+                    BotConfig.Learning.MAX_CONTEXT_WEIGHT_SIGMA);
+        }
+
+        void rebuildIndex() {
+            KdTree<DataPoint> rebuilt = new KdTree<DataPoint>(CONTEXT_DIMENSIONS);
+            for (DataPoint dataPoint : currentBattleSamples) {
+                dataPoint.contextPoint = createEmbeddedContextPoint(this, dataPoint.normalizedContextPoint);
+                rebuilt.addPoint(dataPoint.contextPoint, dataPoint);
+            }
+            log = rebuilt;
         }
 
         private void syncDistanceFunctionWeights() {
@@ -299,7 +382,7 @@ public class WaveLog {
                                       double gfMin,
                                       double gfMax,
                                       boolean saveObservation) {
-        logResult(gunSegment, context, gfMin, gfMax, saveObservation);
+        logResult(gunSegment, context, gfMin, gfMax, saveObservation, false, null);
     }
 
     public static void logGunInterval(WaveContextFeatures.WaveContext context,
@@ -307,7 +390,7 @@ public class WaveLog {
                                       double gfMax,
                                       boolean saveObservation,
                                       boolean updateModel) {
-        logGunInterval(context, gfMin, gfMax, saveObservation);
+        logResult(gunSegment, context, gfMin, gfMax, saveObservation, updateModel, null);
     }
 
     public static void logMovementResult(WaveContextFeatures.WaveContext context, double gf) {
@@ -317,56 +400,80 @@ public class WaveLog {
     public static void logMovementResult(WaveContextFeatures.WaveContext context,
                                          double gf,
                                          boolean saveObservation) {
-        logResult(movementSegment, context, gf, gf, saveObservation);
+        logMovementResult(context, gf, saveObservation, false, true);
     }
 
     public static void logMovementResult(WaveContextFeatures.WaveContext context,
                                          double gf,
                                          boolean saveObservation,
                                          boolean updateModel) {
-        logMovementResult(context, gf, saveObservation);
+        logMovementResult(context, gf, saveObservation, updateModel, true);
     }
 
-    /**
-     * Creates a gun distribution (how the opponent moves) for the given firing context,
-     * or null if no data is available.
-     */
+    public static void logMovementResult(WaveContextFeatures.WaveContext context,
+                                         double gf,
+                                         boolean saveObservation,
+                                         boolean updateModel,
+                                         boolean actualBulletObservation) {
+        logResult(
+                movementSegment,
+                context,
+                gf,
+                gf,
+                saveObservation,
+                updateModel,
+                Boolean.valueOf(actualBulletObservation));
+    }
+
     public static GuessFactorDistribution createGunDistribution(WaveContextFeatures.WaveContext context) {
         if (gunSegment.log.size() < BotConfig.Learning.MIN_TARGETING_SAMPLE_COUNT) {
             return null;
         }
-        return createDistribution(gunSegment, context);
+        return createDistribution(gunSegment, context, null);
     }
 
-    /**
-     * Creates a movement distribution (how the opponent aims) for the given firing context,
-     * or null if no data is available.
-     */
     public static GuessFactorDistribution createMovementDistribution(WaveContextFeatures.WaveContext context) {
         if (movementSegment.log.size() < BotConfig.Learning.MIN_MOVEMENT_SAMPLE_COUNT) {
             return null;
         }
-        return createDistribution(movementSegment, context);
+        return createDistribution(movementSegment, context, Boolean.TRUE);
     }
 
     private static void logResult(SegmentLog segment,
                                   WaveContextFeatures.WaveContext context,
                                   double gfMin,
                                   double gfMax,
-                                  boolean saveObservation) {
+                                  boolean saveObservation,
+                                  boolean updateModel,
+                                  Boolean didHitOverride) {
         if (!Double.isFinite(gfMin) || !Double.isFinite(gfMax) || gfMin > gfMax) {
             throw new IllegalArgumentException("Wave-log result requires ordered finite GF bounds");
         }
-        double[] contextPoint = createContextPoint(segment, context);
+        double[] normalizedContextPoint = createNormalizedContextPoint(context, didHitOverride);
         double[] canonicalGfRange = canonicalizeGuessFactorRange(gfMin, gfMax, context.momentumDirectionSign);
         double canonicalGfMin = canonicalGfRange[0];
         double canonicalGfMax = canonicalGfRange[1];
-        DataPoint dataPoint = new DataPoint(contextPoint, canonicalGfMin, canonicalGfMax);
+        if (updateModel) {
+            updateModelFromObservation(segment, normalizedContextPoint, canonicalGfMin, canonicalGfMax);
+        }
+        addDataPoint(
+                segment,
+                new DataPoint(
+                        normalizedContextPoint,
+                        createEmbeddedContextPoint(segment, normalizedContextPoint),
+                        canonicalGfMin,
+                        canonicalGfMax),
+                saveObservation);
+    }
+
+    private static void addDataPoint(SegmentLog segment,
+                                     DataPoint dataPoint,
+                                     boolean saveObservation) {
         String source = BotConfig.Debug.ENABLE_TRACE_SOURCE_CAPTURE ? inferLogSource() : "disabled";
         int sizeBefore = segment.log.size();
         addTrace("before", segment.label, source, sizeBefore);
         try {
-            segment.log.addPoint(contextPoint, dataPoint);
+            segment.log.addPoint(dataPoint.contextPoint, dataPoint);
         } catch (ArrayIndexOutOfBoundsException e) {
             return;
         } catch (RuntimeException e) {
@@ -380,6 +487,309 @@ public class WaveLog {
         }
         addTrace("after", segment.label, source, segment.log.size());
         segment.currentBattleSamples.add(dataPoint);
+    }
+
+    private static boolean updateModelFromObservation(SegmentLog segment,
+                                                      double[] normalizedQueryPoint,
+                                                      double observationGfMin,
+                                                      double observationGfMax) {
+        if (segment == null || normalizedQueryPoint == null || segment.log.size() <= 0) {
+            return false;
+        }
+        double[] queryPoint = createEmbeddedContextPoint(segment, normalizedQueryPoint);
+        NeighborSelection selection = selectNeighbors(
+                segment,
+                queryPoint,
+                candidateCountForLogSize(segment.log.size()));
+        if (selection == null) {
+            return false;
+        }
+        KernelEvaluation kernelEvaluation = evaluateKernels(
+                segment,
+                selection,
+                observationGfMin,
+                observationGfMax,
+                segment.kdeBandwidth);
+        if (!(kernelEvaluation.signalSum > PROBABILITY_EPSILON)
+                || !(kernelEvaluation.totalSum > PROBABILITY_EPSILON)) {
+            return false;
+        }
+
+        double inverseSignalSum = 1.0 / Math.max(PROBABILITY_EPSILON, kernelEvaluation.signalSum);
+        double inverseTotalSum = 1.0 / Math.max(PROBABILITY_EPSILON, kernelEvaluation.totalSum);
+        double sigma = segment.contextWeightSigma;
+        double sigmaSq = sigma * sigma;
+        double[] queryBiasDerivatives = new double[CONTEXT_DIMENSIONS];
+        double[] queryExponentDerivatives = new double[CONTEXT_DIMENSIONS];
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            queryBiasDerivatives[i] = transformFeatureDerivativeBias(
+                    normalizedQueryPoint[i],
+                    segment.featureBiases[i],
+                    segment.featureExponents[i]);
+            queryExponentDerivatives[i] = transformFeatureDerivativeExponent(
+                    normalizedQueryPoint[i],
+                    segment.featureBiases[i],
+                    segment.featureExponents[i]);
+        }
+
+        double[] weightGradients = new double[CONTEXT_DIMENSIONS];
+        double[] biasGradients = new double[CONTEXT_DIMENSIONS];
+        double[] exponentGradients = new double[CONTEXT_DIMENSIONS];
+        double logSigmaGradient = 0.0;
+
+        for (int sampleIndex = 0; sampleIndex < selection.candidatePool.length; sampleIndex++) {
+            DataPoint candidate = selection.candidatePool[sampleIndex];
+            double contextWeight = selection.weights[sampleIndex];
+            if (!(contextWeight > PROBABILITY_EPSILON)) {
+                continue;
+            }
+            double signalKernel = kernelEvaluation.signalKernels[sampleIndex];
+            double totalKernel = kernelEvaluation.totalKernels[sampleIndex];
+            double weightedDistance = weightedSquaredDistance(
+                    candidate.contextPoint,
+                    queryPoint,
+                    segment.contextDistanceWeights);
+            double sigmaWeightGradientFactor = contextWeight / sigmaSq;
+            for (int featureIndex = 0; featureIndex < CONTEXT_DIMENSIONS; featureIndex++) {
+                double diff = candidate.contextPoint[featureIndex] - queryPoint[featureIndex];
+                double diffSq = diff * diff;
+                double sharedContextGradient =
+                        totalKernel * inverseTotalSum - signalKernel * inverseSignalSum;
+                weightGradients[featureIndex] +=
+                        sharedContextGradient * sigmaWeightGradientFactor * (-0.5 * diffSq);
+
+                double candidateBiasDerivative = transformFeatureDerivativeBias(
+                        candidate.normalizedContextPoint[featureIndex],
+                        segment.featureBiases[featureIndex],
+                        segment.featureExponents[featureIndex]);
+                double distanceBiasDerivative =
+                        2.0
+                                * segment.contextDistanceWeights[featureIndex]
+                                * diff
+                                * (candidateBiasDerivative - queryBiasDerivatives[featureIndex]);
+                biasGradients[featureIndex] +=
+                        sharedContextGradient
+                                * sigmaWeightGradientFactor
+                                * (-0.5 * distanceBiasDerivative);
+
+                double candidateExponentDerivative = transformFeatureDerivativeExponent(
+                        candidate.normalizedContextPoint[featureIndex],
+                        segment.featureBiases[featureIndex],
+                        segment.featureExponents[featureIndex]);
+                double distanceExponentDerivative =
+                        2.0
+                                * segment.contextDistanceWeights[featureIndex]
+                                * diff
+                                * (candidateExponentDerivative - queryExponentDerivatives[featureIndex]);
+                exponentGradients[featureIndex] +=
+                        sharedContextGradient
+                                * sigmaWeightGradientFactor
+                                * (-0.5 * distanceExponentDerivative);
+            }
+            logSigmaGradient +=
+                    (totalKernel * inverseTotalSum - signalKernel * inverseSignalSum)
+                            * contextWeight
+                            * weightedDistance
+                            / sigmaSq;
+        }
+
+        double logBandwidthGradient = finiteDifferenceLogBandwidthGradient(
+                segment,
+                selection,
+                observationGfMin,
+                observationGfMax,
+                kernelEvaluation.signalSum,
+                kernelEvaluation.totalSum);
+
+        boolean changed = applyLearningStep(
+                segment,
+                weightGradients,
+                biasGradients,
+                exponentGradients,
+                logBandwidthGradient,
+                logSigmaGradient);
+        if (changed) {
+            segment.rebuildIndex();
+            currentBattleModelUpdated = true;
+        }
+        return changed;
+    }
+
+    private static boolean applyLearningStep(SegmentLog segment,
+                                             double[] weightGradients,
+                                             double[] biasGradients,
+                                             double[] exponentGradients,
+                                             double logBandwidthGradient,
+                                             double logSigmaGradient) {
+        double[] previousWeights = segment.contextDistanceWeights.clone();
+        double[] previousBiases = segment.featureBiases.clone();
+        double[] previousExponents = segment.featureExponents.clone();
+        double previousBandwidth = segment.kdeBandwidth;
+        double previousSigma = segment.contextWeightSigma;
+
+        double[] updatedWeights = previousWeights.clone();
+        double[] updatedBiases = previousBiases.clone();
+        double[] updatedExponents = previousExponents.clone();
+
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            updatedWeights[i] -= BotConfig.Learning.WEIGHT_LEARNING_RATE
+                    * clipGradient(weightGradients[i], BotConfig.Learning.WEIGHT_GRADIENT_CLIP);
+            updatedWeights[i] += BotConfig.Learning.MODEL_DEFAULT_PULL_RATE
+                    * (segment.defaultModel.contextDistanceWeights[i] - updatedWeights[i]);
+            if (!(updatedWeights[i] > WEIGHT_ZERO_EPSILON)) {
+                updatedWeights[i] = 0.0;
+            }
+
+            updatedBiases[i] -= BotConfig.Learning.BIAS_LEARNING_RATE
+                    * clipGradient(biasGradients[i], BotConfig.Learning.WEIGHT_GRADIENT_CLIP);
+            updatedBiases[i] += BotConfig.Learning.MODEL_DEFAULT_PULL_RATE
+                    * (segment.defaultModel.featureBiases[i] - updatedBiases[i]);
+            updatedBiases[i] = clamp(updatedBiases[i], MIN_FEATURE_BIAS, MAX_FEATURE_BIAS);
+
+            updatedExponents[i] -= BotConfig.Learning.EXPONENT_LEARNING_RATE
+                    * clipGradient(exponentGradients[i], BotConfig.Learning.WEIGHT_GRADIENT_CLIP);
+            updatedExponents[i] += BotConfig.Learning.MODEL_DEFAULT_PULL_RATE
+                    * (segment.defaultModel.featureExponents[i] - updatedExponents[i]);
+            updatedExponents[i] = clamp(updatedExponents[i], MIN_FEATURE_EXPONENT, MAX_FEATURE_EXPONENT);
+        }
+        if (!normalizeWeightMass(updatedWeights, segment.defaultWeightMass)) {
+            System.arraycopy(previousWeights, 0, updatedWeights, 0, CONTEXT_DIMENSIONS);
+        }
+
+        double updatedLogBandwidth = Math.log(segment.kdeBandwidth);
+        updatedLogBandwidth -= BotConfig.Learning.LOG_PARAMETER_LEARNING_RATE
+                * clipGradient(logBandwidthGradient, BotConfig.Learning.LOG_PARAMETER_GRADIENT_CLIP);
+        updatedLogBandwidth += BotConfig.Learning.MODEL_DEFAULT_PULL_RATE
+                * (Math.log(segment.defaultModel.kdeBandwidth) - updatedLogBandwidth);
+        double updatedBandwidth = clamp(
+                Math.exp(updatedLogBandwidth),
+                BotConfig.Learning.MIN_KDE_BANDWIDTH,
+                BotConfig.Learning.MAX_KDE_BANDWIDTH);
+
+        double updatedLogSigma = Math.log(segment.contextWeightSigma);
+        updatedLogSigma -= BotConfig.Learning.LOG_PARAMETER_LEARNING_RATE
+                * clipGradient(logSigmaGradient, BotConfig.Learning.LOG_PARAMETER_GRADIENT_CLIP);
+        updatedLogSigma += BotConfig.Learning.MODEL_DEFAULT_PULL_RATE
+                * (Math.log(segment.defaultModel.contextWeightSigma) - updatedLogSigma);
+        double updatedSigma = clamp(
+                Math.exp(updatedLogSigma),
+                BotConfig.Learning.MIN_CONTEXT_WEIGHT_SIGMA,
+                BotConfig.Learning.MAX_CONTEXT_WEIGHT_SIGMA);
+
+        segment.applyModel(
+                updatedWeights,
+                updatedBandwidth,
+                updatedSigma,
+                updatedBiases,
+                updatedExponents);
+
+        if (!nearlyEqual(previousBandwidth, segment.kdeBandwidth)
+                || !nearlyEqual(previousSigma, segment.contextWeightSigma)) {
+            return true;
+        }
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            if (!nearlyEqual(previousWeights[i], segment.contextDistanceWeights[i])
+                    || !nearlyEqual(previousBiases[i], segment.featureBiases[i])
+                    || !nearlyEqual(previousExponents[i], segment.featureExponents[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static double finiteDifferenceLogBandwidthGradient(SegmentLog segment,
+                                                               NeighborSelection selection,
+                                                               double observationGfMin,
+                                                               double observationGfMax,
+                                                               double currentSignalSum,
+                                                               double currentTotalSum) {
+        double plusBandwidth = clamp(
+                segment.kdeBandwidth * Math.exp(BANDWIDTH_FINITE_DIFFERENCE_LOG_DELTA),
+                BotConfig.Learning.MIN_KDE_BANDWIDTH,
+                BotConfig.Learning.MAX_KDE_BANDWIDTH);
+        double minusBandwidth = clamp(
+                segment.kdeBandwidth * Math.exp(-BANDWIDTH_FINITE_DIFFERENCE_LOG_DELTA),
+                BotConfig.Learning.MIN_KDE_BANDWIDTH,
+                BotConfig.Learning.MAX_KDE_BANDWIDTH);
+        if (!(plusBandwidth > 0.0) || !(minusBandwidth > 0.0) || nearlyEqual(plusBandwidth, minusBandwidth)) {
+            return 0.0;
+        }
+        double logDelta = Math.log(plusBandwidth) - Math.log(minusBandwidth);
+        if (!(Math.abs(logDelta) > MODEL_EPSILON)) {
+            return 0.0;
+        }
+        KernelEvaluation plusEvaluation = evaluateKernels(
+                segment,
+                selection,
+                observationGfMin,
+                observationGfMax,
+                plusBandwidth);
+        KernelEvaluation minusEvaluation = evaluateKernels(
+                segment,
+                selection,
+                observationGfMin,
+                observationGfMax,
+                minusBandwidth);
+        double signalDerivative = (plusEvaluation.signalSum - minusEvaluation.signalSum) / logDelta;
+        double totalDerivative = (plusEvaluation.totalSum - minusEvaluation.totalSum) / logDelta;
+        return totalDerivative / Math.max(PROBABILITY_EPSILON, currentTotalSum)
+                - signalDerivative / Math.max(PROBABILITY_EPSILON, currentSignalSum);
+    }
+
+    private static KernelEvaluation evaluateKernels(SegmentLog segment,
+                                                    NeighborSelection selection,
+                                                    double observationGfMin,
+                                                    double observationGfMax,
+                                                    double bandwidth) {
+        double[] signalKernels = new double[selection.candidatePool.length];
+        double[] totalKernels = new double[selection.candidatePool.length];
+        double signalSum = 0.0;
+        double totalSum = 0.0;
+        for (int i = 0; i < selection.candidatePool.length; i++) {
+            DataPoint candidate = selection.candidatePool[i];
+            double signalKernel = observationKernel(
+                    segment,
+                    candidate,
+                    observationGfMin,
+                    observationGfMax,
+                    bandwidth);
+            double totalKernel = totalKernelMass(segment, candidate, bandwidth);
+            signalKernels[i] = signalKernel;
+            totalKernels[i] = totalKernel;
+            signalSum += selection.weights[i] * signalKernel;
+            totalSum += selection.weights[i] * totalKernel;
+        }
+        return new KernelEvaluation(signalKernels, totalKernels, signalSum, totalSum);
+    }
+
+    private static double observationKernel(SegmentLog segment,
+                                            DataPoint candidate,
+                                            double observationGfMin,
+                                            double observationGfMax,
+                                            double bandwidth) {
+        if (segment.intervalSamples) {
+            return intervalKernelIntegral(
+                    observationGfMin,
+                    observationGfMax,
+                    candidate.gfMin,
+                    candidate.gfMax,
+                    bandwidth);
+        }
+        double clampedMin = Math.max(MIN_GF, observationGfMin);
+        double clampedMax = Math.min(MAX_GF, observationGfMax);
+        if (clampedMax - clampedMin > MIN_INTERVAL_WIDTH) {
+            return MathUtils.gaussianIntegral(clampedMin, clampedMax, candidate.gfMin, bandwidth);
+        }
+        return MathUtils.gaussian(observationGfMin, candidate.gfMin, bandwidth);
+    }
+
+    private static double totalKernelMass(SegmentLog segment,
+                                          DataPoint candidate,
+                                          double bandwidth) {
+        if (segment.intervalSamples) {
+            return intervalKernelIntegral(MIN_GF, MAX_GF, candidate.gfMin, candidate.gfMax, bandwidth);
+        }
+        return MathUtils.gaussianIntegral(MIN_GF, MAX_GF, candidate.gfMin, bandwidth);
     }
 
     private static int safeTreeSize(SegmentLog segment) {
@@ -454,6 +864,9 @@ public class WaveLog {
                 if ("logEnemyWaveMovementResultForBearing".equals(method)) {
                     return "enemyWaveHit";
                 }
+                if ("logEnemyWaveMovementPassResult".equals(method)) {
+                    return "enemyWavePass";
+                }
                 return "WaveManager." + method;
             }
         }
@@ -467,12 +880,13 @@ public class WaveLog {
     }
 
     private static GuessFactorDistribution createDistribution(SegmentLog segment,
-                                                              WaveContextFeatures.WaveContext context) {
-        int candidateCount = candidateCountForLogSize(segment.log.size());
+                                                              WaveContextFeatures.WaveContext context,
+                                                              Boolean didHitOverride) {
+        double[] normalizedQueryPoint = createNormalizedContextPoint(context, didHitOverride);
         NeighborSelection selection = selectNeighbors(
                 segment,
-                createUncheckedContextPoint(segment, context),
-                candidateCount);
+                createEmbeddedContextPoint(segment, normalizedQueryPoint),
+                candidateCountForLogSize(segment.log.size()));
         if (selection == null) {
             return null;
         }
@@ -492,7 +906,7 @@ public class WaveLog {
         if (logSize <= 0) {
             return 0;
         }
-        return Math.min(MODEL_CANDIDATE_POOL, Math.max(1, logSize / 5));
+        return Math.min(MODEL_CANDIDATE_POOL, logSize);
     }
 
     private static NeighborSelection selectNeighbors(SegmentLog segment,
@@ -596,11 +1010,61 @@ public class WaveLog {
         return Math.exp(-0.5 * z * z) / SQRT_2PI;
     }
 
-    private static double[] createContextPoint(SegmentLog segment,
-                                               WaveContextFeatures.WaveContext context) {
+    private static double[] createNormalizedContextPoint(WaveContextFeatures.WaveContext context) {
+        return createNormalizedContextPoint(context, null);
+    }
+
+    private static double[] createNormalizedContextPoint(WaveContextFeatures.WaveContext context,
+                                                         Boolean didHitOverride) {
+        validateContext(context);
+        double[] normalized = new double[CONTEXT_DIMENSIONS];
+        normalized[FEATURE_POWER] = normalizePower(context.bulletSpeed);
+        normalized[FEATURE_BFT] = normalizeFlightTicks(context.flightTicks);
+        normalized[FEATURE_ACCEL] = normalizeVelocityDelta(context.targetVelocityDelta);
+        normalized[FEATURE_VEL_ABS] = normalizeAbsoluteVelocity(context.absoluteVelocity);
+        normalized[FEATURE_VEL_MAX] = normalizeBoolean(context.absoluteVelocity > 7.9);
+        normalized[FEATURE_LAT_VEL] = normalizeAbsoluteVelocity(context.lateralVelocity);
+        normalized[FEATURE_ADV_VEL] = normalizeSignedVelocity(context.advancingVelocity);
+        normalized[FEATURE_REVERSAL] = normalizeRelativeTicks(
+                context.ticksSinceVelocityReversal,
+                context.flightTicks);
+        normalized[FEATURE_DECEL] = normalizeRelativeTicks(context.ticksSinceDecel, context.flightTicks);
+        normalized[FEATURE_DIST10] = normalizeDistance(context.distanceLast10, DISTANCE_LAST_10_SCALE);
+        normalized[FEATURE_DIST20] = normalizeDistance(context.distanceLast20, DISTANCE_LAST_20_SCALE);
+        normalized[FEATURE_RELATIVE_HEADING] = normalizeRelativeHeading(context.relativeHeading);
+        normalized[FEATURE_MAE_WALL_AHEAD] = clamp(context.wallAhead, 0.0, 1.0);
+        normalized[FEATURE_MAE_WALL_REVERSE] = clamp(context.wallReverse, 0.0, 1.0);
+        normalized[FEATURE_STICK_WALL_AHEAD] = clamp(context.stickWallAhead, 0.0, 1.0);
+        normalized[FEATURE_STICK_WALL_REVERSE] = clamp(context.stickWallReverse, 0.0, 1.0);
+        normalized[FEATURE_STICK_WALL_AHEAD2] = clamp(context.stickWallAhead2, 0.0, 1.0);
+        normalized[FEATURE_STICK_WALL_REVERSE2] = clamp(context.stickWallReverse2, 0.0, 1.0);
+        normalized[FEATURE_CURRENT_GF] = normalizeGuessFactor(
+                canonicalizeGuessFactor(context.currentGF, context.momentumDirectionSign));
+        normalized[FEATURE_DID_HIT] = normalizeBoolean(
+                didHitOverride != null ? didHitOverride.booleanValue() : context.didHit);
+        normalized[FEATURE_BATTLE_TIME] = normalizeBattleTime(context.battleTime);
+        return normalized;
+    }
+
+    private static double[] createEmbeddedContextPoint(SegmentLog segment,
+                                                       double[] normalizedContextPoint) {
         if (segment == null) {
             throw new IllegalArgumentException("Wave-log segment must be non-null");
         }
+        if (normalizedContextPoint == null || normalizedContextPoint.length != CONTEXT_DIMENSIONS) {
+            throw new IllegalArgumentException("Wave-log normalized context must match context dimension count");
+        }
+        double[] transformed = new double[CONTEXT_DIMENSIONS];
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            transformed[i] = transformFeature(
+                    normalizedContextPoint[i],
+                    segment.featureBiases[i],
+                    segment.featureExponents[i]);
+        }
+        return transformed;
+    }
+
+    private static void validateContext(WaveContextFeatures.WaveContext context) {
         if (context == null) {
             throw new IllegalArgumentException("Wave-log context must be non-null");
         }
@@ -652,45 +1116,6 @@ public class WaveLog {
         if (WaveContextFeatures.normalizeDirectionSign(context.momentumDirectionSign) == 0) {
             throw new IllegalArgumentException("Wave-log point requires a non-zero momentum direction sign");
         }
-        return createUncheckedContextPoint(segment, context);
-    }
-
-    private static double[] createUncheckedContextPoint(SegmentLog segment,
-                                                        WaveContextFeatures.WaveContext context) {
-        double[] normalized = new double[CONTEXT_DIMENSIONS];
-        normalized[FEATURE_POWER] = normalizePower(context.bulletSpeed);
-        normalized[FEATURE_BFT] = normalizeFlightTicks(context.flightTicks);
-        normalized[FEATURE_ACCEL] = normalizeVelocityDelta(context.targetVelocityDelta);
-        normalized[FEATURE_VEL_ABS] = normalizeAbsoluteVelocity(context.absoluteVelocity);
-        normalized[FEATURE_VEL_MAX] = normalizeBoolean(context.absoluteVelocity > 7.9);
-        normalized[FEATURE_LAT_VEL] = normalizeAbsoluteVelocity(context.lateralVelocity);
-        normalized[FEATURE_ADV_VEL] = normalizeSignedVelocity(context.advancingVelocity);
-        normalized[FEATURE_REVERSAL] = normalizeRelativeTicks(
-                context.ticksSinceVelocityReversal,
-                context.flightTicks);
-        normalized[FEATURE_DECEL] = normalizeRelativeTicks(context.ticksSinceDecel, context.flightTicks);
-        normalized[FEATURE_DIST10] = normalizeDistance(context.distanceLast10, DISTANCE_LAST_10_SCALE);
-        normalized[FEATURE_DIST20] = normalizeDistance(context.distanceLast20, DISTANCE_LAST_20_SCALE);
-        normalized[FEATURE_RELATIVE_HEADING] = normalizeRelativeHeading(context.relativeHeading);
-        normalized[FEATURE_MAE_WALL_AHEAD] = clamp(context.wallAhead, 0.0, 1.0);
-        normalized[FEATURE_MAE_WALL_REVERSE] = clamp(context.wallReverse, 0.0, 1.0);
-        normalized[FEATURE_STICK_WALL_AHEAD] = clamp(context.stickWallAhead, 0.0, 1.0);
-        normalized[FEATURE_STICK_WALL_REVERSE] = clamp(context.stickWallReverse, 0.0, 1.0);
-        normalized[FEATURE_STICK_WALL_AHEAD2] = clamp(context.stickWallAhead2, 0.0, 1.0);
-        normalized[FEATURE_STICK_WALL_REVERSE2] = clamp(context.stickWallReverse2, 0.0, 1.0);
-        normalized[FEATURE_CURRENT_GF] = normalizeGuessFactor(
-                canonicalizeGuessFactor(context.currentGF, context.momentumDirectionSign));
-        normalized[FEATURE_DID_HIT] = normalizeBoolean(context.didHit);
-        normalized[FEATURE_BATTLE_TIME] = normalizeBattleTime(context.battleTime);
-
-        double[] transformed = new double[CONTEXT_DIMENSIONS];
-        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
-            transformed[i] = transformFeature(
-                    normalized[i],
-                    segment.defaultModel.featureBiases[i],
-                    segment.defaultModel.featureExponents[i]);
-        }
-        return transformed;
     }
 
     private static double normalizePower(double bulletSpeed) {
@@ -737,7 +1162,22 @@ public class WaveLog {
     }
 
     private static double transformFeature(double value, double bias, double exponent) {
-        return Math.pow(FEATURE_TRANSFORM_EPSILON + bias + clamp(value, 0.0, 1.0), exponent);
+        double clampedValue = clamp(value, 0.0, 1.0);
+        double base = Math.max(FEATURE_TRANSFORM_EPSILON, FEATURE_TRANSFORM_EPSILON + bias + clampedValue);
+        return Math.pow(base, exponent);
+    }
+
+    private static double transformFeatureDerivativeBias(double value, double bias, double exponent) {
+        double clampedValue = clamp(value, 0.0, 1.0);
+        double base = Math.max(FEATURE_TRANSFORM_EPSILON, FEATURE_TRANSFORM_EPSILON + bias + clampedValue);
+        return exponent * Math.pow(base, exponent - 1.0);
+    }
+
+    private static double transformFeatureDerivativeExponent(double value, double bias, double exponent) {
+        double transformed = transformFeature(value, bias, exponent);
+        double clampedValue = clamp(value, 0.0, 1.0);
+        double base = Math.max(FEATURE_TRANSFORM_EPSILON, FEATURE_TRANSFORM_EPSILON + bias + clampedValue);
+        return transformed * Math.log(base);
     }
 
     private static double normalizeGuessFactor(double guessFactor) {
@@ -759,13 +1199,195 @@ public class WaveLog {
         return WaveContextFeatures.normalizeDirectionSign(lateralDirectionSign) < 0;
     }
 
+    private static double clipGradient(double value, double clip) {
+        return clamp(value, -clip, clip);
+    }
+
     private static double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
     }
 
+    public static void startBattlePersistence() {
+        persistedSectionLoaded = false;
+        currentBattleModelUpdated = false;
+        persistedTargetingModel = null;
+        persistedMovementModel = null;
+        gunSegment.resetModelToDefault();
+        movementSegment.resetModelToDefault();
+    }
+
     public static void startBattle() {
+        currentBattleModelUpdated = false;
         gunSegment.resetBattleState();
         movementSegment.resetBattleState();
+    }
+
+    public static int persistenceSectionVersion() {
+        return PERSISTENCE_SECTION_VERSION;
+    }
+
+    public static void loadPersistedSection(int sectionVersion, byte[] payload) {
+        if (payload == null) {
+            return;
+        }
+        if (sectionVersion != PERSISTENCE_SECTION_VERSION) {
+            throw new IllegalStateException("Unsupported wave-model section version " + sectionVersion);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
+            ModelSpec targetingModel = readPersistedModel(in, DEFAULT_TARGETING_MODEL);
+            ModelSpec movementModel = readPersistedModel(in, DEFAULT_MOVEMENT_MODEL);
+            if (in.available() != 0) {
+                throw new IllegalStateException("Wave-model payload contained trailing bytes");
+            }
+            persistedTargetingModel = targetingModel;
+            persistedMovementModel = movementModel;
+            persistedSectionLoaded = true;
+            gunSegment.applyModel(targetingModel);
+            movementSegment.applyModel(movementModel);
+            if (!gunSegment.currentBattleSamples.isEmpty()) {
+                gunSegment.rebuildIndex();
+            }
+            if (!movementSegment.currentBattleSamples.isEmpty()) {
+                movementSegment.rebuildIndex();
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Unreadable wave-model payload", e);
+        }
+    }
+
+    public static boolean hasPersistedSectionData() {
+        return persistedSectionLoaded || currentBattleModelUpdated;
+    }
+
+    public static byte[] createPersistedSectionPayload(int maxPayloadBytes,
+                                                       boolean includeCurrentBattleData) {
+        ModelSpec targetingModel;
+        ModelSpec movementModel;
+        if (includeCurrentBattleData) {
+            if (!persistedSectionLoaded && !currentBattleModelUpdated) {
+                return null;
+            }
+            targetingModel = copyCurrentModel(gunSegment);
+            movementModel = copyCurrentModel(movementSegment);
+        } else {
+            if (!persistedSectionLoaded || persistedTargetingModel == null || persistedMovementModel == null) {
+                return null;
+            }
+            targetingModel = persistedTargetingModel;
+            movementModel = persistedMovementModel;
+        }
+        try (ByteArrayOutputStream raw = new ByteArrayOutputStream();
+             DataOutputStream out = new DataOutputStream(raw)) {
+            writePersistedModel(out, targetingModel);
+            writePersistedModel(out, movementModel);
+            out.flush();
+            byte[] payload = raw.toByteArray();
+            if (payload.length > maxPayloadBytes) {
+                throw new IllegalStateException(
+                        "Insufficient data quota to save wave-model payload: required="
+                                + payload.length + " bytes, available=" + maxPayloadBytes + " bytes");
+            }
+            return payload;
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to build wave-model payload", e);
+        }
+    }
+
+    private static void writePersistedModel(DataOutputStream out,
+                                            ModelSpec model) throws IOException {
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            out.writeDouble(model.contextDistanceWeights[i]);
+        }
+        out.writeDouble(model.kdeBandwidth);
+        out.writeDouble(model.contextWeightSigma);
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            out.writeDouble(model.featureBiases[i]);
+        }
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            out.writeDouble(model.featureExponents[i]);
+        }
+    }
+
+    private static ModelSpec readPersistedModel(DataInputStream in,
+                                                ModelSpec defaultModel) throws IOException {
+        double[] weights = new double[CONTEXT_DIMENSIONS];
+        double[] biases = new double[CONTEXT_DIMENSIONS];
+        double[] exponents = new double[CONTEXT_DIMENSIONS];
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            weights[i] = in.readDouble();
+        }
+        double bandwidth = in.readDouble();
+        double sigma = in.readDouble();
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            biases[i] = in.readDouble();
+        }
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            exponents[i] = in.readDouble();
+        }
+        return sanitizeModel(defaultModel, weights, bandwidth, sigma, biases, exponents);
+    }
+
+    private static ModelSpec sanitizeModel(ModelSpec defaultModel,
+                                           double[] weights,
+                                           double kdeBandwidth,
+                                           double contextWeightSigma,
+                                           double[] biases,
+                                           double[] exponents) {
+        double[] sanitizedWeights = defaultModel.contextDistanceWeights.clone();
+        if (weights != null && weights.length == CONTEXT_DIMENSIONS) {
+            for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+                double weight = weights[i];
+                sanitizedWeights[i] = Double.isFinite(weight) && weight > 0.0 ? weight : 0.0;
+            }
+            if (!normalizeWeightMass(sanitizedWeights, sumPositiveWeights(defaultModel.contextDistanceWeights))) {
+                System.arraycopy(defaultModel.contextDistanceWeights, 0, sanitizedWeights, 0, CONTEXT_DIMENSIONS);
+            }
+        }
+
+        double[] sanitizedBiases = defaultModel.featureBiases.clone();
+        if (biases != null && biases.length == CONTEXT_DIMENSIONS) {
+            for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+                sanitizedBiases[i] = clamp(
+                        Double.isFinite(biases[i]) ? biases[i] : defaultModel.featureBiases[i],
+                        MIN_FEATURE_BIAS,
+                        MAX_FEATURE_BIAS);
+            }
+        }
+
+        double[] sanitizedExponents = defaultModel.featureExponents.clone();
+        if (exponents != null && exponents.length == CONTEXT_DIMENSIONS) {
+            for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+                sanitizedExponents[i] = clamp(
+                        Double.isFinite(exponents[i]) ? exponents[i] : defaultModel.featureExponents[i],
+                        MIN_FEATURE_EXPONENT,
+                        MAX_FEATURE_EXPONENT);
+            }
+        }
+
+        double sanitizedBandwidth = clamp(
+                Double.isFinite(kdeBandwidth) ? kdeBandwidth : defaultModel.kdeBandwidth,
+                BotConfig.Learning.MIN_KDE_BANDWIDTH,
+                BotConfig.Learning.MAX_KDE_BANDWIDTH);
+        double sanitizedSigma = clamp(
+                Double.isFinite(contextWeightSigma) ? contextWeightSigma : defaultModel.contextWeightSigma,
+                BotConfig.Learning.MIN_CONTEXT_WEIGHT_SIGMA,
+                BotConfig.Learning.MAX_CONTEXT_WEIGHT_SIGMA);
+
+        return new ModelSpec(
+                sanitizedWeights,
+                sanitizedBandwidth,
+                sanitizedSigma,
+                sanitizedBiases,
+                sanitizedExponents);
+    }
+
+    private static ModelSpec copyCurrentModel(SegmentLog segment) {
+        return new ModelSpec(
+                segment.contextDistanceWeights,
+                segment.kdeBandwidth,
+                segment.contextWeightSigma,
+                segment.featureBiases,
+                segment.featureExponents);
     }
 
     public static String getTargetingModelName() {
@@ -774,6 +1396,10 @@ public class WaveLog {
 
     public static String getTargetingModelSummary() {
         return describeModelSummary(gunSegment, DEFAULT_TARGETING_MODEL);
+    }
+
+    public static List<String> getTargetingModelDeltaLines() {
+        return describeModelDelta(gunSegment, DEFAULT_TARGETING_MODEL);
     }
 
     public static String getDefaultTargetingModelSummary() {
@@ -792,6 +1418,10 @@ public class WaveLog {
         return describeModelSummary(movementSegment, DEFAULT_MOVEMENT_MODEL);
     }
 
+    public static List<String> getMovementModelDeltaLines() {
+        return describeModelDelta(movementSegment, DEFAULT_MOVEMENT_MODEL);
+    }
+
     public static String getDefaultMovementModelSummary() {
         return describeModel(DEFAULT_MOVEMENT_MODEL);
     }
@@ -802,7 +1432,9 @@ public class WaveLog {
             return false;
         }
         for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
-            if (!nearlyEqual(segment.contextDistanceWeights[i], defaultModel.contextDistanceWeights[i])) {
+            if (!nearlyEqual(segment.contextDistanceWeights[i], defaultModel.contextDistanceWeights[i])
+                    || !nearlyEqual(segment.featureBiases[i], defaultModel.featureBiases[i])
+                    || !nearlyEqual(segment.featureExponents[i], defaultModel.featureExponents[i])) {
                 return false;
             }
         }
@@ -813,17 +1445,46 @@ public class WaveLog {
         return isDefaultModel(segment, defaultModel) ? "Default" : describeModel(segment, defaultModel);
     }
 
+    private static List<String> describeModelDelta(SegmentLog segment, ModelSpec defaultModel) {
+        List<String> lines = new ArrayList<>(CONTEXT_DIMENSIONS + 2);
+        lines.add(String.format(
+                Locale.US,
+                "%-12s d=%+.4f",
+                "bandwidth",
+                segment.kdeBandwidth - defaultModel.kdeBandwidth));
+        lines.add(String.format(
+                Locale.US,
+                "%-12s d=%+.4f",
+                "sigma",
+                segment.contextWeightSigma - defaultModel.contextWeightSigma));
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            lines.add(String.format(
+                    Locale.US,
+                    "%-12s dw=%+.4f db=%+.4f de=%+.4f",
+                    contextLabel(i),
+                    segment.contextDistanceWeights[i] - defaultModel.contextDistanceWeights[i],
+                    segment.featureBiases[i] - defaultModel.featureBiases[i],
+                    segment.featureExponents[i] - defaultModel.featureExponents[i]));
+        }
+        return lines;
+    }
+
     private static String describeModel(ModelSpec model) {
         return describeModel(
                 model.contextDistanceWeights,
+                model.featureBiases,
+                model.featureExponents,
                 model.kdeBandwidth,
                 model.contextWeightSigma,
-                true);
+                true,
+                MODEL_CANDIDATE_POOL);
     }
 
     private static String describeModel(SegmentLog segment, ModelSpec defaultModel) {
         return describeModel(
                 segment.contextDistanceWeights,
+                segment.featureBiases,
+                segment.featureExponents,
                 segment.kdeBandwidth,
                 segment.contextWeightSigma,
                 isDefaultModel(segment, defaultModel),
@@ -831,13 +1492,8 @@ public class WaveLog {
     }
 
     private static String describeModel(double[] weights,
-                                        double kdeBandwidth,
-                                        double contextWeightSigma,
-                                        boolean appendDefaultMarker) {
-        return describeModel(weights, kdeBandwidth, contextWeightSigma, appendDefaultMarker, MODEL_CANDIDATE_POOL);
-    }
-
-    private static String describeModel(double[] weights,
+                                        double[] biases,
+                                        double[] exponents,
                                         double kdeBandwidth,
                                         double contextWeightSigma,
                                         boolean appendDefaultMarker,
@@ -852,7 +1508,7 @@ public class WaveLog {
                 builder.append(' ');
             }
             builder.append(contextLabel(i)).append('=')
-                    .append(String.format(Locale.US, "%.2f", weight));
+                    .append(String.format(Locale.US, "%.2f/%.2f/%.2f", weight, biases[i], exponents[i]));
         }
         if (builder.length() == 0) {
             builder.append("allOff");

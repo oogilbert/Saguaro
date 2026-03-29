@@ -49,6 +49,15 @@ public final class ScoreMaxLearningProfile implements ObservationProfile, RoundO
     }
 
     @Override
+    public void logMovementResult(WaveContextFeatures.WaveContext context,
+                                  double gf,
+                                  boolean saveObservation,
+                                  boolean updateModel,
+                                  boolean actualBulletObservation) {
+        WaveLog.logMovementResult(context, gf, saveObservation, updateModel, actualBulletObservation);
+    }
+
+    @Override
     public GuessFactorDistribution createGunDistribution(WaveContextFeatures.WaveContext context) {
         return WaveLog.createGunDistribution(context);
     }

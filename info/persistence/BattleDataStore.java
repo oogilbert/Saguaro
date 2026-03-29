@@ -19,6 +19,7 @@ import java.util.Set;
 
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.info.state.BulletPowerHitRateTracker;
+import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.mode.ModeController;
 import oog.mega.saguaro.mode.ModeId;
 import oog.mega.saguaro.mode.ModePerformanceProfile;
@@ -307,7 +308,8 @@ public final class BattleDataStore {
     private static boolean hasAnyOpponentDataLoaded() {
         return ModePerformanceProfile.isPersistedModeStatsLoaded()
                 || BulletShieldMode.isAnyPersistedBootstrapLoaded()
-                || BulletPowerHitRateTracker.isPersistedBaselineLoaded();
+                || BulletPowerHitRateTracker.isPersistedBaselineLoaded()
+                || WaveLog.hasPersistedSectionData();
     }
 
     private Map<Integer, StoredSection> loadSections(Saguaro robot, String opponentName, File dataFile) {

@@ -249,10 +249,14 @@ public final class BotConfig {
         public static final double DEFAULT_TARGETING_KDE_BANDWIDTH = 0.36;
         // Default KDE bandwidth for movement distributions.
         public static final double DEFAULT_MOVEMENT_KDE_BANDWIDTH = 0.36;
-        // Learning rate for model feature weights in WaveLog.
-        public static final double WEIGHT_LEARNING_RATE = 0.035;
+        // Learning rate for model feature distance weights in WaveLog.
+        public static final double WEIGHT_LEARNING_RATE = 0.015;
+        // Learning rate for model feature bias terms in WaveLog.
+        public static final double BIAS_LEARNING_RATE = 0.006;
+        // Learning rate for model feature exponent terms in WaveLog.
+        public static final double EXPONENT_LEARNING_RATE = 0.004;
         // Learning rate for log-space model parameters such as bandwidth and sigma.
-        public static final double LOG_PARAMETER_LEARNING_RATE = 0.02;
+        public static final double LOG_PARAMETER_LEARNING_RATE = 0.01;
         // Pull back toward the default model each update; zero keeps the default fixed.
         public static final double MODEL_DEFAULT_PULL_RATE = 0.0;
         // Clip applied to WaveLog feature-weight gradients.

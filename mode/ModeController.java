@@ -16,6 +16,7 @@ import oog.mega.saguaro.info.persistence.BattleDataStore;
 import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.info.persistence.BulletPowerHitRateDataSet;
 import oog.mega.saguaro.info.persistence.ModePerformanceDataSet;
+import oog.mega.saguaro.info.persistence.WaveModelDataSet;
 import oog.mega.saguaro.mode.perfectprediction.PerfectPredictionMode;
 import oog.mega.saguaro.mode.perfectprediction.PrecisePredictionProfile;
 import oog.mega.saguaro.mode.scoremax.ScoreMaxMode;
@@ -69,6 +70,7 @@ public final class ModeController {
         dataStore.registerDataSet(new ShotDodgerDataSet());
         dataStore.registerDataSet(new ModePerformanceDataSet());
         dataStore.registerDataSet(new BulletPowerHitRateDataSet());
+        dataStore.registerDataSet(new WaveModelDataSet());
     }
 
     public void startBattle() {
@@ -139,6 +141,7 @@ public final class ModeController {
     public void saveCurrentBattle(Saguaro robot) {
         dataStore.requestDataSetSave(ModePerformanceDataSet.class);
         dataStore.requestDataSetSave(BulletPowerHitRateDataSet.class);
+        dataStore.requestDataSetSave(WaveModelDataSet.class);
         for (BattleMode mode : modesUsedThisBattle) {
             mode.onBattleEnded(robot);
         }
@@ -301,9 +304,14 @@ public final class ModeController {
         if (lockedMode != null) {
             return lockedMode;
         }
+        ModeId[] allModes = ModeId.values();
         ModeId[] selectableModes = selectableModes();
-        if (modeSelector.isModeDisqualified(activeModeId, selectableModes)) {
-            return modeSelector.selectMode(selectableModes);
+        if (modeSelector.isModeDisqualified(activeModeId, allModes)) {
+            ModeId forcedFallback = preferredUntestedShieldSuccessor(selectableModes);
+            if (forcedFallback != null) {
+                return forcedFallback;
+            }
+            return modeSelector.selectMode(selectableModes, allModes);
         }
         return activeModeId;
     }
@@ -313,7 +321,7 @@ public final class ModeController {
         if (lockedMode != null) {
             return lockedMode;
         }
-        return modeSelector.selectMode(selectableModes());
+        return modeSelector.selectMode(selectableModes(), ModeId.values());
     }
 
     private ModeId[] selectableModes() {
@@ -404,11 +412,51 @@ public final class ModeController {
 
     private void announceWeightsIfApplicable(ModeId modeId) {
         if (modeId == ModeId.SCORE_MAX) {
-            info.getRobot().out.println("Targeting Weights: " + WaveLog.getTargetingModelSummary());
-            info.getRobot().out.println("Movement Weights: " + WaveLog.getMovementModelSummary());
+            printWaveModelDelta("Targeting Delta:", WaveLog.getTargetingModelDeltaLines());
+            printWaveModelDelta("Movement Delta:", WaveLog.getMovementModelDeltaLines());
         } else if (modeId == ModeId.SHOT_DODGER || modeId == ModeId.WAVE_POISON) {
             info.getRobot().out.println(ShotDodgerObservationProfile.describeBootstrapStatus());
         }
+    }
+
+    private void printWaveModelDelta(String header, List<String> lines) {
+        info.getRobot().out.println(header);
+        if (lines == null || lines.isEmpty()) {
+            info.getRobot().out.println("  none");
+            return;
+        }
+        for (String line : lines) {
+            info.getRobot().out.println("  " + line);
+        }
+    }
+
+    private ModeId preferredUntestedShieldSuccessor(ModeId[] selectableModes) {
+        if (activeModeId != ModeId.BULLET_SHIELD
+                || selectableModes == null
+                || !containsMode(selectableModes, ModeId.MOVING_BULLET_SHIELD)) {
+            return null;
+        }
+        for (ModeId modeId : selectableModes) {
+            if (modeId == null || modeId == ModeId.BULLET_SHIELD) {
+                continue;
+            }
+            if (ModePerformanceProfile.hasAnyCombinedSamples(modeId)) {
+                return null;
+            }
+        }
+        return ModeId.MOVING_BULLET_SHIELD;
+    }
+
+    private static boolean containsMode(ModeId[] modes, ModeId target) {
+        if (modes == null || target == null) {
+            return false;
+        }
+        for (ModeId mode : modes) {
+            if (mode == target) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isShieldMode(ModeId modeId) {

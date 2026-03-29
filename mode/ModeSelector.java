@@ -32,19 +32,25 @@ final class ModeSelector {
     }
 
     ModeId selectMode(ModeId[] candidateModes) {
-        ModePosterior[] posteriors = candidateModePosteriors(candidateModes);
-        if (posteriors.length < 1) {
+        return selectMode(candidateModes, candidateModes);
+    }
+
+    ModeId selectMode(ModeId[] candidateModes, ModeId[] comparisonModes) {
+        ModePosterior[] candidatePosteriors = candidateModePosteriors(candidateModes);
+        if (candidatePosteriors.length < 1) {
             throw new IllegalArgumentException("Mode selection requires at least one admissible mode");
         }
+        ModePosterior[] comparisonPosteriors = candidateModePosteriors(comparisonModes);
         List<ModePosterior> qualified = new ArrayList<>();
-        for (ModePosterior posterior : posteriors) {
-            if (!isDisqualified(posterior, posteriors)) {
+        for (ModePosterior posterior : candidatePosteriors) {
+            if (!isDisqualified(posterior, comparisonPosteriors)) {
                 qualified.add(posterior);
             }
         }
-        ModePosterior[] selectable = qualified.isEmpty()
-                ? posteriors
-                : qualified.toArray(new ModePosterior[0]);
+        if (qualified.isEmpty()) {
+            return selectMostUncertain(candidatePosteriors).modeId;
+        }
+        ModePosterior[] selectable = qualified.toArray(new ModePosterior[0]);
         ModePosterior best = selectable[0];
         for (int i = 1; i < selectable.length; i++) {
             if (prefersSelection(selectable[i], best)) {
@@ -120,24 +126,12 @@ final class ModeSelector {
         double posteriorMean = totalScore > 0.0
                 ? (effectiveTotalScore > 0.0 ? (totalOurScore + priorOurScore) / effectiveTotalScore : 1.0)
                 : BotConfig.ModeSelection.UNTESTED_MODE_MEAN;
-        double uncertaintyAlpha =
-                MODE_UNCERTAINTY_PRIOR_EPSILON
-                        + BotConfig.ModeSelection.UNCERTAINTY_PRIOR_ALPHA * priorScale
-                        + totalOurScore / BotConfig.ModeSelection.POSTERIOR_SCORE_UNIT;
-        double uncertaintyBeta =
-                MODE_UNCERTAINTY_PRIOR_EPSILON
-                        + BotConfig.ModeSelection.UNCERTAINTY_PRIOR_BETA * priorScale
-                        + totalOpponentScore / BotConfig.ModeSelection.POSTERIOR_SCORE_UNIT;
-        double variance = (uncertaintyAlpha * uncertaintyBeta)
-                / ((uncertaintyAlpha + uncertaintyBeta)
-                * (uncertaintyAlpha + uncertaintyBeta)
-                * (uncertaintyAlpha + uncertaintyBeta + 1.0));
         double comparisonMean = comparisonMean(posteriorMean);
-        double comparisonUncertainty = comparisonUncertainty(posteriorMean, variance);
+        double selectionUncertainty = comparisonUncertainty(totalScore, priorScale);
         double comparisonLowerBound =
-                comparisonMean - BotConfig.ModeSelection.CONFIDENCE_SCALE * comparisonUncertainty;
+                comparisonMean - BotConfig.ModeSelection.CONFIDENCE_SCALE * selectionUncertainty;
         double comparisonUpperBound =
-                comparisonMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * comparisonUncertainty;
+                comparisonMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * selectionUncertainty;
         double lowerBound = probabilityFromComparisonValue(comparisonLowerBound);
         double upperBound = probabilityFromComparisonValue(comparisonUpperBound);
         double intervalWidth = upperBound - lowerBound;
@@ -145,7 +139,7 @@ final class ModeSelector {
                 modeId,
                 posteriorMean,
                 intervalWidth,
-                comparisonUncertainty,
+                selectionUncertainty,
                 lowerBound,
                 upperBound,
                 comparisonMean,
@@ -161,10 +155,13 @@ final class ModeSelector {
         return Math.log(openProbability / (1.0 - openProbability));
     }
 
-    private static double comparisonUncertainty(double probability, double probabilityVariance) {
-        double openProbability = comparisonOpenProbability(probability);
-        double derivative = 1.0 / (openProbability * (1.0 - openProbability));
-        return Math.sqrt(Math.max(0.0, probabilityVariance)) * derivative;
+    private static double comparisonUncertainty(double totalScore, double priorScale) {
+        double effectiveEvidence =
+                MODE_UNCERTAINTY_PRIOR_EPSILON
+                        + (BotConfig.ModeSelection.UNCERTAINTY_PRIOR_ALPHA
+                        + BotConfig.ModeSelection.UNCERTAINTY_PRIOR_BETA) * priorScale
+                        + totalScore / BotConfig.ModeSelection.POSTERIOR_SCORE_UNIT;
+        return 1.0 / Math.sqrt(Math.max(MODE_UNCERTAINTY_PRIOR_EPSILON, effectiveEvidence));
     }
 
     private static double probabilityFromComparisonValue(double comparisonValue) {
@@ -212,6 +209,37 @@ final class ModeSelector {
             return true;
         }
         if (candidate.posteriorMean < incumbent.posteriorMean) {
+            return false;
+        }
+        return candidate.modeId.ordinal() < incumbent.modeId.ordinal();
+    }
+
+    private static ModePosterior selectMostUncertain(ModePosterior[] posteriors) {
+        if (posteriors == null || posteriors.length < 1) {
+            throw new IllegalArgumentException("Most-uncertain fallback requires at least one mode");
+        }
+        ModePosterior best = posteriors[0];
+        for (int i = 1; i < posteriors.length; i++) {
+            if (prefersUncertaintyOnly(posteriors[i], best)) {
+                best = posteriors[i];
+            }
+        }
+        return best;
+    }
+
+    private static boolean prefersUncertaintyOnly(ModePosterior candidate, ModePosterior incumbent) {
+        if (candidate.selectionUncertainty > incumbent.selectionUncertainty) {
+            return true;
+        }
+        if (candidate.selectionUncertainty < incumbent.selectionUncertainty) {
+            return false;
+        }
+        int candidatePriority = selectionPriority(candidate.modeId);
+        int incumbentPriority = selectionPriority(incumbent.modeId);
+        if (candidatePriority < incumbentPriority) {
+            return true;
+        }
+        if (candidatePriority > incumbentPriority) {
             return false;
         }
         return candidate.modeId.ordinal() < incumbent.modeId.ordinal();

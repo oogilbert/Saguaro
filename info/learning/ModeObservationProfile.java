@@ -93,6 +93,23 @@ public final class ModeObservationProfile implements ObservationProfile {
     }
 
     @Override
+    public void logMovementResult(WaveContextFeatures.WaveContext context,
+                                  double gf,
+                                  boolean saveObservation,
+                                  boolean updateModel,
+                                  boolean actualBulletObservation) {
+        if (!policy.logMovementObservations && !updateModel) {
+            return;
+        }
+        delegate.logMovementResult(
+                context,
+                gf,
+                saveObservation && policy.saveMovementObservations,
+                updateModel && policy.updateMovementModel,
+                actualBulletObservation);
+    }
+
+    @Override
     public GuessFactorDistribution createGunDistribution(WaveContextFeatures.WaveContext context) {
         if (!policy.useTargetingDistributions) {
             return null;
