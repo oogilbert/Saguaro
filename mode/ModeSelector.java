@@ -89,7 +89,7 @@ final class ModeSelector {
         if (modeId == ModeId.PERFECT_PREDICTION) {
             return isPerfectPredictionAdmissible(candidateModes);
         }
-        if (modeId == ModeId.SHOT_DODGER) {
+        if (modeId == ModeId.SHOT_DODGER || modeId == ModeId.WAVE_POISON) {
             return isShotDodgerAdmissible();
         }
         throw new IllegalArgumentException("Unsupported mode id " + modeId);
@@ -118,7 +118,7 @@ final class ModeSelector {
             if (modeId == null || modeId == excludedMode || modeId == ModeId.PERFECT_PREDICTION) {
                 continue;
             }
-            if (modeId == ModeId.SHOT_DODGER && !isShotDodgerAdmissible()) {
+            if ((modeId == ModeId.SHOT_DODGER || modeId == ModeId.WAVE_POISON) && !isShotDodgerAdmissible()) {
                 continue;
             }
             legal.add(estimateLiveMode(modeId));

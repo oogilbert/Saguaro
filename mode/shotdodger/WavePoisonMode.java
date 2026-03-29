@@ -1,8 +1,6 @@
 package oog.mega.saguaro.mode.shotdodger;
 
 import java.awt.Color;
-import java.util.ArrayList;
-import java.util.List;
 
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.info.Info;
@@ -10,32 +8,22 @@ import oog.mega.saguaro.info.learning.ModeObservationPolicy;
 import oog.mega.saguaro.info.learning.ObservationProfile;
 import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.info.persistence.BattleDataStore;
-import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleMode;
+import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.BattleServices;
-import oog.mega.saguaro.render.PathOverlay;
 import oog.mega.saguaro.render.RenderState;
 import robocode.ScannedRobotEvent;
 
-public final class ShotDodgerMode implements BattleMode {
-    private static final Color SELECTED_PATH_LINE_COLOR = new Color(220, 120, 40);
-    private static final Color SELECTED_PATH_NODE_COLOR = new Color(220, 120, 40, 210);
-    private static final Color SELECTED_PATH_MARKER_COLOR = new Color(255, 200, 140);
-    private static final float SELECTED_PATH_STROKE_WIDTH = 2.0f;
-
-    private final ShotDodgerPlanner planner = new ShotDodgerPlanner();
+public final class WavePoisonMode implements BattleMode {
+    private final WavePoisonPlanner planner = new WavePoisonPlanner();
     private final ShotDodgerObservationProfile observationProfile;
-    private final RoundOutcomeProfile roundOutcomeProfile = ShotDodgerRoundOutcomeProfile.INSTANCE;
+    private final RoundOutcomeProfile roundOutcomeProfile = WavePoisonRoundOutcomeProfile.INSTANCE;
     private Info info;
     private BattleDataStore dataStore;
 
-    public ShotDodgerMode() {
-        this(new ShotDodgerObservationProfile());
-    }
-
-    public ShotDodgerMode(ShotDodgerObservationProfile observationProfile) {
+    public WavePoisonMode(ShotDodgerObservationProfile observationProfile) {
         if (observationProfile == null) {
-            throw new IllegalArgumentException("ShotDodgerMode requires a non-null observation profile");
+            throw new IllegalArgumentException("WavePoisonMode requires a non-null observation profile");
         }
         this.observationProfile = observationProfile;
     }
@@ -56,10 +44,13 @@ public final class ShotDodgerMode implements BattleMode {
 
     @Override
     public void init(Info info, BattleServices services) {
+        if (services == null) {
+            throw new IllegalArgumentException("WavePoisonMode requires non-null battle services");
+        }
         this.info = info;
         this.dataStore = services.dataStore();
         observationProfile.setInfo(info);
-        planner.init(info, services.movement(), services.gun(), observationProfile);
+        planner.init(info, services.gun());
     }
 
     @Override
@@ -76,19 +67,8 @@ public final class ShotDodgerMode implements BattleMode {
 
     @Override
     public RenderState getRenderState() {
-        List<PathOverlay> overlays = new ArrayList<PathOverlay>();
-        PathOverlay overlay = PathOverlay.forCandidatePath(
-                planner.getLastSelectedPath(),
-                planner.getLastSelectedPathIntersections(),
-                SELECTED_PATH_LINE_COLOR,
-                SELECTED_PATH_NODE_COLOR,
-                SELECTED_PATH_MARKER_COLOR,
-                SELECTED_PATH_STROKE_WIDTH);
-        if (overlay != null) {
-            overlays.add(overlay);
-        }
         return new RenderState(
-                overlays,
+                null,
                 RenderState.WaveRenderMode.TICKS_ONLY,
                 RenderState.WaveRenderMode.FULL,
                 true);
@@ -96,11 +76,11 @@ public final class ShotDodgerMode implements BattleMode {
 
     @Override
     public void applyColors(Saguaro robot) {
-        robot.setBodyColor(new Color(178, 76, 54));
-        robot.setGunColor(new Color(100, 40, 30));
-        robot.setRadarColor(new Color(210, 140, 60));
-        robot.setBulletColor(new Color(255, 170, 80));
-        robot.setScanColor(new Color(240, 130, 50));
+        robot.setBodyColor(new Color(136, 92, 28));
+        robot.setGunColor(new Color(84, 56, 18));
+        robot.setRadarColor(new Color(226, 176, 72));
+        robot.setBulletColor(new Color(255, 208, 116));
+        robot.setScanColor(new Color(244, 170, 52));
     }
 
     @Override

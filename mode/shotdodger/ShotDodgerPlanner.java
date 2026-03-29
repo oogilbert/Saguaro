@@ -4,16 +4,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.gun.GunController;
-import oog.mega.saguaro.gun.ShotSolution;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.state.RobotSnapshot;
 import oog.mega.saguaro.info.wave.Wave;
-import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.PhysicsUtil;
 import oog.mega.saguaro.mode.BattlePlan;
+import oog.mega.saguaro.mode.DirectGunPlannerSupport;
 import oog.mega.saguaro.movement.CandidatePath;
 import oog.mega.saguaro.movement.MovementController;
 import oog.mega.saguaro.movement.PathGenerationContext;
@@ -21,7 +19,6 @@ import oog.mega.saguaro.movement.PathWaveIntersection;
 import robocode.Rules;
 
 final class ShotDodgerPlanner {
-    private static final double MIN_FIRE_POWER = 0.1;
     private static final double OPPONENT_DISTANCE_DANGER_WEIGHT = 2500.0;
 
     private Info info;
@@ -55,7 +52,7 @@ final class ShotDodgerPlanner {
         RobotSnapshot robotState = info.captureRobotSnapshot();
         invalidateSelectedPathStateIfWaveDangerChanged();
 
-        int firstFiringTickOffset = firstFiringTickOffset(robotState.gunHeat);
+        int firstFiringTickOffset = DirectGunPlannerSupport.firstFiringTickOffset(robotState.gunHeat);
         PathGenerationContext pathGenerationContext = movement.createPathGenerationContext();
         pathGenerationContext.minPathTicks = firstFiringTickOffset;
 
@@ -73,11 +70,11 @@ final class ShotDodgerPlanner {
         lastSelectedWaveDangerRevision = info.getEnemyWaveDangerRevision();
 
         double[] movementInstruction = firstTickMovementInstruction(bestPath, robotState);
-        GunInstruction gunInstruction = buildGunInstruction(
+        DirectGunPlannerSupport.GunInstruction gunInstruction = buildGunInstruction(
                 bestPath,
                 robotState,
                 firstFiringTickOffset,
-                selectFirePower(robotState));
+                DirectGunPlannerSupport.selectFirePower(info, robotState));
         return new BattlePlan(
                 movementInstruction[0],
                 movementInstruction[1],
@@ -95,13 +92,6 @@ final class ShotDodgerPlanner {
 
     String describeSkippedTurnDiagnostics() {
         return movement != null ? movement.describeLatestPathPlanningDiagnostics() : "planning=n/a";
-    }
-
-    private static int firstFiringTickOffset(double currentGunHeat) {
-        if (currentGunHeat < 0.001) {
-            return 0;
-        }
-        return (int) Math.floor((currentGunHeat - 0.001) / 0.1) + 1;
     }
 
     private CandidatePath selectBestPath(List<CandidatePath> paths) {
@@ -252,70 +242,27 @@ final class ShotDodgerPlanner {
                 info.getBattlefieldHeight());
     }
 
-    private GunInstruction buildGunInstruction(CandidatePath path,
-                                               RobotSnapshot robotState,
-                                               int firstFiringTickOffset,
-                                               double selectedFirePower) {
-        double firePower = sanitizeFirePower(selectedFirePower, robotState.energy);
+    private DirectGunPlannerSupport.GunInstruction buildGunInstruction(CandidatePath path,
+                                                                       RobotSnapshot robotState,
+                                                                       int firstFiringTickOffset,
+                                                                       double selectedFirePower) {
         if (path == null) {
-            return new GunInstruction(0.0, 0.0);
+            return new DirectGunPlannerSupport.GunInstruction(0.0, 0.0);
         }
 
         int fireStateIndex = Math.min(firstFiringTickOffset, Math.max(0, path.trajectory.length() - 1));
         PhysicsUtil.PositionState fireState = path.trajectory.stateAt(fireStateIndex);
         long fireTime = path.startTime + Math.max(0, firstFiringTickOffset);
-        EnemyInfo.PredictedPosition enemyAtFireTime = predictEnemyPositionAt(fireTime);
-        if (enemyAtFireTime == null) {
-            return new GunInstruction(0.0, 0.0);
-        }
-
-        double aimPower = firePower >= MIN_FIRE_POWER
-                ? firePower
-                : Math.min(BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER, robotState.energy);
-        ShotSolution shot = gun.selectOptimalShotFromPosition(
+        return DirectGunPlannerSupport.buildGunInstruction(
+                info,
+                gun,
                 fireState.x,
                 fireState.y,
-                enemyAtFireTime.x,
-                enemyAtFireTime.y,
-                aimPower,
                 robotState.gunHeading,
-                firstFiringTickOffset);
-        if (shot == null || !Double.isFinite(shot.firingAngle)) {
-            shot = gun.selectOptimalUnconstrainedShotFromPosition(
-                    fireState.x,
-                    fireState.y,
-                    enemyAtFireTime.x,
-                    enemyAtFireTime.y,
-                    aimPower,
-                    firstFiringTickOffset);
-        }
-        if (shot == null || !Double.isFinite(shot.firingAngle)) {
-            shot = new ShotSolution(0.0, robotState.gunHeading);
-        }
-
-        double gunTurnAngle = MathUtils.normalizeAngle(shot.firingAngle - robotState.gunHeading);
-        double fireNowPower = firstFiringTickOffset == 0 ? firePower : 0.0;
-        return new GunInstruction(gunTurnAngle, fireNowPower);
-    }
-
-    private double selectFirePower(RobotSnapshot robotState) {
-        EnemyInfo enemy = info.getEnemy();
-        if (enemy == null) {
-            return MIN_FIRE_POWER;
-        }
-        double distance = enemy.distance;
-        double enemyEnergy = enemy.energy;
-        double ourEnergy = robotState.energy;
-        return Math.max(MIN_FIRE_POWER, Math.min(3,
-                distance < 100 ? 3 : Math.min(enemyEnergy / 4,
-                        Math.min(ourEnergy / 10, 1 + 400 / distance))));
-    }
-
-    private static double sanitizeFirePower(double firePower, double availableEnergy) {
-        if (!(firePower >= MIN_FIRE_POWER) || !(availableEnergy >= MIN_FIRE_POWER)) {
-            return 0.0;
-        }
-        return Math.min(3.0, Math.min(firePower, availableEnergy));
+                robotState.energy,
+                fireTime,
+                firstFiringTickOffset,
+                selectedFirePower);
     }
 
     private EnemyInfo.PredictedPosition predictEnemyPositionAt(long time) {
@@ -338,15 +285,5 @@ final class ShotDodgerPlanner {
         lastSelectedFamilyPaths = new ArrayList<CandidatePath>();
         lastSelectedPathIntersections = new ArrayList<PathWaveIntersection>();
         lastSelectedWaveDangerRevision = currentRevision;
-    }
-
-    private static final class GunInstruction {
-        final double gunTurnAngle;
-        final double firePower;
-
-        GunInstruction(double gunTurnAngle, double firePower) {
-            this.gunTurnAngle = gunTurnAngle;
-            this.firePower = firePower;
-        }
     }
 }

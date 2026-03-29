@@ -5,7 +5,8 @@ public enum ModeId {
     BULLET_SHIELD("bulletShield", "BulletShielding"),
     MOVING_BULLET_SHIELD("movingBulletShield", "MovingBulletShielding"),
     PERFECT_PREDICTION("perfectPrediction", "PerfectPrediction"),
-    SHOT_DODGER("shotDodger", "ShotDodger");
+    SHOT_DODGER("shotDodger", "ShotDodger"),
+    WAVE_POISON("wavePoison", "WavePoison");
 
     private final String label;
     private final String displayName;
