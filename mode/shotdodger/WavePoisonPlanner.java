@@ -44,9 +44,20 @@ final class WavePoisonPlanner {
     BattlePlan getBestPlan() {
         RobotSnapshot robotState = info.captureRobotSnapshot();
         EnemyInfo enemy = info.getEnemy();
-        if (enemy == null || !enemy.alive || !enemy.seenThisRound) {
+        if (enemy == null || !enemy.seenThisRound) {
             lastMovementPhase = MovementPhase.OPENING;
             return buildOpeningPlan(robotState);
+        }
+        PhysicsUtil.PositionState currentState =
+                new PhysicsUtil.PositionState(robotState.x, robotState.y, robotState.heading, robotState.velocity);
+        if (!enemy.alive) {
+            MovementCommand postDeathMovementCommand = buildPostDeathMovementCommand(currentState, enemy);
+            lastMovementPhase = postDeathMovementCommand.phase;
+            return new BattlePlan(
+                    postDeathMovementCommand.moveDistance,
+                    postDeathMovementCommand.turnAngle,
+                    0.0,
+                    0.0);
         }
 
         long latestEnemyFireTime = latestObservedEnemyFireTime();
@@ -62,7 +73,7 @@ final class WavePoisonPlanner {
         }
 
         int resolvedTravelDirection = resolveTravelDirection(
-                new PhysicsUtil.PositionState(robotState.x, robotState.y, robotState.heading, robotState.velocity),
+                currentState,
                 enemyAtNow,
                 travelDirection);
         if (resolvedTravelDirection != 0) {
@@ -70,7 +81,7 @@ final class WavePoisonPlanner {
         }
 
         MovementCommand movementCommand = buildMovementCommand(
-                new PhysicsUtil.PositionState(robotState.x, robotState.y, robotState.heading, robotState.velocity),
+                currentState,
                 enemyAtNow,
                 enemy.gunHeat,
                 movingAfterEnemyFire,
@@ -179,6 +190,22 @@ final class WavePoisonPlanner {
                 STOP_CRAWL_DISTANCE,
                 resolvedDirection,
                 MovementPhase.STOP);
+    }
+
+    private MovementCommand buildPostDeathMovementCommand(PhysicsUtil.PositionState state, EnemyInfo enemy) {
+        if (!movingAfterEnemyFire || travelDirection == 0) {
+            return new MovementCommand(0.0, 0.0, MovementPhase.STOP);
+        }
+        EnemyInfo.PredictedPosition enemyAtDeath = lastSeenEnemyPosition(enemy);
+        int resolvedDirection = resolveTravelDirection(state, enemyAtDeath, travelDirection);
+        if (resolvedDirection != 0) {
+            travelDirection = resolvedDirection;
+        }
+        int brakingTicks = brakingTicksForVelocity(state.velocity);
+        if (ticksUntilGunReady(enemy.gunHeat) > brakingTicks + GO_BURST_BUFFER_TICKS) {
+            return createGoMovementCommand(state, enemyAtDeath, travelDirection);
+        }
+        return new MovementCommand(0.0, 0.0, MovementPhase.STOP);
     }
 
     private static MovementCommand createMovementCommand(double currentHeading,
@@ -338,6 +365,24 @@ final class WavePoisonPlanner {
                 time,
                 info.getBattlefieldWidth(),
                 info.getBattlefieldHeight());
+    }
+
+    private EnemyInfo.PredictedPosition lastSeenEnemyPosition(EnemyInfo enemy) {
+        EnemyInfo.PredictedPosition lastSeen = enemy.predictPositionAtTime(
+                enemy.lastScanTime,
+                info.getBattlefieldWidth(),
+                info.getBattlefieldHeight());
+        return new EnemyInfo.PredictedPosition(
+                enemy.x,
+                enemy.y,
+                lastSeen.heading,
+                0.0,
+                lastSeen.lastNonZeroLateralDirectionSign,
+                lastSeen.momentumLateralVelocity,
+                lastSeen.momentumDirectionSign,
+                0,
+                lastSeen.ticksSinceVelocityReversal,
+                lastSeen.ticksSinceDecel);
     }
 
     private long latestObservedEnemyFireTime() {
