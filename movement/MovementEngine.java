@@ -626,6 +626,70 @@ public class MovementEngine implements MovementController {
         return 0;
     }
 
+    static double deriveMomentumLateralVelocity(PhysicsUtil.PositionState[] states,
+                                                int tickOffset,
+                                                double sourceX,
+                                                double sourceY) {
+        return deriveMomentumState(states.length, index -> states[index], tickOffset, sourceX, sourceY)
+                .momentumLateralVelocity;
+    }
+
+    static int deriveMomentumDirectionSign(PhysicsUtil.PositionState[] states,
+                                           int tickOffset,
+                                           double sourceX,
+                                           double sourceY) {
+        return deriveMomentumState(states.length, index -> states[index], tickOffset, sourceX, sourceY)
+                .momentumDirectionSign;
+    }
+
+    private static DerivedMomentumState deriveMomentumState(int stateCount,
+                                                            java.util.function.IntFunction<PhysicsUtil.PositionState> stateAt,
+                                                            int tickOffset,
+                                                            double sourceX,
+                                                            double sourceY) {
+        int boundedTickOffset = Math.max(0, Math.min(tickOffset, stateCount - 1));
+        int startIndex = Math.max(0, boundedTickOffset - 12);
+        double momentumLateralVelocity = 0.0;
+        int momentumDirectionSign = 0;
+        boolean initialized = false;
+        for (int i = startIndex; i <= boundedTickOffset; i++) {
+            PhysicsUtil.PositionState state = stateAt.apply(i);
+            double lateralVelocity = WaveContextFeatures.computeLateralVelocity(
+                    sourceX,
+                    sourceY,
+                    state.x,
+                    state.y,
+                    state.heading,
+                    state.velocity);
+            momentumLateralVelocity = initialized
+                    ? WaveContextFeatures.updateMomentumLateralVelocity(momentumLateralVelocity, lateralVelocity)
+                    : lateralVelocity;
+            int lateralDirectionSign = WaveContextFeatures.computeLateralDirectionSign(
+                    sourceX,
+                    sourceY,
+                    state.x,
+                    state.y,
+                    state.heading,
+                    state.velocity);
+            momentumDirectionSign = WaveContextFeatures.resolveMomentumDirectionSign(
+                    momentumLateralVelocity,
+                    momentumDirectionSign,
+                    lateralDirectionSign);
+            initialized = true;
+        }
+        return new DerivedMomentumState(momentumLateralVelocity, momentumDirectionSign);
+    }
+
+    private static final class DerivedMomentumState {
+        final double momentumLateralVelocity;
+        final int momentumDirectionSign;
+
+        DerivedMomentumState(double momentumLateralVelocity, int momentumDirectionSign) {
+            this.momentumLateralVelocity = momentumLateralVelocity;
+            this.momentumDirectionSign = momentumDirectionSign;
+        }
+    }
+
     /**
      * Finds the K safest guess factors on a wave by locating local minima of the
      * hit-probability function inside the reachable GF interval.
@@ -1124,6 +1188,16 @@ public class MovementEngine implements MovementController {
                         tick,
                         opponentState.x,
                         opponentState.y);
+                double momentumLateralVelocity = deriveMomentumLateralVelocity(
+                        ourStates,
+                        tick,
+                        opponentState.x,
+                        opponentState.y);
+                int momentumDirectionSign = deriveMomentumDirectionSign(
+                        ourStates,
+                        tick,
+                        opponentState.x,
+                        opponentState.y);
                 predictedEnemyWaves.add(createVirtualEnemyWave(
                         opponentState.x,
                         opponentState.y,
@@ -1142,6 +1216,8 @@ public class MovementEngine implements MovementController {
                         motionContext.distanceLast20,
                         didLastEnemyWaveHitRobot(),
                         lastNonZeroLateralDirectionSign,
+                        momentumLateralVelocity,
+                        momentumDirectionSign,
                         bfWidth,
                         bfHeight,
                         referenceWaves));
@@ -1301,6 +1377,8 @@ public class MovementEngine implements MovementController {
                                 double targetDistanceLast20,
                                 boolean targetDidHit,
                                 int targetLastNonZeroLateralDirectionSign,
+                                double targetMomentumLateralVelocity,
+                                int targetMomentumDirectionSign,
                                 double bfWidth,
                                 double bfHeight,
                                 List<Wave> referenceWaves) {
@@ -1322,6 +1400,8 @@ public class MovementEngine implements MovementController {
                 targetDistanceLast20,
                 targetDidHit,
                 targetLastNonZeroLateralDirectionSign,
+                targetMomentumLateralVelocity,
+                targetMomentumDirectionSign,
                 bfWidth,
                 bfHeight,
                 referenceWaves);

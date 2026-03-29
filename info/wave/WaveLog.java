@@ -358,7 +358,7 @@ public class WaveLog {
             throw new IllegalArgumentException("Wave-log result requires ordered finite GF bounds");
         }
         double[] contextPoint = createContextPoint(segment, context);
-        double[] canonicalGfRange = canonicalizeGuessFactorRange(gfMin, gfMax, context.lateralDirectionSign);
+        double[] canonicalGfRange = canonicalizeGuessFactorRange(gfMin, gfMax, context.momentumDirectionSign);
         double canonicalGfMin = canonicalGfRange[0];
         double canonicalGfMax = canonicalGfRange[1];
         DataPoint dataPoint = new DataPoint(contextPoint, canonicalGfMin, canonicalGfMax);
@@ -483,7 +483,7 @@ public class WaveLog {
                         selection.weights,
                         segment.kdeBandwidth)
                 : new KDEDistribution(selection.gfMins, selection.weights, segment.kdeBandwidth);
-        return shouldMirrorDistribution(context.lateralDirectionSign)
+        return shouldMirrorDistribution(context.momentumDirectionSign)
                 ? new MirroredGuessFactorDistribution(distribution)
                 : distribution;
     }
@@ -637,6 +637,9 @@ public class WaveLog {
         if (!Double.isFinite(context.currentGF)) {
             throw new IllegalArgumentException("Wave-log point requires finite current GF");
         }
+        if (!Double.isFinite(context.momentumLateralVelocity)) {
+            throw new IllegalArgumentException("Wave-log point requires finite momentum lateral velocity");
+        }
         if (context.flightTicks <= 0) {
             throw new IllegalArgumentException("Wave-log point requires positive flight ticks");
         }
@@ -646,8 +649,8 @@ public class WaveLog {
         if (context.battleTime < 0L) {
             throw new IllegalArgumentException("Wave-log point requires non-negative battle time");
         }
-        if (WaveContextFeatures.normalizeDirectionSign(context.lateralDirectionSign) == 0) {
-            throw new IllegalArgumentException("Wave-log point requires a non-zero lateral direction sign");
+        if (WaveContextFeatures.normalizeDirectionSign(context.momentumDirectionSign) == 0) {
+            throw new IllegalArgumentException("Wave-log point requires a non-zero momentum direction sign");
         }
         return createUncheckedContextPoint(segment, context);
     }
@@ -676,7 +679,7 @@ public class WaveLog {
         normalized[FEATURE_STICK_WALL_AHEAD2] = clamp(context.stickWallAhead2, 0.0, 1.0);
         normalized[FEATURE_STICK_WALL_REVERSE2] = clamp(context.stickWallReverse2, 0.0, 1.0);
         normalized[FEATURE_CURRENT_GF] = normalizeGuessFactor(
-                canonicalizeGuessFactor(context.currentGF, context.lateralDirectionSign));
+                canonicalizeGuessFactor(context.currentGF, context.momentumDirectionSign));
         normalized[FEATURE_DID_HIT] = normalizeBoolean(context.didHit);
         normalized[FEATURE_BATTLE_TIME] = normalizeBattleTime(context.battleTime);
 

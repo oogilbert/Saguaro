@@ -24,6 +24,8 @@ public class EnemyInfo {
         public final double heading;
         public final double velocity;
         public final int lastNonZeroLateralDirectionSign;
+        public final double momentumLateralVelocity;
+        public final int momentumDirectionSign;
         public final int accelerationSign;
         public final int ticksSinceVelocityReversal;
         public final int ticksSinceDecel;
@@ -33,6 +35,8 @@ public class EnemyInfo {
                                  double heading,
                                  double velocity,
                                  int lastNonZeroLateralDirectionSign,
+                                 double momentumLateralVelocity,
+                                 int momentumDirectionSign,
                                  int accelerationSign,
                                  int ticksSinceVelocityReversal,
                                  int ticksSinceDecel) {
@@ -41,6 +45,8 @@ public class EnemyInfo {
             this.heading = heading;
             this.velocity = velocity;
             this.lastNonZeroLateralDirectionSign = lastNonZeroLateralDirectionSign;
+            this.momentumLateralVelocity = momentumLateralVelocity;
+            this.momentumDirectionSign = momentumDirectionSign;
             this.accelerationSign = accelerationSign;
             this.ticksSinceVelocityReversal = ticksSinceVelocityReversal;
             this.ticksSinceDecel = ticksSinceDecel;
@@ -85,13 +91,19 @@ public class EnemyInfo {
     private final RecentMotionHistory motionHistory = new RecentMotionHistory();
     private int lastNonZeroVelocitySign;
     private int lastNonZeroLateralDirectionSign;
+    private double momentumLateralVelocity;
+    private int momentumDirectionSign;
     private int lastRobotNonZeroLateralDirectionSignAtScan;
+    private double lastRobotMomentumLateralVelocityAtScan;
+    private int lastRobotMomentumDirectionSignAtScan;
     private double previousXAtScan = Double.NaN;
     private double previousYAtScan = Double.NaN;
     private double previousRobotXAtScan = Double.NaN;
     private double previousRobotYAtScan = Double.NaN;
     private double previousRobotHeadingAtScan = Double.NaN;
     private double previousRobotVelocityAtScan = Double.NaN;
+    private double previousRobotMomentumLateralVelocityAtScan;
+    private int previousRobotMomentumDirectionSignAtScan;
     private double previousRobotDistanceLast10AtScan;
     private double previousRobotDistanceLast20AtScan;
     private boolean previousRobotDidHitAtScan;
@@ -233,6 +245,8 @@ public class EnemyInfo {
         double priorRobotY = lastRobotYAtScan;
         double priorRobotHeading = lastRobotHeadingAtScan;
         double priorRobotVelocity = lastRobotVelocityAtScan;
+        double priorRobotMomentumLateralVelocity = lastRobotMomentumLateralVelocityAtScan;
+        int priorRobotMomentumDirectionSign = lastRobotMomentumDirectionSignAtScan;
         double priorRobotDistanceLast10 = lastRobotDistanceLast10AtScan;
         double priorRobotDistanceLast20 = lastRobotDistanceLast20AtScan;
         boolean priorRobotDidHit = lastRobotDidHitAtScan;
@@ -252,6 +266,8 @@ public class EnemyInfo {
             previousRobotYAtScan = priorRobotY;
             previousRobotHeadingAtScan = priorRobotHeading;
             previousRobotVelocityAtScan = priorRobotVelocity;
+            previousRobotMomentumLateralVelocityAtScan = priorRobotMomentumLateralVelocity;
+            previousRobotMomentumDirectionSignAtScan = priorRobotMomentumDirectionSign;
             previousRobotDistanceLast10AtScan = priorRobotDistanceLast10;
             previousRobotDistanceLast20AtScan = priorRobotDistanceLast20;
             previousRobotDidHitAtScan = priorRobotDidHit;
@@ -266,6 +282,8 @@ public class EnemyInfo {
             previousRobotYAtScan = Double.NaN;
             previousRobotHeadingAtScan = Double.NaN;
             previousRobotVelocityAtScan = Double.NaN;
+            previousRobotMomentumLateralVelocityAtScan = 0.0;
+            previousRobotMomentumDirectionSignAtScan = 0;
             previousRobotDistanceLast10AtScan = 0.0;
             previousRobotDistanceLast20AtScan = 0.0;
             previousRobotDidHitAtScan = false;
@@ -289,6 +307,13 @@ public class EnemyInfo {
         lastRobotDistanceLast10AtScan = Math.max(0.0, robotDistanceLast10);
         lastRobotDistanceLast20AtScan = Math.max(0.0, robotDistanceLast20);
         lastRobotDidHitAtScan = robotDidHit;
+        double enemyLateralVelocity = WaveContextFeatures.computeLateralVelocity(
+                robot.getX(),
+                robot.getY(),
+                x,
+                y,
+                heading,
+                velocity);
         int enemyLateralDirectionSign = WaveContextFeatures.computeLateralDirectionSign(
                 robot.getX(),
                 robot.getY(),
@@ -299,6 +324,20 @@ public class EnemyInfo {
         if (enemyLateralDirectionSign != 0) {
             lastNonZeroLateralDirectionSign = enemyLateralDirectionSign;
         }
+        momentumLateralVelocity = seenThisRound
+                ? WaveContextFeatures.updateMomentumLateralVelocity(momentumLateralVelocity, enemyLateralVelocity)
+                : enemyLateralVelocity;
+        momentumDirectionSign = WaveContextFeatures.resolveMomentumDirectionSign(
+                momentumLateralVelocity,
+                momentumDirectionSign,
+                lastNonZeroLateralDirectionSign);
+        double robotLateralVelocityAtScan = WaveContextFeatures.computeLateralVelocity(
+                x,
+                y,
+                lastRobotXAtScan,
+                lastRobotYAtScan,
+                lastRobotHeadingAtScan,
+                lastRobotVelocityAtScan);
         int robotLateralDirectionSignAtScan = WaveContextFeatures.computeLateralDirectionSign(
                 x,
                 y,
@@ -309,6 +348,15 @@ public class EnemyInfo {
         if (robotLateralDirectionSignAtScan != 0) {
             lastRobotNonZeroLateralDirectionSignAtScan = robotLateralDirectionSignAtScan;
         }
+        lastRobotMomentumLateralVelocityAtScan = seenThisRound
+                ? WaveContextFeatures.updateMomentumLateralVelocity(
+                        lastRobotMomentumLateralVelocityAtScan,
+                        robotLateralVelocityAtScan)
+                : robotLateralVelocityAtScan;
+        lastRobotMomentumDirectionSignAtScan = WaveContextFeatures.resolveMomentumDirectionSign(
+                lastRobotMomentumLateralVelocityAtScan,
+                lastRobotMomentumDirectionSignAtScan,
+                lastRobotNonZeroLateralDirectionSignAtScan);
         alive = true;
         seenThisRound = true;
         motionHistory.addSample(scannedVelocity, headingDeltaSample);
@@ -395,6 +443,8 @@ public class EnemyInfo {
                 lastRobotDistanceLast20AtScan,
                 lastRobotDidHitAtScan,
                 lastRobotNonZeroLateralDirectionSignAtScan,
+                lastRobotMomentumLateralVelocityAtScan,
+                lastRobotMomentumDirectionSignAtScan,
                 robot.getBattleFieldWidth(),
                 robot.getBattleFieldHeight(),
                 existingEnemyWaves,
@@ -469,6 +519,8 @@ public class EnemyInfo {
                 previousRobotDistanceLast20AtScan,
                 previousRobotDidHitAtScan,
                 sourceTickLateralDirectionSign,
+                previousRobotMomentumLateralVelocityAtScan,
+                previousRobotMomentumDirectionSignAtScan,
                 robot.getBattleFieldWidth(),
                 robot.getBattleFieldHeight(),
                 existingEnemyWaves,
@@ -509,6 +561,8 @@ public class EnemyInfo {
                             predictedHeading,
                             predictedVelocity,
                             lastNonZeroLateralDirectionSign,
+                            momentumLateralVelocity,
+                            momentumDirectionSign,
                             ticks == 0L ? accelerationSign : 0,
                             ticksSinceVelocityReversal + (int) ticks,
                             ticksSinceDecel + (int) ticks);
@@ -556,6 +610,8 @@ public class EnemyInfo {
                         predictedHeading,
                         predictedVelocity,
                         lastNonZeroLateralDirectionSign,
+                        momentumLateralVelocity,
+                        momentumDirectionSign,
                         predictedAccelerationSign,
                         predictedTicksSinceVelocityReversal,
                         predictedTicksSinceDecel);

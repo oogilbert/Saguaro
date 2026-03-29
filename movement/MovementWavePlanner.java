@@ -114,6 +114,8 @@ final class MovementWavePlanner {
                                 double targetDistanceLast20,
                                 boolean targetDidHit,
                                 int targetLastNonZeroLateralDirectionSign,
+                                double targetMomentumLateralVelocity,
+                                int targetMomentumDirectionSign,
                                 double bfWidth,
                                 double bfHeight,
                                 List<Wave> referenceWaves) {
@@ -144,6 +146,8 @@ final class MovementWavePlanner {
                 targetDistanceLast20,
                 targetDidHit,
                 targetLastNonZeroLateralDirectionSign,
+                targetMomentumLateralVelocity,
+                targetMomentumDirectionSign,
                 bfWidth,
                 bfHeight,
                 referenceWaves,
@@ -256,6 +260,24 @@ final class MovementWavePlanner {
                     3.0,
                     fireTime);
         } else {
+            int targetLastNonZeroLateralDirectionSign = WaveContextFeatures.approximateLateralDirectionSign(
+                    opponentAtFireTime.x,
+                    opponentAtFireTime.y,
+                    robotX,
+                    robotY,
+                    robotHeading,
+                    motionContext.lastNonZeroVelocitySign);
+            double targetMomentumLateralVelocity = WaveContextFeatures.computeLateralVelocity(
+                    opponentAtFireTime.x,
+                    opponentAtFireTime.y,
+                    robotX,
+                    robotY,
+                    robotHeading,
+                    robotVelocity);
+            int targetMomentumDirectionSign = WaveContextFeatures.resolveMomentumDirectionSign(
+                    targetMomentumLateralVelocity,
+                    0,
+                    targetLastNonZeroLateralDirectionSign);
             virtualWave = createVirtualEnemyWave(
                     opponentAtFireTime.x,
                     opponentAtFireTime.y,
@@ -273,13 +295,9 @@ final class MovementWavePlanner {
                     motionContext.distanceLast10,
                     motionContext.distanceLast20,
                     info.didLastEnemyWaveHitRobot(),
-                    WaveContextFeatures.approximateLateralDirectionSign(
-                            opponentAtFireTime.x,
-                            opponentAtFireTime.y,
-                            robotX,
-                            robotY,
-                            robotHeading,
-                            motionContext.lastNonZeroVelocitySign),
+                    targetLastNonZeroLateralDirectionSign,
+                    targetMomentumLateralVelocity,
+                    targetMomentumDirectionSign,
                     info.getBattlefieldWidth(),
                     info.getBattlefieldHeight(),
                     scoringWaves);

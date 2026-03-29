@@ -563,6 +563,8 @@ public class HitChanceAimer implements GunController {
                 info.getEnemy() != null ? info.getEnemy().getDistanceLastTicks(20) : 0.0,
                 info.didLastMyWaveHitOpponent(),
                 enemyAtFireTime.lastNonZeroLateralDirectionSign,
+                enemyAtFireTime.momentumLateralVelocity,
+                enemyAtFireTime.momentumDirectionSign,
                 info.getBattlefieldWidth(),
                 info.getBattlefieldHeight(),
                 info.getMyWaves(),

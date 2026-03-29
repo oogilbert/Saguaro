@@ -8,6 +8,7 @@ import oog.mega.saguaro.math.PhysicsUtil;
 public final class WaveContextFeatures {
     static final double ROBOT_DIAMETER = 36.0;
     private static final double STICK_FEATURE_TARGET_DISTANCE = 1000.0;
+    private static final double MOMENTUM_BLEND = 0.5;
 
     public static final class WaveContext {
         public final double sourceX;
@@ -23,6 +24,8 @@ public final class WaveContextFeatures {
         public final double battlefieldHeight;
         public final double lateralVelocity;
         public final int lateralDirectionSign;
+        public final double momentumLateralVelocity;
+        public final int momentumDirectionSign;
         public final double advancingVelocity;
         public final int flightTicks;
         public final int accelerationSign;
@@ -55,6 +58,8 @@ public final class WaveContextFeatures {
                            double battlefieldHeight,
                            double lateralVelocity,
                            int lateralDirectionSign,
+                           double momentumLateralVelocity,
+                           int momentumDirectionSign,
                            double advancingVelocity,
                            int flightTicks,
                            int accelerationSign,
@@ -86,6 +91,8 @@ public final class WaveContextFeatures {
             this.battlefieldHeight = battlefieldHeight;
             this.lateralVelocity = lateralVelocity;
             this.lateralDirectionSign = lateralDirectionSign;
+            this.momentumLateralVelocity = momentumLateralVelocity;
+            this.momentumDirectionSign = momentumDirectionSign;
             this.advancingVelocity = advancingVelocity;
             this.flightTicks = flightTicks;
             this.accelerationSign = accelerationSign;
@@ -128,6 +135,9 @@ public final class WaveContextFeatures {
                     && Double.doubleToLongBits(battlefieldHeight) == Double.doubleToLongBits(other.battlefieldHeight)
                     && Double.doubleToLongBits(lateralVelocity) == Double.doubleToLongBits(other.lateralVelocity)
                     && lateralDirectionSign == other.lateralDirectionSign
+                    && Double.doubleToLongBits(momentumLateralVelocity)
+                    == Double.doubleToLongBits(other.momentumLateralVelocity)
+                    && momentumDirectionSign == other.momentumDirectionSign
                     && Double.doubleToLongBits(advancingVelocity) == Double.doubleToLongBits(other.advancingVelocity)
                     && flightTicks == other.flightTicks
                     && accelerationSign == other.accelerationSign
@@ -163,6 +173,8 @@ public final class WaveContextFeatures {
             result = 31 * result + Long.hashCode(Double.doubleToLongBits(battlefieldHeight));
             result = 31 * result + Long.hashCode(Double.doubleToLongBits(lateralVelocity));
             result = 31 * result + lateralDirectionSign;
+            result = 31 * result + Long.hashCode(Double.doubleToLongBits(momentumLateralVelocity));
+            result = 31 * result + momentumDirectionSign;
             result = 31 * result + Long.hashCode(Double.doubleToLongBits(advancingVelocity));
             result = 31 * result + flightTicks;
             result = 31 * result + accelerationSign;
@@ -205,6 +217,8 @@ public final class WaveContextFeatures {
                                                 double distanceLast20,
                                                 boolean didHit,
                                                 int lastNonZeroLateralDirectionSign,
+                                                double momentumLateralVelocity,
+                                                int momentumDirectionSign,
                                                 double battlefieldWidth,
                                                 double battlefieldHeight,
                                                 List<Wave> referenceWaves,
@@ -212,6 +226,8 @@ public final class WaveContextFeatures {
         double bearing = Math.atan2(targetX - sourceX, targetY - sourceY);
         double lateralVelocity = targetVelocity * Math.sin(targetHeading - bearing);
         int lateralDirectionSign = resolveLateralDirectionSign(lateralVelocity, lastNonZeroLateralDirectionSign);
+        int resolvedMomentumDirectionSign =
+                resolveMomentumDirectionSign(momentumLateralVelocity, momentumDirectionSign, lateralDirectionSign);
         double advancingVelocity = -targetVelocity * Math.cos(targetHeading - bearing);
         double distance = Math.hypot(targetX - sourceX, targetY - sourceY);
         int flightTicks = Wave.nominalFlightTicks(distance, bulletSpeed);
@@ -223,7 +239,7 @@ public final class WaveContextFeatures {
                 bulletSpeed,
                 battlefieldWidth,
                 battlefieldHeight,
-                lateralDirectionSign);
+                resolvedMomentumDirectionSign);
         double currentGF = computeCurrentGuessFactor(
                 referenceWaves,
                 excludedReferenceWave,
@@ -239,7 +255,7 @@ public final class WaveContextFeatures {
                 targetHeading,
                 battlefieldWidth,
                 battlefieldHeight,
-                lateralDirectionSign);
+                resolvedMomentumDirectionSign);
         return new WaveContext(
                 sourceX,
                 sourceY,
@@ -254,6 +270,8 @@ public final class WaveContextFeatures {
                 battlefieldHeight,
                 lateralVelocity,
                 lateralDirectionSign,
+                momentumLateralVelocity,
+                resolvedMomentumDirectionSign,
                 advancingVelocity,
                 flightTicks,
                 accelerationSign,
@@ -272,6 +290,27 @@ public final class WaveContextFeatures {
                 stickWallFeatures[3],
                 didHit,
                 currentTime);
+    }
+
+    public static double updateMomentumLateralVelocity(double previousMomentumLateralVelocity,
+                                                       double lateralVelocity) {
+        return previousMomentumLateralVelocity * MOMENTUM_BLEND
+                + lateralVelocity * (1.0 - MOMENTUM_BLEND);
+    }
+
+    public static int resolveMomentumDirectionSign(double momentumLateralVelocity,
+                                                   int previousMomentumDirectionSign,
+                                                   int fallbackDirectionSign) {
+        int momentumSign = signWithEpsilon(momentumLateralVelocity);
+        if (momentumSign != 0) {
+            return momentumSign;
+        }
+        int previousSign = normalizeDirectionSign(previousMomentumDirectionSign);
+        if (previousSign != 0) {
+            return previousSign;
+        }
+        int fallbackSign = normalizeDirectionSign(fallbackDirectionSign);
+        return fallbackSign != 0 ? fallbackSign : 1;
     }
 
     public static double computeCurrentGuessFactor(List<Wave> referenceWaves,
@@ -322,9 +361,23 @@ public final class WaveContextFeatures {
                                                   double targetY,
                                                   double targetHeading,
                                                   double targetVelocity) {
+        return signWithEpsilon(computeLateralVelocity(
+                sourceX,
+                sourceY,
+                targetX,
+                targetY,
+                targetHeading,
+                targetVelocity));
+    }
+
+    public static double computeLateralVelocity(double sourceX,
+                                                double sourceY,
+                                                double targetX,
+                                                double targetY,
+                                                double targetHeading,
+                                                double targetVelocity) {
         double bearing = Math.atan2(targetX - sourceX, targetY - sourceY);
-        double lateralVelocity = targetVelocity * Math.sin(targetHeading - bearing);
-        return signWithEpsilon(lateralVelocity);
+        return targetVelocity * Math.sin(targetHeading - bearing);
     }
 
     public static int approximateLateralDirectionSign(double sourceX,

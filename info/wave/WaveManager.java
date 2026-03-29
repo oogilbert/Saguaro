@@ -143,6 +143,8 @@ public class WaveManager {
                     enemy.getDistanceLastTicks(20),
                     lastMyWaveHitOpponent,
                     enemyAtFireTime.lastNonZeroLateralDirectionSign,
+                    enemyAtFireTime.momentumLateralVelocity,
+                    enemyAtFireTime.momentumDirectionSign,
                     battlefieldWidth,
                     battlefieldHeight,
                     myWaves,

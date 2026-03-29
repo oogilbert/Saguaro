@@ -156,6 +156,16 @@ final class WaveIntersectionAnalyzer {
                         tickOffset,
                         wave.originX,
                         wave.originY);
+                double momentumLateralVelocity = MovementEngine.deriveMomentumLateralVelocity(
+                        trajectory.states,
+                        tickOffset,
+                        wave.originX,
+                        wave.originY);
+                int momentumDirectionSign = MovementEngine.deriveMomentumDirectionSign(
+                        trajectory.states,
+                        tickOffset,
+                        wave.originX,
+                        wave.originY);
                 WaveContextFeatures.WaveContext simulatedContext = WaveContextFeatures.createWaveContext(
                         wave.originX,
                         wave.originY,
@@ -174,6 +184,8 @@ final class WaveIntersectionAnalyzer {
                         simulatedMotionContext.distanceLast20,
                         movement.didLastEnemyWaveHitRobot(),
                         lastNonZeroLateralDirectionSign,
+                        momentumLateralVelocity,
+                        momentumDirectionSign,
                         movement.getBattlefieldWidth(),
                         movement.getBattlefieldHeight(),
                         wavesToScore,
