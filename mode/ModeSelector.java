@@ -132,21 +132,20 @@ final class ModeSelector {
                 / ((uncertaintyAlpha + uncertaintyBeta)
                 * (uncertaintyAlpha + uncertaintyBeta)
                 * (uncertaintyAlpha + uncertaintyBeta + 1.0));
-        double shareUncertainty = Math.sqrt(Math.max(0.0, variance));
-        double evidenceOnlyShareUncertainty = 0.5 / Math.sqrt(uncertaintyAlpha + uncertaintyBeta + 1.0);
-        double lowerBound = clampProbabilityToUnitInterval(
-                posteriorMean - BotConfig.ModeSelection.CONFIDENCE_SCALE * shareUncertainty);
-        double upperBound = clampProbabilityToUnitInterval(
-                posteriorMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * shareUncertainty);
-        double intervalWidth = upperBound - lowerBound;
-        double comparisonMean = topHeavyComparisonMean(posteriorMean);
+        double comparisonMean = comparisonMean(posteriorMean);
+        double comparisonUncertainty = comparisonUncertainty(posteriorMean, variance);
+        double comparisonLowerBound =
+                comparisonMean - BotConfig.ModeSelection.CONFIDENCE_SCALE * comparisonUncertainty;
         double comparisonUpperBound =
-                comparisonMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * evidenceOnlyShareUncertainty;
+                comparisonMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * comparisonUncertainty;
+        double lowerBound = probabilityFromComparisonValue(comparisonLowerBound);
+        double upperBound = probabilityFromComparisonValue(comparisonUpperBound);
+        double intervalWidth = upperBound - lowerBound;
         return new ModePosterior(
                 modeId,
                 posteriorMean,
                 intervalWidth,
-                evidenceOnlyShareUncertainty,
+                comparisonUncertainty,
                 lowerBound,
                 upperBound,
                 comparisonMean,
@@ -157,13 +156,35 @@ final class ModeSelector {
         return Math.max(0.0, Math.min(1.0, value));
     }
 
-    private static double topHeavyComparisonMean(double probability) {
-        double shiftedProbability = Math.max(0.0, probability - BotConfig.ModeSelection.COMPARISON_SHARE_OFFSET);
-        if (shiftedProbability <= 0.0) {
-            return 0.0;
+    private static double comparisonMean(double probability) {
+        double openProbability = comparisonOpenProbability(probability);
+        return Math.log(openProbability / (1.0 - openProbability));
+    }
+
+    private static double comparisonUncertainty(double probability, double probabilityVariance) {
+        double openProbability = comparisonOpenProbability(probability);
+        double derivative = 1.0 / (openProbability * (1.0 - openProbability));
+        return Math.sqrt(Math.max(0.0, probabilityVariance)) * derivative;
+    }
+
+    private static double probabilityFromComparisonValue(double comparisonValue) {
+        return clampProbabilityToUnitInterval(sigmoid(comparisonValue) + BotConfig.ModeSelection.COMPARISON_SHARE_OFFSET);
+    }
+
+    private static double comparisonOpenProbability(double probability) {
+        double shiftedProbability = probability - BotConfig.ModeSelection.COMPARISON_SHARE_OFFSET;
+        return Math.max(
+                MODE_UNCERTAINTY_PRIOR_EPSILON,
+                Math.min(1.0 - MODE_UNCERTAINTY_PRIOR_EPSILON, shiftedProbability));
+    }
+
+    private static double sigmoid(double x) {
+        if (x >= 0.0) {
+            double e = Math.exp(-x);
+            return 1.0 / (1.0 + e);
         }
-        double openProbability = Math.min(1.0 - MODE_UNCERTAINTY_PRIOR_EPSILON, shiftedProbability);
-        return openProbability / (1.0 - openProbability);
+        double e = Math.exp(x);
+        return e / (1.0 + e);
     }
 
     private static boolean prefersSelection(ModePosterior candidate, ModePosterior incumbent) {

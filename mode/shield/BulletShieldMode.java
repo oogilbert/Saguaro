@@ -733,6 +733,9 @@ public final class BulletShieldMode implements BattleMode {
         if (shouldUseIdleAggressiveShot(myNow)) {
             return Math.floor(maxPower * 10.0) / 10.0;
         }
+        if (!isShieldDeadlineAggressionAllowed(myNow)) {
+            return Double.NaN;
+        }
 
         long shieldDeadline = blockingWave == null
                 ? latestShieldDeadlineForExpectedNextWave(myNow)
@@ -773,6 +776,13 @@ public final class BulletShieldMode implements BattleMode {
                         * Rules.getGunHeat(Rules.MAX_BULLET_POWER)
                         / myNow.gunCoolingRate);
         return ticksSinceLastShot >= Math.max(1L, idleThresholdTicks);
+    }
+
+    private boolean isShieldDeadlineAggressionAllowed(Snapshot myNow) {
+        if (modeId != ModeId.BULLET_SHIELD) {
+            return true;
+        }
+        return myNow.time >= BotConfig.Shield.EARLY_ROUND_DEADLINE_AGGRESSION_GUARD_TICKS;
     }
 
     private boolean isImmediateShieldingImpossible(Snapshot myNow) {

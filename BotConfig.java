@@ -124,6 +124,8 @@ public final class BotConfig {
         public static final double AGGRESSIVE_CLOSE_RANGE_RADIUS = 60.0;
         // Opening-round grace period before shield mode considers idle aggressive shots.
         public static final long EARLY_ROUND_IDLE_AGGRESSION_GUARD_TICKS = 100L;
+        // Opening-round grace period before plain BulletShielding spends spare shield slack on attacks.
+        public static final long EARLY_ROUND_DEADLINE_AGGRESSION_GUARD_TICKS = 50L;
         // Scales enemy-gun-heat cooldown into the idle-shot threshold in shield mode.
         public static final double IDLE_AGGRESSION_GUN_HEAT_MULTIPLIER = 2.0;
         // Start braking this many ticks before the enemy's opening gun heat is expected to reach zero.
@@ -208,7 +210,7 @@ public final class BotConfig {
 
         // Scales the mode-selection confidence bound used to disqualify candidates.
         public static final double CONFIDENCE_SCALE = 6.0;
-        // Invisible share offset subtracted before mapping into top-heavy comparison space.
+        // Invisible share offset subtracted before mapping into comparison-logit space.
         public static final double COMPARISON_SHARE_OFFSET = 0.01;
         // Exploratory mean assigned to modes with no score evidence yet.
         public static final double UNTESTED_MODE_MEAN = 0.90;
