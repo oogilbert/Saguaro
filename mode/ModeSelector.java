@@ -5,24 +5,17 @@ import java.util.List;
 import java.util.Locale;
 
 import oog.mega.saguaro.BotConfig;
-import oog.mega.saguaro.info.Info;
 
 final class ModeSelector {
     private static final double MODE_UNCERTAINTY_PRIOR_EPSILON = 1e-6;
-    private static final double MODE_POSTERIOR_PROBABILITY_EPSILON = 1e-9;
 
     private final ModeRoundScoreTracker roundScoreTracker;
-    private Info info;
 
     ModeSelector(ModeRoundScoreTracker roundScoreTracker) {
         if (roundScoreTracker == null) {
             throw new IllegalArgumentException("Mode selector requires a non-null round score tracker");
         }
         this.roundScoreTracker = roundScoreTracker;
-    }
-
-    void setInfo(Info info) {
-        this.info = info;
     }
 
     static String describeModeEstimate(ModeId modeId) {
@@ -38,34 +31,42 @@ final class ModeSelector {
                 stats.totalOpponentScore);
     }
 
-    ModeId chooseOpeningMode(ModeId[] candidateModes) {
-        return selectOpeningMode(admissibleModePosteriors(candidateModes));
+    ModeId selectMode(ModeId[] candidateModes) {
+        ModePosterior[] posteriors = candidateModePosteriors(candidateModes);
+        if (posteriors.length < 1) {
+            throw new IllegalArgumentException("Mode selection requires at least one admissible mode");
+        }
+        List<ModePosterior> qualified = new ArrayList<>();
+        for (ModePosterior posterior : posteriors) {
+            if (!isDisqualified(posterior, posteriors)) {
+                qualified.add(posterior);
+            }
+        }
+        ModePosterior[] selectable = qualified.isEmpty()
+                ? posteriors
+                : qualified.toArray(new ModePosterior[0]);
+        ModePosterior best = selectable[0];
+        for (int i = 1; i < selectable.length; i++) {
+            if (prefersSelection(selectable[i], best)) {
+                best = selectable[i];
+            }
+        }
+        return best.modeId;
     }
 
-    ModeId chooseModeForSwitch(ModeId activeModeId, ModeId[] candidateModes) {
-        ModePosterior[] posteriors = admissibleModePosteriors(candidateModes);
-        ModePosterior current = findPosterior(posteriors, activeModeId);
-        if (current == null) {
-            return selectOpeningMode(posteriors);
-        }
-        double bestOtherComparisonMean = bestOtherComparisonMean(posteriors, activeModeId);
-        if (current.comparisonUpperBound >= bestOtherComparisonMean) {
-            return activeModeId;
-        }
-        ModePosterior[] alternatives = excludeMode(posteriors, activeModeId);
-        if (alternatives.length == 0) {
-            return activeModeId;
-        }
-        return selectOpeningMode(alternatives);
+    boolean isModeDisqualified(ModeId modeId, ModeId[] candidateModes) {
+        ModePosterior[] posteriors = candidateModePosteriors(candidateModes);
+        ModePosterior current = findPosterior(posteriors, modeId);
+        return current == null || isDisqualified(current, posteriors);
     }
 
-    private ModePosterior[] admissibleModePosteriors(ModeId[] candidateModes) {
+    private ModePosterior[] candidateModePosteriors(ModeId[] candidateModes) {
         List<ModePosterior> posteriors = new ArrayList<>();
         if (candidateModes == null) {
             return new ModePosterior[0];
         }
         for (ModeId modeId : candidateModes) {
-            if (modeId != null && isModeAdmissible(modeId, candidateModes)) {
+            if (modeId != null) {
                 posteriors.add(estimateLiveMode(modeId));
             }
         }
@@ -82,115 +83,20 @@ final class ModeSelector {
         return estimateMode(modeId, totalOurScore, totalOpponentScore);
     }
 
-    private boolean isModeAdmissible(ModeId modeId, ModeId[] candidateModes) {
-        if (modeId == ModeId.SCORE_MAX || modeId == ModeId.BULLET_SHIELD || modeId == ModeId.MOVING_BULLET_SHIELD) {
-            return true;
-        }
-        if (modeId == ModeId.PERFECT_PREDICTION) {
-            return isPerfectPredictionAdmissible(candidateModes);
-        }
-        if (modeId == ModeId.SHOT_DODGER || modeId == ModeId.WAVE_POISON) {
-            return isShotDodgerAdmissible();
-        }
-        throw new IllegalArgumentException("Unsupported mode id " + modeId);
-    }
-
-    private boolean isPerfectPredictionAdmissible(ModeId[] candidateModes) {
-        if (info == null) {
+    private static boolean isDisqualified(ModePosterior candidate, ModePosterior[] posteriors) {
+        if (candidate == null || posteriors == null || posteriors.length < 2) {
             return false;
         }
-        if (ModePerformanceProfile.hasAnyCombinedSamples(ModeId.PERFECT_PREDICTION)) {
-            return true;
-        }
-        return !areComparisonModesSettled(candidateModes, ModeId.PERFECT_PREDICTION);
-    }
-
-    private boolean isShotDodgerAdmissible() {
-        return info != null;
-    }
-
-    private boolean areComparisonModesSettled(ModeId[] candidateModes, ModeId excludedMode) {
-        List<ModePosterior> legal = new ArrayList<>();
-        if (candidateModes == null) {
-            return false;
-        }
-        for (ModeId modeId : candidateModes) {
-            if (modeId == null || modeId == excludedMode || modeId == ModeId.PERFECT_PREDICTION) {
+        double bestOtherMean = Double.NEGATIVE_INFINITY;
+        for (ModePosterior other : posteriors) {
+            if (other.modeId == candidate.modeId) {
                 continue;
             }
-            if ((modeId == ModeId.SHOT_DODGER || modeId == ModeId.WAVE_POISON) && !isShotDodgerAdmissible()) {
-                continue;
-            }
-            legal.add(estimateLiveMode(modeId));
-        }
-        if (legal.isEmpty()) {
-            return false;
-        }
-        ModePosterior best = null;
-        for (ModePosterior posterior : legal) {
-            if (best == null || posterior.posteriorMean > best.posteriorMean) {
-                best = posterior;
+            if (other.posteriorMean > bestOtherMean) {
+                bestOtherMean = other.posteriorMean;
             }
         }
-        if (best.intervalWidth >= BotConfig.ModeSelection.SETTLED_CI_WIDTH) {
-            return false;
-        }
-        for (ModePosterior posterior : legal) {
-            if (posterior.modeId != best.modeId && posterior.comparisonUpperBound > best.comparisonMean) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static ModeId selectOpeningMode(ModePosterior[] posteriors) {
-        if (posteriors == null || posteriors.length < 1) {
-            throw new IllegalArgumentException("Mode selection requires at least one admissible mode");
-        }
-        if (posteriors.length == 1) {
-            return posteriors[0].modeId;
-        }
-
-        ModePosterior fallback = posteriors[0];
-        for (ModePosterior posterior : posteriors) {
-            if (prefersHigherMeanFallback(posterior, fallback)) {
-                fallback = posterior;
-            }
-        }
-
-        ModePosterior[] ordered = posteriors.clone();
-        for (int i = 0; i < ordered.length - 1; i++) {
-            int bestIndex = i;
-            for (int j = i + 1; j < ordered.length; j++) {
-                if (prefersOpeningOrder(ordered[j], ordered[bestIndex])) {
-                    bestIndex = j;
-                }
-            }
-            if (bestIndex != i) {
-                ModePosterior swap = ordered[i];
-                ordered[i] = ordered[bestIndex];
-                ordered[bestIndex] = swap;
-            }
-        }
-
-        for (ModePosterior candidate : ordered) {
-            double bestOtherComparisonMean = Double.NEGATIVE_INFINITY;
-            for (ModePosterior other : posteriors) {
-                if (other.modeId == candidate.modeId) {
-                    continue;
-                }
-                if (other.comparisonMean > bestOtherComparisonMean) {
-                    bestOtherComparisonMean = other.comparisonMean;
-                }
-            }
-            if (candidate.comparisonUpperBound > bestOtherComparisonMean
-                    || ((candidate.modeId == ModeId.BULLET_SHIELD || candidate.modeId == ModeId.MOVING_BULLET_SHIELD)
-                    && nearlyEqual(candidate.comparisonUpperBound, bestOtherComparisonMean))) {
-                return candidate.modeId;
-            }
-        }
-
-        return fallback.modeId;
+        return candidate.upperBound + 1e-9 < bestOtherMean;
     }
 
     private static ModePosterior estimateMode(ModeId modeId, ModePerformanceProfile.ModeStatsSnapshot stats) {
@@ -227,54 +133,31 @@ final class ModeSelector {
                 * (uncertaintyAlpha + uncertaintyBeta)
                 * (uncertaintyAlpha + uncertaintyBeta + 1.0));
         double shareUncertainty = Math.sqrt(Math.max(0.0, variance));
-        double clampedPosteriorMean = clampProbabilityToOpenInterval(posteriorMean);
         double lowerBound = clampProbabilityToUnitInterval(
                 posteriorMean - BotConfig.ModeSelection.CONFIDENCE_SCALE * shareUncertainty);
         double upperBound = clampProbabilityToUnitInterval(
                 posteriorMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * shareUncertainty);
-        double comparisonMean = topHeavyComparisonScore(clampedPosteriorMean);
-        double comparisonUpperBound = topHeavyComparisonScore(clampProbabilityToOpenInterval(upperBound));
         double intervalWidth = upperBound - lowerBound;
-        return new ModePosterior(
-                modeId,
-                posteriorMean,
-                intervalWidth,
-                lowerBound,
-                upperBound,
-                comparisonMean,
-                comparisonUpperBound);
-    }
-
-    private static double clampProbabilityToOpenInterval(double value) {
-        return Math.max(
-                MODE_POSTERIOR_PROBABILITY_EPSILON,
-                Math.min(1.0 - MODE_POSTERIOR_PROBABILITY_EPSILON, value));
+        return new ModePosterior(modeId, posteriorMean, intervalWidth, lowerBound, upperBound);
     }
 
     private static double clampProbabilityToUnitInterval(double value) {
         return Math.max(0.0, Math.min(1.0, value));
     }
 
-    // Stretch the space only near 100% so near-perfect modes separate more strongly than poor ones.
-    private static double topHeavyComparisonScore(double probability) {
-        return -Math.log1p(-probability);
-    }
-
-    private static boolean prefersHigherMeanFallback(ModePosterior candidate, ModePosterior incumbent) {
-        if (candidate.posteriorMean > incumbent.posteriorMean) {
-            return true;
-        }
-        if (candidate.posteriorMean < incumbent.posteriorMean) {
-            return false;
-        }
-        return prefersShieldTie(candidate.modeId, incumbent.modeId);
-    }
-
-    private static boolean prefersOpeningOrder(ModePosterior candidate, ModePosterior incumbent) {
+    private static boolean prefersSelection(ModePosterior candidate, ModePosterior incumbent) {
         if (candidate.intervalWidth > incumbent.intervalWidth) {
             return true;
         }
         if (candidate.intervalWidth < incumbent.intervalWidth) {
+            return false;
+        }
+        int candidatePriority = selectionPriority(candidate.modeId);
+        int incumbentPriority = selectionPriority(incumbent.modeId);
+        if (candidatePriority < incumbentPriority) {
+            return true;
+        }
+        if (candidatePriority > incumbentPriority) {
             return false;
         }
         if (candidate.upperBound > incumbent.upperBound) {
@@ -289,20 +172,17 @@ final class ModeSelector {
         if (candidate.posteriorMean < incumbent.posteriorMean) {
             return false;
         }
-        return prefersShieldTie(candidate.modeId, incumbent.modeId);
+        return candidate.modeId.ordinal() < incumbent.modeId.ordinal();
     }
 
-    private static boolean prefersShieldTie(ModeId candidate, ModeId incumbent) {
-        if (candidate == ModeId.BULLET_SHIELD && incumbent != ModeId.BULLET_SHIELD) {
-            return true;
+    private static int selectionPriority(ModeId modeId) {
+        if (modeId == ModeId.BULLET_SHIELD) {
+            return 0;
         }
-        return candidate == ModeId.MOVING_BULLET_SHIELD
-                && incumbent != ModeId.BULLET_SHIELD
-                && incumbent != ModeId.MOVING_BULLET_SHIELD;
-    }
-
-    private static boolean nearlyEqual(double first, double second) {
-        return Math.abs(first - second) <= 1e-9;
+        if (modeId == ModeId.WAVE_POISON) {
+            return 1;
+        }
+        return 2;
     }
 
     private static ModePosterior findPosterior(ModePosterior[] posteriors, ModeId modeId) {
@@ -317,52 +197,23 @@ final class ModeSelector {
         return null;
     }
 
-    private static double bestOtherComparisonMean(ModePosterior[] posteriors, ModeId currentModeId) {
-        double bestOtherComparisonMean = Double.NEGATIVE_INFINITY;
-        for (ModePosterior other : posteriors) {
-            if (other.modeId == currentModeId) {
-                continue;
-            }
-            if (other.comparisonMean > bestOtherComparisonMean) {
-                bestOtherComparisonMean = other.comparisonMean;
-            }
-        }
-        return bestOtherComparisonMean;
-    }
-
-    private static ModePosterior[] excludeMode(ModePosterior[] posteriors, ModeId modeId) {
-        List<ModePosterior> filtered = new ArrayList<>();
-        for (ModePosterior posterior : posteriors) {
-            if (posterior.modeId != modeId) {
-                filtered.add(posterior);
-            }
-        }
-        return filtered.toArray(new ModePosterior[0]);
-    }
-
     private static final class ModePosterior {
         final ModeId modeId;
         final double posteriorMean;
         final double intervalWidth;
         final double lowerBound;
         final double upperBound;
-        final double comparisonMean;
-        final double comparisonUpperBound;
 
         ModePosterior(ModeId modeId,
                       double posteriorMean,
                       double intervalWidth,
                       double lowerBound,
-                      double upperBound,
-                      double comparisonMean,
-                      double comparisonUpperBound) {
+                      double upperBound) {
             this.modeId = modeId;
             this.posteriorMean = posteriorMean;
             this.intervalWidth = intervalWidth;
             this.lowerBound = lowerBound;
             this.upperBound = upperBound;
-            this.comparisonMean = comparisonMean;
-            this.comparisonUpperBound = comparisonUpperBound;
         }
     }
 }

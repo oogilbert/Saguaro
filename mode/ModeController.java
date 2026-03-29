@@ -1,6 +1,8 @@
 package oog.mega.saguaro.mode;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 import oog.mega.saguaro.Saguaro;
@@ -49,12 +51,12 @@ public final class ModeController {
     private BattleMode activeMode = scoreMaxMode;
     private ModeId activeModeId = ModeId.SCORE_MAX;
     private final Set<BattleMode> modesUsedThisBattle = new LinkedHashSet<>();
+    private final Set<ModeId> selectedModesThisBattle = new LinkedHashSet<>();
     private BattleServices services;
     private Info info;
     private int initializedRound = -1;
     private boolean opponentContextLoaded;
     private boolean pendingOpponentContextResolution;
-    private ModeProgressionStage progressionStage = ModeProgressionStage.NON_MOVING_SHIELD;
     private boolean battleModeAnnouncementPrinted;
     private int remainingBulletShieldForgivenHits;
     private Saguaro colorAppliedRobot;
@@ -77,16 +79,16 @@ public final class ModeController {
         startRoundOutcomeProfile(shotDodgerMode.getRoundOutcomeProfile(), scoreMaxMode.getRoundOutcomeProfile());
         startRoundOutcomeProfile(wavePoisonMode.getRoundOutcomeProfile(), shotDodgerMode.getRoundOutcomeProfile());
         modesUsedThisBattle.clear();
+        selectedModesThisBattle.clear();
         initializedRound = -1;
         opponentContextLoaded = false;
         pendingOpponentContextResolution = false;
-        progressionStage = ModeProgressionStage.NON_MOVING_SHIELD;
         battleModeAnnouncementPrinted = false;
         remainingBulletShieldForgivenHits = 0;
         colorAppliedRobot = null;
         colorAppliedModeId = null;
         roundScoreTracker.startBattle();
-        setActiveMode(ModeId.SCORE_MAX);
+        setActiveMode(ModeId.SCORE_MAX, false);
     }
 
     public void init(Info info) {
@@ -94,7 +96,6 @@ public final class ModeController {
             services = new BattleServices(info, dataStore);
         }
         this.info = info;
-        modeSelector.setInfo(info);
         shotDodgerMode.init(info, services);
         wavePoisonMode.init(info, services);
         bulletShieldMode.init(info, services);
@@ -109,10 +110,11 @@ public final class ModeController {
             remainingBulletShieldForgivenHits = 0;
             if (!opponentContextLoaded) {
                 pendingOpponentContextResolution = true;
-                activateModeForRound(ModeId.BULLET_SHIELD);
+                activateModeForRound(ModeId.BULLET_SHIELD, false);
             } else {
                 pendingOpponentContextResolution = false;
-                activateModeForRound(chooseModeForSwitch());
+                ModeId selectedMode = selectModeForRoundStart();
+                activateModeForRound(selectedMode, true);
             }
         }
     }
@@ -213,7 +215,7 @@ public final class ModeController {
         ScoreMaxScoreHistoryProfile.INSTANCE.onDeath();
     }
 
-    private void setActiveMode(ModeId nextModeId) {
+    private void setActiveMode(ModeId nextModeId, boolean countAsBattleUsage) {
         BattleMode nextMode = modeFor(nextModeId);
         activeModeId = nextModeId;
         activeMode = nextMode;
@@ -231,7 +233,10 @@ public final class ModeController {
             observationProfile.setDelegate(ScoreMaxLearningProfile.INSTANCE);
         }
         observationProfile.setPolicy(nextMode.getObservationPolicy());
-        modesUsedThisBattle.add(nextMode);
+        if (countAsBattleUsage) {
+            modesUsedThisBattle.add(nextMode);
+            selectedModesThisBattle.add(nextModeId);
+        }
     }
 
     private double currentEnemyEnergyBeforeDamage() {
@@ -263,17 +268,16 @@ public final class ModeController {
         }
         opponentContextLoaded = true;
         pendingOpponentContextResolution = false;
-        activateModeForRound(chooseOpeningMode());
+        activateModeForRound(selectModeForBattle(), true);
     }
 
-    private void activateModeForRound(ModeId selectedMode) {
+    private void activateModeForRound(ModeId selectedMode, boolean countAsBattleUsage) {
         ModeId previousModeId = activeModeId;
-        setActiveMode(selectedMode);
+        setActiveMode(selectedMode, countAsBattleUsage);
         roundScoreTracker.activateMode(selectedMode);
-        progressionStage = progressionStageAfterSelection(selectedMode, progressionStage);
         info.activateRoundOutcomeProfile(activeMode.getRoundOutcomeProfile());
         applyModeColorsIfNeeded();
-        if (!battleModeAnnouncementPrinted || selectedMode != previousModeId) {
+        if (countAsBattleUsage && (!battleModeAnnouncementPrinted || selectedMode != previousModeId)) {
             announceMode(previousModeId, selectedMode);
         }
     }
@@ -287,52 +291,65 @@ public final class ModeController {
         }
     }
 
-    private ModeId chooseModeForSwitch() {
+    private ModeId selectModeForRoundStart() {
         ModeId lockedMode = getLockedModeFromConfig();
         if (lockedMode != null) {
             return lockedMode;
         }
-        if (progressionStage == ModeProgressionStage.NON_MOVING_SHIELD) {
-            return modeSelector.chooseModeForSwitch(
-                    activeModeId,
-                    new ModeId[] {
-                            ModeId.BULLET_SHIELD,
-                            ModeId.MOVING_BULLET_SHIELD,
-                            ModeId.SCORE_MAX,
-                            ModeId.PERFECT_PREDICTION,
-                            ModeId.SHOT_DODGER,
-                            ModeId.WAVE_POISON
-                    });
+        ModeId[] selectableModes = selectableModes();
+        if (modeSelector.isModeDisqualified(activeModeId, selectableModes)) {
+            return modeSelector.selectMode(selectableModes);
         }
-        if (progressionStage == ModeProgressionStage.MOVING_SHIELD) {
-            return modeSelector.chooseModeForSwitch(
-                    activeModeId,
-                    new ModeId[] {
-                            ModeId.MOVING_BULLET_SHIELD,
-                            ModeId.SCORE_MAX,
-                            ModeId.PERFECT_PREDICTION,
-                            ModeId.SHOT_DODGER,
-                            ModeId.WAVE_POISON
-                    });
-        }
-        return modeSelector.chooseModeForSwitch(
-                activeModeId,
-                new ModeId[] {ModeId.SCORE_MAX, ModeId.PERFECT_PREDICTION, ModeId.SHOT_DODGER, ModeId.WAVE_POISON});
+        return activeModeId;
     }
 
-    private ModeId chooseOpeningMode() {
+    private ModeId selectModeForBattle() {
         ModeId lockedMode = getLockedModeFromConfig();
         if (lockedMode != null) {
             return lockedMode;
         }
-        return modeSelector.chooseOpeningMode(new ModeId[] {
-                ModeId.BULLET_SHIELD,
-                ModeId.MOVING_BULLET_SHIELD,
-                ModeId.SCORE_MAX,
-                ModeId.PERFECT_PREDICTION,
-                ModeId.SHOT_DODGER,
-                ModeId.WAVE_POISON
-        });
+        return modeSelector.selectMode(selectableModes());
+    }
+
+    private ModeId[] selectableModes() {
+        List<ModeId> selectable = new ArrayList<>();
+        for (ModeId modeId : ModeId.values()) {
+            if (isModeSelectable(modeId)) {
+                selectable.add(modeId);
+            }
+        }
+        return selectable.toArray(new ModeId[0]);
+    }
+
+    private boolean isModeSelectable(ModeId modeId) {
+        if (modeId == null) {
+            return false;
+        }
+        if (modeId == ModeId.BULLET_SHIELD || modeId == ModeId.WAVE_POISON) {
+            return !hasUsedAnyModeOtherThan(modeId);
+        }
+        if (modeId == ModeId.MOVING_BULLET_SHIELD) {
+            return !hasUsedAnyModeOutside(ModeId.BULLET_SHIELD, ModeId.MOVING_BULLET_SHIELD);
+        }
+        return true;
+    }
+
+    private boolean hasUsedAnyModeOtherThan(ModeId allowedMode) {
+        for (ModeId usedMode : selectedModesThisBattle) {
+            if (usedMode != allowedMode) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasUsedAnyModeOutside(ModeId firstAllowedMode, ModeId secondAllowedMode) {
+        for (ModeId usedMode : selectedModesThisBattle) {
+            if (usedMode != firstAllowedMode && usedMode != secondAllowedMode) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private BattleMode modeFor(ModeId modeId) {
@@ -389,24 +406,7 @@ public final class ModeController {
         }
     }
 
-    private static ModeProgressionStage progressionStageAfterSelection(ModeId selectedMode,
-                                                                       ModeProgressionStage currentStage) {
-        if (selectedMode == ModeId.MOVING_BULLET_SHIELD) {
-            return ModeProgressionStage.MOVING_SHIELD;
-        }
-        if (selectedMode != ModeId.BULLET_SHIELD) {
-            return ModeProgressionStage.OTHER_MODES;
-        }
-        return currentStage;
-    }
-
     private static boolean isShieldMode(ModeId modeId) {
         return modeId == ModeId.BULLET_SHIELD || modeId == ModeId.MOVING_BULLET_SHIELD;
-    }
-
-    private enum ModeProgressionStage {
-        NON_MOVING_SHIELD,
-        MOVING_SHIELD,
-        OTHER_MODES
     }
 }
