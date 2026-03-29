@@ -228,14 +228,12 @@ final class ModeSelector {
                 * (uncertaintyAlpha + uncertaintyBeta + 1.0));
         double shareUncertainty = Math.sqrt(Math.max(0.0, variance));
         double clampedPosteriorMean = clampProbabilityToOpenInterval(posteriorMean);
-        double comparisonMean = logit(clampedPosteriorMean);
-        double comparisonUncertainty = shareUncertainty / (clampedPosteriorMean * (1.0 - clampedPosteriorMean));
-        double comparisonLowerBound =
-                comparisonMean - BotConfig.ModeSelection.CONFIDENCE_SCALE * comparisonUncertainty;
-        double comparisonUpperBound =
-                comparisonMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * comparisonUncertainty;
-        double lowerBound = sigmoid(comparisonLowerBound);
-        double upperBound = sigmoid(comparisonUpperBound);
+        double lowerBound = clampProbabilityToUnitInterval(
+                posteriorMean - BotConfig.ModeSelection.CONFIDENCE_SCALE * shareUncertainty);
+        double upperBound = clampProbabilityToUnitInterval(
+                posteriorMean + BotConfig.ModeSelection.CONFIDENCE_SCALE * shareUncertainty);
+        double comparisonMean = topHeavyComparisonScore(clampedPosteriorMean);
+        double comparisonUpperBound = topHeavyComparisonScore(clampProbabilityToOpenInterval(upperBound));
         double intervalWidth = upperBound - lowerBound;
         return new ModePosterior(
                 modeId,
@@ -253,17 +251,13 @@ final class ModeSelector {
                 Math.min(1.0 - MODE_POSTERIOR_PROBABILITY_EPSILON, value));
     }
 
-    private static double logit(double probability) {
-        return Math.log(probability / (1.0 - probability));
+    private static double clampProbabilityToUnitInterval(double value) {
+        return Math.max(0.0, Math.min(1.0, value));
     }
 
-    private static double sigmoid(double x) {
-        if (x >= 0.0) {
-            double e = Math.exp(-x);
-            return 1.0 / (1.0 + e);
-        }
-        double e = Math.exp(x);
-        return e / (1.0 + e);
+    // Stretch the space only near 100% so near-perfect modes separate more strongly than poor ones.
+    private static double topHeavyComparisonScore(double probability) {
+        return -Math.log1p(-probability);
     }
 
     private static boolean prefersHigherMeanFallback(ModePosterior candidate, ModePosterior incumbent) {
