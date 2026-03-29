@@ -947,6 +947,7 @@ public final class BulletShieldMode implements BattleMode {
         if (latestEnemy == null || latestEnemy.energy < Rules.MIN_BULLET_POWER) {
             return null;
         }
+        EnemyInfo enemy = info != null ? info.getEnemy() : null;
         AggressiveAttackDecision attackDecision = selectDirectAttackDecision(myNow);
         if (attackDecision == null || !(attackDecision.power >= Rules.MIN_BULLET_POWER)) {
             return null;
@@ -958,7 +959,7 @@ public final class BulletShieldMode implements BattleMode {
         }
         double gunTurn = Utils.normalRelativeAngle(fireAngle - myNow.gunHeading);
         double firePower = 0.0;
-        if (isGunReady(myNow.gunHeat)) {
+        if (isGunReady(myNow.gunHeat) && isAggressiveFireAllowedNow(myNow, enemy)) {
             firePower = attackPower;
             pendingAggressiveShotTime = myNow.time;
         }
@@ -982,9 +983,10 @@ public final class BulletShieldMode implements BattleMode {
 
     private AggressiveAttackDecision selectDirectAttackDecision(Snapshot myNow) {
         EnemyInfo enemy = info != null ? info.getEnemy() : null;
-        if (!isAggressiveAttackAllowed(myNow, enemy)) {
+        if (!isAggressiveAttackOpportunityAllowed(myNow, enemy)) {
             return null;
         }
+        boolean fireAllowedNow = isAggressiveFireAllowedNow(myNow, enemy);
         double aggressivePower = Math.min(3.0, myNow.energy);
         aggressivePower = Math.min(aggressivePower, latestEnemy.energy);
         aggressivePower = Math.min(aggressivePower, PhysicsUtil.requiredBulletPowerForDamage(latestEnemy.energy));
@@ -992,7 +994,7 @@ public final class BulletShieldMode implements BattleMode {
             return null;
         }
         double distance = Point2D.distance(myNow.x, myNow.y, latestEnemy.x, latestEnemy.y);
-        if (distance <= BotConfig.Shield.AGGRESSIVE_CLOSE_RANGE_RADIUS) {
+        if (fireAllowedNow && distance <= BotConfig.Shield.AGGRESSIVE_CLOSE_RANGE_RADIUS) {
             return new AggressiveAttackDecision(aggressivePower, "close-range");
         }
         aggressivePower = Math.min(aggressivePower, Math.max(Rules.MIN_BULLET_POWER, Math.min(3,
@@ -1006,6 +1008,9 @@ public final class BulletShieldMode implements BattleMode {
         }
         if (shouldUseIdleAggressiveShot(myNow)) {
             return new AggressiveAttackDecision(Math.floor(maxPower * 10.0) / 10.0, "idle");
+        }
+        if (!fireAllowedNow) {
+            return null;
         }
         if (!isShieldDeadlineAggressionAllowed(myNow)) {
             return null;
@@ -1048,7 +1053,7 @@ public final class BulletShieldMode implements BattleMode {
         return myNow.time >= BotConfig.Shield.EARLY_ROUND_DEADLINE_AGGRESSION_GUARD_TICKS;
     }
 
-    private boolean isAggressiveAttackAllowed(Snapshot myNow, EnemyInfo enemy) {
+    private boolean isAggressiveAttackOpportunityAllowed(Snapshot myNow, EnemyInfo enemy) {
         if (enemy == null || !enemy.alive || !enemy.seenThisRound) {
             return false;
         }
@@ -1058,7 +1063,12 @@ public final class BulletShieldMode implements BattleMode {
         if (hasUnshieldedEnemyWavesInFlight()) {
             return false;
         }
-        return myNow.gunHeat <= enemy.gunHeat + 1e-9;
+        return true;
+    }
+
+    private boolean isAggressiveFireAllowedNow(Snapshot myNow, EnemyInfo enemy) {
+        return isAggressiveAttackOpportunityAllowed(myNow, enemy)
+                && myNow.gunHeat <= enemy.gunHeat + 1e-9;
     }
 
     private boolean hasUnshieldedEnemyWavesInFlight() {
