@@ -256,7 +256,7 @@ public final class BotConfig {
         // Learning rate for model feature exponent terms in WaveLog.
         public static final double EXPONENT_LEARNING_RATE = 0.004;
         // Learning rate for log-space model parameters such as bandwidth and sigma.
-        public static final double LOG_PARAMETER_LEARNING_RATE = 0.01;
+        public static final double LOG_PARAMETER_LEARNING_RATE = 0.004;
         // Pull back toward the default model each update; zero keeps the default fixed.
         public static final double MODEL_DEFAULT_PULL_RATE = 0.0;
         // Clip applied to WaveLog feature-weight gradients.
