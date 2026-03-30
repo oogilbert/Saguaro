@@ -304,10 +304,9 @@ public final class ModeController {
         if (lockedMode != null) {
             return lockedMode;
         }
-        ModeId[] allModes = ModeId.values();
         ModeId[] selectableModes = selectableModes();
-        if (modeSelector.isModeDisqualified(activeModeId, allModes)) {
-            return modeSelector.selectMode(selectableModes, allModes);
+        if (modeSelector.isModeDisqualified(activeModeId, selectableModes)) {
+            return modeSelector.selectMode(selectableModes);
         }
         return activeModeId;
     }
@@ -317,7 +316,7 @@ public final class ModeController {
         if (lockedMode != null) {
             return lockedMode;
         }
-        return modeSelector.selectMode(selectableModes(), ModeId.values());
+        return modeSelector.selectMode(selectableModes());
     }
 
     private ModeId[] selectableModes() {
