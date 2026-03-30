@@ -148,7 +148,8 @@ public class WaveManager {
                     battlefieldWidth,
                     battlefieldHeight,
                     myWaves,
-                    null);
+                    null,
+                    info.getOurShotsFiredThisBattle());
             myWave.fireTimeDistributionHandle = GuessFactorDistributionHandle.orNull(
                     info.getObservationProfile().createGunDistribution(myWave.fireTimeContext));
             myWave.fireTimeRecentExpertScores =

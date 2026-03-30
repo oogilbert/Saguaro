@@ -48,6 +48,8 @@ public class Info {
     private double battlefieldHeight;
     private long enemyWaveDangerRevision;
     private double trackedOurEnergy;
+    private int ourShotsFiredThisBattle;
+    private int enemyShotsFiredThisBattle;
 
     public void init(Saguaro robot,
                      RoundOutcomeProfile roundOutcomeProfile,
@@ -61,6 +63,8 @@ public class Info {
         this.battlefieldHeight = robot.getBattleFieldHeight();
         if (robot.getRoundNum() == 0) {
             enemyBulletHitRateTracker.startBattle();
+            ourShotsFiredThisBattle = 0;
+            enemyShotsFiredThisBattle = 0;
         }
         enemyTracker.init(robot, roundOutcomeProfile, this.dataStore);
         scoreTracker.init(roundOutcomeProfile);
@@ -77,6 +81,7 @@ public class Info {
         if (bullet == null) {
             return;
         }
+        ourShotsFiredThisBattle++;
         Wave wave = waveManager.onBulletFired(bullet);
         bulletPowerHitRateTracker.onMyWaveFired(wave);
         trackedOurEnergy = robot.getEnergy();
@@ -123,12 +128,14 @@ public class Info {
                 robotMotionTracker.getDistanceLastTicks(10),
                 robotMotionTracker.getDistanceLastTicks(20),
                 waveManager.didLastEnemyWaveHitRobot(),
-                waveManager.getEnemyWaves());
+                waveManager.getEnemyWaves(),
+                enemyShotsFiredThisBattle);
         EnemyInfo enemy = enemyTracker.getEnemy();
         if (enemy != null) {
             precisePredictionTracker.onScannedRobot(captureRobotSnapshot(), enemy);
         }
         if (result.firedWave != null) {
+            enemyShotsFiredThisBattle++;
             enemyBulletHitRateTracker.onEnemyWaveFired(result.firedWave);
             waveManager.addEnemyWave(result.firedWave);
         }
@@ -143,7 +150,8 @@ public class Info {
         Wave syntheticDeathWave = enemyTracker.onRobotDeath(
                 e,
                 observationProfile,
-                waveManager.getEnemyWaves());
+                waveManager.getEnemyWaves(),
+                enemyShotsFiredThisBattle);
         if (syntheticDeathWave != null) {
             waveManager.addEnemyWave(syntheticDeathWave);
             enemyWaveDangerRevision++;
@@ -400,6 +408,14 @@ public class Info {
 
     public void onEnemyWavePassedRobot(Wave wave) {
         enemyBulletHitRateTracker.onEnemyWaveMiss(wave);
+    }
+
+    public int getOurShotsFiredThisBattle() {
+        return ourShotsFiredThisBattle;
+    }
+
+    public int getEnemyShotsFiredThisBattle() {
+        return enemyShotsFiredThisBattle;
     }
 
     public double getTrackedOurEnergy() {

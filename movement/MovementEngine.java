@@ -1220,7 +1220,8 @@ public class MovementEngine implements MovementController {
                         momentumDirectionSign,
                         bfWidth,
                         bfHeight,
-                        referenceWaves));
+                        referenceWaves,
+                        info.getEnemyShotsFiredThisBattle()));
                 opponentEnergy -= firePower;
                 opponentGunHeat = 1.0 + firePower / 5.0;
                 opponentLastDetectedBulletPower = firePower;
@@ -1381,7 +1382,8 @@ public class MovementEngine implements MovementController {
                                 int targetMomentumDirectionSign,
                                 double bfWidth,
                                 double bfHeight,
-                                List<Wave> referenceWaves) {
+                                List<Wave> referenceWaves,
+                                int shotsFired) {
         return movementWavePlanner.createVirtualEnemyWave(
                 originX,
                 originY,
@@ -1404,7 +1406,8 @@ public class MovementEngine implements MovementController {
                 targetMomentumDirectionSign,
                 bfWidth,
                 bfHeight,
-                referenceWaves);
+                referenceWaves,
+                shotsFired);
     }
 
     boolean didLastEnemyWaveHitRobot() {

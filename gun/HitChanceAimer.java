@@ -568,7 +568,8 @@ public class HitChanceAimer implements GunController {
                 info.getBattlefieldWidth(),
                 info.getBattlefieldHeight(),
                 info.getMyWaves(),
-                null);
+                null,
+                info.getOurShotsFiredThisBattle());
         GuessFactorDistribution distribution = getDistributionForEnemyContext(
                 context,
                 shooterX,

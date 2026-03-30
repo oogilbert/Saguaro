@@ -138,7 +138,8 @@ public class EnemyInfo {
                                double robotDistanceLast10,
                                double robotDistanceLast20,
                                boolean robotDidHit,
-                               List<Wave> existingEnemyWaves) {
+                               List<Wave> existingEnemyWaves,
+                               int enemyShotsFired) {
         long currentTime = robot.getTime();
         Wave firedWave = null;
         double scannedHeading = e.getHeadingRadians();
@@ -196,7 +197,8 @@ public class EnemyInfo {
                         existingEnemyWaves,
                         firepower,
                         fireTime,
-                        observationProfile.shouldUpdateMovementModel());
+                        observationProfile.shouldUpdateMovementModel(),
+                        enemyShotsFired + 1);
                 firedWave.fireTimeDistributionHandle = GuessFactorDistributionHandle.orNull(
                         observationProfile.createMovementDistribution(firedWave.fireTimeContext));
                 firedWave.fireTimeRecentExpertScores =
@@ -369,7 +371,8 @@ public class EnemyInfo {
 
     public Wave maybeCreateSyntheticDeathWave(Saguaro robot,
                                               ObservationProfile observationProfile,
-                                              List<Wave> existingEnemyWaves) {
+                                              List<Wave> existingEnemyWaves,
+                                              int shotsFired) {
         if (robot == null || observationProfile == null) {
             throw new IllegalArgumentException(
                     "Synthetic death-wave generation requires non-null robot and observation profile");
@@ -385,7 +388,8 @@ public class EnemyInfo {
                 existingEnemyWaves,
                 SYNTHETIC_DEATH_WAVE_POWER,
                 currentTime - 1L,
-                false);
+                false,
+                shotsFired);
         syntheticDeathWave.allowMovementObservationLogging = false;
         return syntheticDeathWave;
     }
@@ -394,7 +398,8 @@ public class EnemyInfo {
                                          List<Wave> existingEnemyWaves,
                                          double firepower,
                                          long fireTime,
-                                         boolean allowMovementModelUpdate) {
+                                         boolean allowMovementModelUpdate,
+                                         int shotsFired) {
         if (!Double.isFinite(lastRobotXAtScan) || !Double.isFinite(lastRobotYAtScan)) {
             throw new IllegalStateException("Missing robot scan-time reference for enemy fired wave");
         }
@@ -424,7 +429,7 @@ public class EnemyInfo {
                         : Double.NaN;
         firedWave.sourceTickTime =
                 previousScanTime != Long.MIN_VALUE ? previousScanTime : Math.max(0L, firedWave.fireTime - 1L);
-        firedWave.sourceTickContext = createSourceTickContext(robot, existingEnemyWaves, firedWave);
+        firedWave.sourceTickContext = createSourceTickContext(robot, existingEnemyWaves, firedWave, shotsFired);
         firedWave.fireTimeContext = WaveContextFeatures.createWaveContext(
                 firedWave.originX,
                 firedWave.originY,
@@ -448,13 +453,15 @@ public class EnemyInfo {
                 robot.getBattleFieldWidth(),
                 robot.getBattleFieldHeight(),
                 existingEnemyWaves,
-                null);
+                null,
+                shotsFired);
         return firedWave;
     }
 
     private WaveContextFeatures.WaveContext createSourceTickContext(Saguaro robot,
                                                                     List<Wave> existingEnemyWaves,
-                                                                    Wave firedWave) {
+                                                                    Wave firedWave,
+                                                                    int shotsFired) {
         if (robot == null || firedWave == null) {
             return null;
         }
@@ -524,7 +531,8 @@ public class EnemyInfo {
                 robot.getBattleFieldWidth(),
                 robot.getBattleFieldHeight(),
                 existingEnemyWaves,
-                null);
+                null,
+                shotsFired);
     }
 
     /**

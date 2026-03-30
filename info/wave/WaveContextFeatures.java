@@ -44,6 +44,7 @@ public final class WaveContextFeatures {
         public final double stickWallReverse2;
         public final boolean didHit;
         public final long battleTime;
+        public final int shotsFired;
 
         public WaveContext(double sourceX,
                            double sourceY,
@@ -77,7 +78,8 @@ public final class WaveContextFeatures {
                            double stickWallAhead2,
                            double stickWallReverse2,
                            boolean didHit,
-                           long battleTime) {
+                           long battleTime,
+                           int shotsFired) {
             this.sourceX = sourceX;
             this.sourceY = sourceY;
             this.bulletSpeed = bulletSpeed;
@@ -111,6 +113,7 @@ public final class WaveContextFeatures {
             this.stickWallReverse2 = stickWallReverse2;
             this.didHit = didHit;
             this.battleTime = battleTime;
+            this.shotsFired = shotsFired;
         }
 
         @Override
@@ -155,7 +158,8 @@ public final class WaveContextFeatures {
                     && Double.doubleToLongBits(stickWallAhead2) == Double.doubleToLongBits(other.stickWallAhead2)
                     && Double.doubleToLongBits(stickWallReverse2) == Double.doubleToLongBits(other.stickWallReverse2)
                     && didHit == other.didHit
-                    && battleTime == other.battleTime;
+                    && battleTime == other.battleTime
+                    && shotsFired == other.shotsFired;
         }
 
         @Override
@@ -193,6 +197,7 @@ public final class WaveContextFeatures {
             result = 31 * result + Long.hashCode(Double.doubleToLongBits(stickWallReverse2));
             result = 31 * result + (didHit ? 1 : 0);
             result = 31 * result + Long.hashCode(battleTime);
+            result = 31 * result + shotsFired;
             return result;
         }
     }
@@ -222,7 +227,8 @@ public final class WaveContextFeatures {
                                                 double battlefieldWidth,
                                                 double battlefieldHeight,
                                                 List<Wave> referenceWaves,
-                                                Wave excludedReferenceWave) {
+                                                Wave excludedReferenceWave,
+                                                int shotsFired) {
         double bearing = Math.atan2(targetX - sourceX, targetY - sourceY);
         double lateralVelocity = targetVelocity * Math.sin(targetHeading - bearing);
         int lateralDirectionSign = resolveLateralDirectionSign(lateralVelocity, lastNonZeroLateralDirectionSign);
@@ -289,7 +295,8 @@ public final class WaveContextFeatures {
                 stickWallFeatures[2],
                 stickWallFeatures[3],
                 didHit,
-                currentTime);
+                currentTime,
+                shotsFired);
     }
 
     public static double updateMomentumLateralVelocity(double previousMomentumLateralVelocity,

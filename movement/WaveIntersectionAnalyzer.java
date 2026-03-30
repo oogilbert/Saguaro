@@ -189,7 +189,8 @@ final class WaveIntersectionAnalyzer {
                         movement.getBattlefieldWidth(),
                         movement.getBattlefieldHeight(),
                         wavesToScore,
-                        wave);
+                        wave,
+                        wave.fireTimeContext != null ? wave.fireTimeContext.shotsFired : 0);
                 waveDistribution = movement.queryDistributionForContextOrDefault(
                         simulatedContext,
                         wave.originX,

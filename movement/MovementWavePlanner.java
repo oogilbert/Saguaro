@@ -118,7 +118,8 @@ final class MovementWavePlanner {
                                 int targetMomentumDirectionSign,
                                 double bfWidth,
                                 double bfHeight,
-                                List<Wave> referenceWaves) {
+                                List<Wave> referenceWaves,
+                                int shotsFired) {
         Wave virtualWave = new Wave(
                 originX,
                 originY,
@@ -151,7 +152,8 @@ final class MovementWavePlanner {
                 bfWidth,
                 bfHeight,
                 referenceWaves,
-                null);
+                null,
+                shotsFired);
         virtualWave.fireTimeDistributionHandle =
                 movement.distributionHandleForContextOrDefault(
                         virtualWave.fireTimeContext,
@@ -300,7 +302,8 @@ final class MovementWavePlanner {
                     targetMomentumDirectionSign,
                     info.getBattlefieldWidth(),
                     info.getBattlefieldHeight(),
-                    scoringWaves);
+                    scoringWaves,
+                    info.getEnemyShotsFiredThisBattle());
         }
         scoringWaves.add(virtualWave);
         return scoringWaves;

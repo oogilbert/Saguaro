@@ -62,7 +62,8 @@ public final class EnemyTracker {
                                                  double distanceLast10,
                                                  double distanceLast20,
                                                  boolean didHit,
-                                                 List<Wave> existingEnemyWaves) {
+                                                 List<Wave> existingEnemyWaves,
+                                                 int enemyShotsFired) {
         if (observationProfile == null) {
             throw new IllegalArgumentException("Observation profile must be non-null");
         }
@@ -87,17 +88,20 @@ public final class EnemyTracker {
                 distanceLast10,
                 distanceLast20,
                 didHit,
-                existingEnemyWaves);
+                existingEnemyWaves,
+                enemyShotsFired);
     }
 
     public Wave onRobotDeath(RobotDeathEvent event,
                              ObservationProfile observationProfile,
-                             List<Wave> existingEnemyWaves) {
+                             List<Wave> existingEnemyWaves,
+                             int enemyShotsFired) {
         if (matchesTrackedEnemy(event.getName()) && enemy != null) {
             Wave syntheticDeathWave = enemy.maybeCreateSyntheticDeathWave(
                     robot,
                     observationProfile,
-                    existingEnemyWaves);
+                    existingEnemyWaves,
+                    enemyShotsFired);
             enemy.alive = false;
             return syntheticDeathWave;
         }

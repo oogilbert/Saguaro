@@ -20,7 +20,7 @@ import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.MirroredGuessFactorDistribution;
 
 public class WaveLog {
-    static final int CONTEXT_DIMENSIONS = 21;
+    static final int CONTEXT_DIMENSIONS = 22;
     private static final int FEATURE_POWER = 0;
     private static final int FEATURE_BFT = 1;
     private static final int FEATURE_ACCEL = 2;
@@ -42,20 +42,18 @@ public class WaveLog {
     private static final int FEATURE_CURRENT_GF = 18;
     private static final int FEATURE_DID_HIT = 19;
     private static final int FEATURE_BATTLE_TIME = 20;
+    private static final int FEATURE_SHOTS_FIRED = 21;
     private static final int MODEL_CANDIDATE_POOL = 7;
-    private static final int PERSISTENCE_SECTION_VERSION = 1;
+    private static final int PERSISTENCE_SECTION_VERSION = 2;
     private static final double MAX_LATERAL_VELOCITY = 8.0;
     private static final double MIN_VELOCITY_DELTA = -2.0;
     private static final double MAX_VELOCITY_DELTA = 1.0;
-    private static final double FLIGHT_TICKS_SCALE = Wave.nominalFlightTicks(
-            Math.hypot(
-                    800.0 - WaveContextFeatures.ROBOT_DIAMETER,
-                    600.0 - WaveContextFeatures.ROBOT_DIAMETER),
-            Wave.bulletSpeed(3.0));
+    private static final double FLIGHT_TICKS_SCALE = 100.0;
     private static final double RELATIVE_TICKS_CAP = 70.0;
     private static final double DISTANCE_LAST_10_SCALE = 10.0 * MAX_LATERAL_VELOCITY;
     private static final double DISTANCE_LAST_20_SCALE = 20.0 * MAX_LATERAL_VELOCITY;
     private static final double BATTLE_TIME_SCALE = 500.0;
+    private static final double SHOTS_FIRED_SCALE = 1000.0;
     private static final double FEATURE_TRANSFORM_EPSILON = 1e-4;
     private static final double MIN_FEATURE_BIAS = 0.0;
     private static final double MAX_FEATURE_BIAS = 1.0;
@@ -90,7 +88,8 @@ public class WaveLog {
             1.10,
             1.05,
             0.75,
-            0.55
+            0.55,
+            0.35
     };
     private static final double[] DEFAULT_MOVEMENT_DISTANCE_WEIGHTS = new double[]{
             0.45,
@@ -113,23 +112,24 @@ public class WaveLog {
             0.70,
             0.75,
             1.40,
-            0.85
+            0.85,
+            0.40
     };
     private static final double[] DEFAULT_TARGETING_FEATURE_BIASES = new double[]{
             0.02, 0.07, 0.02, 0.36, 0.00, 0.05, 0.05, 0.03, 0.03, 0.02, 0.02,
-            0.02, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.02, 0.00, 0.02
+            0.02, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.02, 0.00, 0.02, 0.02
     };
     private static final double[] DEFAULT_TARGETING_FEATURE_EXPONENTS = new double[]{
             0.38, 0.55, 0.80, 0.50, 1.00, 0.65, 0.65, 0.75, 0.75, 0.70, 0.70,
-            0.60, 0.35, 0.35, 0.45, 0.45, 0.45, 0.45, 0.85, 1.00, 0.50
+            0.60, 0.35, 0.35, 0.45, 0.45, 0.45, 0.45, 0.85, 1.00, 0.50, 0.50
     };
     private static final double[] DEFAULT_MOVEMENT_FEATURE_BIASES = new double[]{
             0.02, 0.05, 0.02, 0.18, 0.00, 0.05, 0.05, 0.03, 0.03, 0.02, 0.02,
-            0.02, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.02, 0.00, 0.02
+            0.02, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.02, 0.00, 0.02, 0.02
     };
     private static final double[] DEFAULT_MOVEMENT_FEATURE_EXPONENTS = new double[]{
             0.45, 0.55, 0.80, 0.55, 1.00, 0.65, 0.60, 0.80, 0.75, 0.70, 0.70,
-            0.55, 0.40, 0.40, 0.50, 0.50, 0.50, 0.50, 0.85, 1.00, 0.55
+            0.55, 0.40, 0.40, 0.50, 0.50, 0.50, 0.50, 0.85, 1.00, 0.55, 0.55
     };
     private static final ModelSpec DEFAULT_TARGETING_MODEL = new ModelSpec(
             DEFAULT_TARGETING_DISTANCE_WEIGHTS,
@@ -1032,17 +1032,18 @@ public class WaveLog {
         normalized[FEATURE_DIST10] = normalizeDistance(context.distanceLast10, DISTANCE_LAST_10_SCALE);
         normalized[FEATURE_DIST20] = normalizeDistance(context.distanceLast20, DISTANCE_LAST_20_SCALE);
         normalized[FEATURE_RELATIVE_HEADING] = normalizeRelativeHeading(context.relativeHeading);
-        normalized[FEATURE_MAE_WALL_AHEAD] = clamp(context.wallAhead, 0.0, 1.0);
-        normalized[FEATURE_MAE_WALL_REVERSE] = clamp(context.wallReverse, 0.0, 1.0);
-        normalized[FEATURE_STICK_WALL_AHEAD] = clamp(context.stickWallAhead, 0.0, 1.0);
-        normalized[FEATURE_STICK_WALL_REVERSE] = clamp(context.stickWallReverse, 0.0, 1.0);
-        normalized[FEATURE_STICK_WALL_AHEAD2] = clamp(context.stickWallAhead2, 0.0, 1.0);
-        normalized[FEATURE_STICK_WALL_REVERSE2] = clamp(context.stickWallReverse2, 0.0, 1.0);
+        normalized[FEATURE_MAE_WALL_AHEAD] = context.wallAhead;
+        normalized[FEATURE_MAE_WALL_REVERSE] = context.wallReverse;
+        normalized[FEATURE_STICK_WALL_AHEAD] = context.stickWallAhead;
+        normalized[FEATURE_STICK_WALL_REVERSE] = context.stickWallReverse;
+        normalized[FEATURE_STICK_WALL_AHEAD2] = context.stickWallAhead2;
+        normalized[FEATURE_STICK_WALL_REVERSE2] = context.stickWallReverse2;
         normalized[FEATURE_CURRENT_GF] = normalizeGuessFactor(
                 canonicalizeGuessFactor(context.currentGF, context.momentumDirectionSign));
         normalized[FEATURE_DID_HIT] = normalizeBoolean(
                 didHitOverride != null ? didHitOverride.booleanValue() : context.didHit);
         normalized[FEATURE_BATTLE_TIME] = normalizeBattleTime(context.battleTime);
+        normalized[FEATURE_SHOTS_FIRED] = normalizeShotsFired(context.shotsFired);
         return normalized;
     }
 
@@ -1113,44 +1114,44 @@ public class WaveLog {
         if (context.battleTime < 0L) {
             throw new IllegalArgumentException("Wave-log point requires non-negative battle time");
         }
+        if (context.shotsFired < 0) {
+            throw new IllegalArgumentException("Wave-log point requires non-negative shots fired");
+        }
         if (WaveContextFeatures.normalizeDirectionSign(context.momentumDirectionSign) == 0) {
             throw new IllegalArgumentException("Wave-log point requires a non-zero momentum direction sign");
         }
     }
 
     private static double normalizePower(double bulletSpeed) {
-        return clamp(((20.0 - bulletSpeed) / 3.0) / 3.0, 0.0, 1.0);
+        return ((20.0 - bulletSpeed) / 3.0) / 3.0;
     }
 
     private static double normalizeAbsoluteVelocity(double velocity) {
-        return clamp(Math.abs(velocity) / MAX_LATERAL_VELOCITY, 0.0, 1.0);
+        return Math.abs(velocity) / MAX_LATERAL_VELOCITY;
     }
 
     private static double normalizeSignedVelocity(double velocity) {
-        return clamp((velocity + MAX_LATERAL_VELOCITY) / (2.0 * MAX_LATERAL_VELOCITY), 0.0, 1.0);
+        return (velocity + MAX_LATERAL_VELOCITY) / (2.0 * MAX_LATERAL_VELOCITY);
     }
 
     private static double normalizeFlightTicks(int flightTicks) {
-        return clamp(flightTicks / FLIGHT_TICKS_SCALE, 0.0, 1.0);
+        return flightTicks / FLIGHT_TICKS_SCALE;
     }
 
     private static double normalizeVelocityDelta(double velocityDelta) {
-        return clamp(
-                (velocityDelta - MIN_VELOCITY_DELTA) / (MAX_VELOCITY_DELTA - MIN_VELOCITY_DELTA),
-                0.0,
-                1.0);
+        return (velocityDelta - MIN_VELOCITY_DELTA) / (MAX_VELOCITY_DELTA - MIN_VELOCITY_DELTA);
     }
 
     private static double normalizeRelativeTicks(int ticks, int flightTicks) {
-        return clamp(Math.min(RELATIVE_TICKS_CAP, ticks) / Math.max(1.0, flightTicks), 0.0, 1.0);
+        return Math.min(RELATIVE_TICKS_CAP, ticks) / Math.max(1.0, flightTicks);
     }
 
     private static double normalizeDistance(double distance, double scale) {
-        return clamp(distance / scale, 0.0, 1.0);
+        return distance / scale;
     }
 
     private static double normalizeRelativeHeading(double relativeHeading) {
-        return clamp(Math.abs(relativeHeading) / Math.PI, 0.0, 1.0);
+        return Math.abs(relativeHeading) / Math.PI;
     }
 
     private static double normalizeBoolean(boolean value) {
@@ -1158,30 +1159,31 @@ public class WaveLog {
     }
 
     private static double normalizeBattleTime(long battleTime) {
-        return clamp(Math.min(BATTLE_TIME_SCALE, battleTime) / BATTLE_TIME_SCALE, 0.0, 1.0);
+        return battleTime / BATTLE_TIME_SCALE;
+    }
+
+    private static double normalizeShotsFired(int shotsFired) {
+        return shotsFired / SHOTS_FIRED_SCALE;
     }
 
     private static double transformFeature(double value, double bias, double exponent) {
-        double clampedValue = clamp(value, 0.0, 1.0);
-        double base = Math.max(FEATURE_TRANSFORM_EPSILON, FEATURE_TRANSFORM_EPSILON + bias + clampedValue);
+        double base = Math.max(FEATURE_TRANSFORM_EPSILON, FEATURE_TRANSFORM_EPSILON + bias + value);
         return Math.pow(base, exponent);
     }
 
     private static double transformFeatureDerivativeBias(double value, double bias, double exponent) {
-        double clampedValue = clamp(value, 0.0, 1.0);
-        double base = Math.max(FEATURE_TRANSFORM_EPSILON, FEATURE_TRANSFORM_EPSILON + bias + clampedValue);
+        double base = Math.max(FEATURE_TRANSFORM_EPSILON, FEATURE_TRANSFORM_EPSILON + bias + value);
         return exponent * Math.pow(base, exponent - 1.0);
     }
 
     private static double transformFeatureDerivativeExponent(double value, double bias, double exponent) {
         double transformed = transformFeature(value, bias, exponent);
-        double clampedValue = clamp(value, 0.0, 1.0);
-        double base = Math.max(FEATURE_TRANSFORM_EPSILON, FEATURE_TRANSFORM_EPSILON + bias + clampedValue);
+        double base = Math.max(FEATURE_TRANSFORM_EPSILON, FEATURE_TRANSFORM_EPSILON + bias + value);
         return transformed * Math.log(base);
     }
 
     private static double normalizeGuessFactor(double guessFactor) {
-        return clamp((guessFactor + 1.0) * 0.5, 0.0, 1.0);
+        return (guessFactor + 1.0) * 0.5;
     }
 
     private static double canonicalizeGuessFactor(double guessFactor, int lateralDirectionSign) {
@@ -1569,6 +1571,8 @@ public class WaveLog {
             return "didHit";
         case 20:
             return "battleTime";
+        case 21:
+            return "shotsFired";
         default:
             return "f" + index;
         }
