@@ -409,7 +409,9 @@ public final class ModeController {
     private void announceWeightsIfApplicable(ModeId modeId) {
         if (modeId == ModeId.SCORE_MAX) {
             printWaveModelDelta("Targeting Delta:", WaveLog.getTargetingModelDeltaLines());
+            printWaveModelDelta("Targeting Weights:", WaveLog.getTargetingModelAbsoluteLines());
             printWaveModelDelta("Movement Delta:", WaveLog.getMovementModelDeltaLines());
+            printWaveModelDelta("Movement Weights:", WaveLog.getMovementModelAbsoluteLines());
         } else if (modeId == ModeId.SHOT_DODGER || modeId == ModeId.WAVE_POISON) {
             info.getRobot().out.println(ShotDodgerObservationProfile.describeBootstrapStatus());
         }

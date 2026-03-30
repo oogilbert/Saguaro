@@ -44,6 +44,8 @@ public class WaveLog {
     private static final int FEATURE_BATTLE_TIME = 20;
     private static final int FEATURE_SHOTS_FIRED = 21;
     private static final int MODEL_CANDIDATE_POOL = 7;
+    private static final int GRADIENT_CANDIDATE_POOL = 50;
+    private static final double WEIGHT_SOFT_FLOOR = 0.01;
     private static final int PERSISTENCE_SECTION_VERSION = 2;
     private static final double MAX_LATERAL_VELOCITY = 8.0;
     private static final double MIN_VELOCITY_DELTA = -2.0;
@@ -500,7 +502,7 @@ public class WaveLog {
         NeighborSelection selection = selectNeighbors(
                 segment,
                 queryPoint,
-                candidateCountForLogSize(segment.log.size()));
+                gradientCandidateCountForLogSize(segment.log.size()));
         if (selection == null) {
             return false;
         }
@@ -636,8 +638,8 @@ public class WaveLog {
                     * clipGradient(weightGradients[i], BotConfig.Learning.WEIGHT_GRADIENT_CLIP);
             updatedWeights[i] += BotConfig.Learning.MODEL_DEFAULT_PULL_RATE
                     * (segment.defaultModel.contextDistanceWeights[i] - updatedWeights[i]);
-            if (!(updatedWeights[i] > WEIGHT_ZERO_EPSILON)) {
-                updatedWeights[i] = 0.0;
+            if (updatedWeights[i] < WEIGHT_SOFT_FLOOR) {
+                updatedWeights[i] = WEIGHT_SOFT_FLOOR;
             }
 
             updatedBiases[i] -= BotConfig.Learning.BIAS_LEARNING_RATE
@@ -907,6 +909,13 @@ public class WaveLog {
             return 0;
         }
         return Math.min(MODEL_CANDIDATE_POOL, logSize);
+    }
+
+    private static int gradientCandidateCountForLogSize(int logSize) {
+        if (logSize <= 0) {
+            return 0;
+        }
+        return Math.min(GRADIENT_CANDIDATE_POOL, Math.max(MODEL_CANDIDATE_POOL, logSize / 5));
     }
 
     private static NeighborSelection selectNeighbors(SegmentLog segment,
@@ -1404,6 +1413,10 @@ public class WaveLog {
         return describeModelDelta(gunSegment, DEFAULT_TARGETING_MODEL);
     }
 
+    public static List<String> getTargetingModelAbsoluteLines() {
+        return describeModelAbsolute(gunSegment);
+    }
+
     public static String getDefaultTargetingModelSummary() {
         return describeModel(DEFAULT_TARGETING_MODEL);
     }
@@ -1422,6 +1435,10 @@ public class WaveLog {
 
     public static List<String> getMovementModelDeltaLines() {
         return describeModelDelta(movementSegment, DEFAULT_MOVEMENT_MODEL);
+    }
+
+    public static List<String> getMovementModelAbsoluteLines() {
+        return describeModelAbsolute(movementSegment);
     }
 
     public static String getDefaultMovementModelSummary() {
@@ -1467,6 +1484,30 @@ public class WaveLog {
                     segment.contextDistanceWeights[i] - defaultModel.contextDistanceWeights[i],
                     segment.featureBiases[i] - defaultModel.featureBiases[i],
                     segment.featureExponents[i] - defaultModel.featureExponents[i]));
+        }
+        return lines;
+    }
+
+    private static List<String> describeModelAbsolute(SegmentLog segment) {
+        List<String> lines = new ArrayList<>(CONTEXT_DIMENSIONS + 2);
+        lines.add(String.format(
+                Locale.US,
+                "%-12s  =%.4f",
+                "bandwidth",
+                segment.kdeBandwidth));
+        lines.add(String.format(
+                Locale.US,
+                "%-12s  =%.4f",
+                "sigma",
+                segment.contextWeightSigma));
+        for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
+            lines.add(String.format(
+                    Locale.US,
+                    "%-12s  w=%.4f  b=%.4f  e=%.4f",
+                    contextLabel(i),
+                    segment.contextDistanceWeights[i],
+                    segment.featureBiases[i],
+                    segment.featureExponents[i]));
         }
         return lines;
     }
@@ -1585,11 +1626,7 @@ public class WaveLog {
         }
         double scale = targetMass / sum;
         for (int i = 0; i < weights.length; i++) {
-            if (weights[i] > WEIGHT_ZERO_EPSILON) {
-                weights[i] *= scale;
-            } else {
-                weights[i] = 0.0;
-            }
+            weights[i] = Math.max(weights[i] * scale, WEIGHT_SOFT_FLOOR);
         }
         return true;
     }
