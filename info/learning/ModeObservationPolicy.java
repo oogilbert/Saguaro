@@ -7,8 +7,8 @@ public final class ModeObservationPolicy {
             new ModeObservationPolicy(false, false, false, false, false, false, false, false, false);
     public static final ModeObservationPolicy TARGETING_ONLY =
             new ModeObservationPolicy(true, true, false, false, false, false, false, false, true);
-    public static final ModeObservationPolicy COLLECT_ONLY =
-            new ModeObservationPolicy(false, true, true, true, true, true, false, false, false);
+    public static final ModeObservationPolicy MOVEMENT_UPDATE_ONLY =
+            new ModeObservationPolicy(false, true, true, true, true, true, false, true, false);
     public static final ModeObservationPolicy SHOT_DODGER_EXPERT_ONLY =
             new ModeObservationPolicy(true, true, true, true, false, false, true, false, false);
 

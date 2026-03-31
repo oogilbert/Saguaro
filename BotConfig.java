@@ -213,7 +213,7 @@ public final class BotConfig {
         // If non-null, bypasses normal mode selection and locks the bot into this mode.
         // Valid values: null, "scoreMax", "bulletShield", "movingBulletShield",
         //               "perfectPrediction", "shotDodger", "wavePoison"
-        public static final String LOCKED_MODE = "scoreMax";
+        public static final String LOCKED_MODE = null;
 
         // Scales the mode-selection confidence bound used to disqualify candidates.
         public static final double CONFIDENCE_SCALE = 6.0;

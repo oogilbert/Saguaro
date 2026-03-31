@@ -84,7 +84,7 @@ public final class PerfectPredictionMode implements BattleMode {
 
     @Override
     public ModeObservationPolicy getObservationPolicy() {
-        return ModeObservationPolicy.COLLECT_ONLY;
+        return ModeObservationPolicy.MOVEMENT_UPDATE_ONLY;
     }
 
     @Override
