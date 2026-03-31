@@ -29,6 +29,7 @@ public final class ShotDodgerObservationProfile implements ObservationProfile {
     private static final double MIN_LEARNED_DIVISOR = 4.0;
     private static final double MAX_LEARNED_DIVISOR = 30.0;
     private static final int MAX_AVERAGED_LINEAR_CONSTANT = 100;
+    private static final double CONSTANT_DIVISOR_ROLLING_DECAY = 0.85;
     private static final int PERSISTED_BOOTSTRAP_SECTION_VERSION = 1;
     private static final int PERSISTED_BOOTSTRAP_BYTES = 9;
 
@@ -527,11 +528,11 @@ public final class ShotDodgerObservationProfile implements ObservationProfile {
             return false;
         }
         if (subtractBodyTurn) {
-            linearConstantDivisorNoAdjustSum += divisor;
-            linearConstantDivisorNoAdjustWeight += 1.0;
+            linearConstantDivisorNoAdjustSum = linearConstantDivisorNoAdjustSum * CONSTANT_DIVISOR_ROLLING_DECAY + divisor;
+            linearConstantDivisorNoAdjustWeight = linearConstantDivisorNoAdjustWeight * CONSTANT_DIVISOR_ROLLING_DECAY + 1.0;
         } else {
-            linearConstantDivisorSum += divisor;
-            linearConstantDivisorWeight += 1.0;
+            linearConstantDivisorSum = linearConstantDivisorSum * CONSTANT_DIVISOR_ROLLING_DECAY + divisor;
+            linearConstantDivisorWeight = linearConstantDivisorWeight * CONSTANT_DIVISOR_ROLLING_DECAY + 1.0;
         }
         return true;
     }
