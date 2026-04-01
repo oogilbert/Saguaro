@@ -7,7 +7,8 @@ public enum ModeId {
     PERFECT_PREDICTION("perfectPrediction", "PerfectPrediction"),
     SHOT_DODGER("shotDodger", "ShotDodger"),
     WAVE_POISON("wavePoison", "WavePoison"),
-    WAVE_POISON_SHIFT("wavePoisonShift", "WavePoisonShift");
+    WAVE_POISON_SHIFT("wavePoisonShift", "WavePoisonShift"),
+    ANTI_BASIC_SURFER("antiBasicSurfer", "AntiBasicSurfer");
 
     private final String label;
     private final String displayName;

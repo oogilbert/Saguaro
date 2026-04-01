@@ -263,7 +263,10 @@ final class ModeSelector {
         if (modeId == ModeId.WAVE_POISON_SHIFT) {
             return 3;
         }
-        return 4;
+        if (modeId == ModeId.ANTI_BASIC_SURFER) {
+            return 4;
+        }
+        return 5;
     }
 
     private static ModePosterior findPosterior(ModePosterior[] posteriors, ModeId modeId) {

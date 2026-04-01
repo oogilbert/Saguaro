@@ -9,7 +9,7 @@ import java.io.IOException;
 public final class ModePerformanceProfile {
     // Opponent mode-performance records are disposable caches. When this layout changes, bump the
     // section version and let BattleDataStore discard stale files instead of maintaining migrations.
-    private static final int SECTION_VERSION = 8;
+    private static final int SECTION_VERSION = 9;
     private static final int LEGACY_4_MODE_SECTION_VERSION = 4;
     private static final int LEGACY_4_MODE_BYTES = 16 * 4;
     private static final int LEGACY_3_MODE_SECTION_VERSION = 3;

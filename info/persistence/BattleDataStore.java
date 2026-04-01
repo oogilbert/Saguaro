@@ -282,6 +282,9 @@ public final class BattleDataStore {
         robot.out.println(
                 "WavePoisonShift mode estimate: "
                         + ModeController.describeModeEstimate(ModeId.WAVE_POISON_SHIFT));
+        robot.out.println(
+                "AntiBasicSurfer mode estimate: "
+                        + ModeController.describeModeEstimate(ModeId.ANTI_BASIC_SURFER));
         double historicalHitRate = BulletPowerHitRateTracker.getPersistedOverallHitRate();
         if (!Double.isNaN(historicalHitRate)) {
             robot.out.println(String.format(Locale.US, "Historical hit rate: %.2f%%", historicalHitRate * 100.0));

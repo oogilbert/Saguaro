@@ -17,6 +17,7 @@ import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.info.persistence.BulletPowerHitRateDataSet;
 import oog.mega.saguaro.info.persistence.ModePerformanceDataSet;
 import oog.mega.saguaro.info.persistence.WaveModelDataSet;
+import oog.mega.saguaro.mode.antibasicsurfer.AntiBasicSurferMode;
 import oog.mega.saguaro.mode.perfectprediction.PerfectPredictionMode;
 import oog.mega.saguaro.mode.perfectprediction.PrecisePredictionProfile;
 import oog.mega.saguaro.mode.scoremax.ScoreMaxMode;
@@ -48,6 +49,7 @@ public final class ModeController {
     private final BulletShieldMode movingBulletShieldMode =
             new BulletShieldMode(ModeId.MOVING_BULLET_SHIELD, true, MovingBulletShieldDataSet.class);
     private final PerfectPredictionMode perfectPredictionMode = new PerfectPredictionMode();
+    private final AntiBasicSurferMode antiBasicSurferMode = new AntiBasicSurferMode();
     private final ScoreMaxMode scoreMaxMode = new ScoreMaxMode();
     private final ModeObservationProfile observationProfile = new ModeObservationProfile(ScoreMaxLearningProfile.INSTANCE);
     private final BattleDataStore dataStore = new BattleDataStore();
@@ -85,6 +87,7 @@ public final class ModeController {
         startRoundOutcomeProfile(shotDodgerMode.getRoundOutcomeProfile(), scoreMaxMode.getRoundOutcomeProfile());
         startRoundOutcomeProfile(wavePoisonMode.getRoundOutcomeProfile(), shotDodgerMode.getRoundOutcomeProfile());
         startRoundOutcomeProfile(wavePoisonShiftMode.getRoundOutcomeProfile(), wavePoisonMode.getRoundOutcomeProfile());
+        startRoundOutcomeProfile(antiBasicSurferMode.getRoundOutcomeProfile(), wavePoisonShiftMode.getRoundOutcomeProfile());
         modesUsedThisBattle.clear();
         selectedModesThisBattle.clear();
         initializedRound = -1;
@@ -109,6 +112,7 @@ public final class ModeController {
         bulletShieldMode.init(info, services);
         movingBulletShieldMode.init(info, services);
         perfectPredictionMode.init(info, services);
+        antiBasicSurferMode.init(info, services);
         scoreMaxMode.init(info, services);
         int roundNumber = info.getRobot().getRoundNum();
         if (roundNumber != initializedRound) {
@@ -339,7 +343,8 @@ public final class ModeController {
         if (modeId == null) {
             return false;
         }
-        if (modeId == ModeId.BULLET_SHIELD || isWavePoisonVariant(modeId)) {
+        if (modeId == ModeId.BULLET_SHIELD || isWavePoisonVariant(modeId)
+                || modeId == ModeId.ANTI_BASIC_SURFER) {
             return !hasUsedAnyModeOtherThan(modeId);
         }
         if (modeId == ModeId.MOVING_BULLET_SHIELD) {
@@ -387,6 +392,9 @@ public final class ModeController {
         }
         if (modeId == ModeId.WAVE_POISON_SHIFT) {
             return wavePoisonShiftMode;
+        }
+        if (modeId == ModeId.ANTI_BASIC_SURFER) {
+            return antiBasicSurferMode;
         }
         throw new IllegalArgumentException("Unsupported mode id " + modeId);
     }
