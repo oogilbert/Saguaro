@@ -39,7 +39,10 @@ import robocode.ScannedRobotEvent;
 public final class ModeController {
     private final ShotDodgerObservationProfile shotDodgerObservationProfile = new ShotDodgerObservationProfile();
     private final ShotDodgerMode shotDodgerMode = new ShotDodgerMode(shotDodgerObservationProfile);
-    private final WavePoisonMode wavePoisonMode = new WavePoisonMode(shotDodgerObservationProfile);
+    private final WavePoisonMode wavePoisonMode =
+            new WavePoisonMode(ModeId.WAVE_POISON, shotDodgerObservationProfile, 1, 0.5, -0.5);
+    private final WavePoisonMode wavePoisonShiftMode =
+            new WavePoisonMode(ModeId.WAVE_POISON_SHIFT, shotDodgerObservationProfile, 2, 0.5, -0.5);
     private final BulletShieldMode bulletShieldMode =
             new BulletShieldMode(ModeId.BULLET_SHIELD, false, BulletShieldDataSet.class);
     private final BulletShieldMode movingBulletShieldMode =
@@ -81,6 +84,7 @@ public final class ModeController {
         startRoundOutcomeProfile(scoreMaxMode.getRoundOutcomeProfile(), bulletShieldMode.getRoundOutcomeProfile());
         startRoundOutcomeProfile(shotDodgerMode.getRoundOutcomeProfile(), scoreMaxMode.getRoundOutcomeProfile());
         startRoundOutcomeProfile(wavePoisonMode.getRoundOutcomeProfile(), shotDodgerMode.getRoundOutcomeProfile());
+        startRoundOutcomeProfile(wavePoisonShiftMode.getRoundOutcomeProfile(), wavePoisonMode.getRoundOutcomeProfile());
         modesUsedThisBattle.clear();
         selectedModesThisBattle.clear();
         initializedRound = -1;
@@ -101,6 +105,7 @@ public final class ModeController {
         this.info = info;
         shotDodgerMode.init(info, services);
         wavePoisonMode.init(info, services);
+        wavePoisonShiftMode.init(info, services);
         bulletShieldMode.init(info, services);
         movingBulletShieldMode.init(info, services);
         perfectPredictionMode.init(info, services);
@@ -146,6 +151,7 @@ public final class ModeController {
             mode.onBattleEnded(robot);
         }
         dataStore.saveRequestedData(robot);
+        announceEndOfBattleWeights(robot);
     }
 
     public BattlePlan getPlan() {
@@ -235,7 +241,7 @@ public final class ModeController {
         }
         if (nextModeId == ModeId.SHOT_DODGER) {
             observationProfile.setDelegate(shotDodgerMode.getObservationProfile());
-        } else if (nextModeId == ModeId.WAVE_POISON) {
+        } else if (isWavePoisonVariant(nextModeId)) {
             observationProfile.setDelegate(wavePoisonMode.getObservationProfile());
         } else {
             observationProfile.setDelegate(ScoreMaxLearningProfile.INSTANCE);
@@ -333,7 +339,7 @@ public final class ModeController {
         if (modeId == null) {
             return false;
         }
-        if (modeId == ModeId.BULLET_SHIELD || modeId == ModeId.WAVE_POISON) {
+        if (modeId == ModeId.BULLET_SHIELD || isWavePoisonVariant(modeId)) {
             return !hasUsedAnyModeOtherThan(modeId);
         }
         if (modeId == ModeId.MOVING_BULLET_SHIELD) {
@@ -379,6 +385,9 @@ public final class ModeController {
         if (modeId == ModeId.WAVE_POISON) {
             return wavePoisonMode;
         }
+        if (modeId == ModeId.WAVE_POISON_SHIFT) {
+            return wavePoisonShiftMode;
+        }
         throw new IllegalArgumentException("Unsupported mode id " + modeId);
     }
 
@@ -406,28 +415,36 @@ public final class ModeController {
     }
 
     private void announceWeightsIfApplicable(ModeId modeId) {
-        if (modeId == ModeId.SCORE_MAX) {
-            printWaveModelDelta("Targeting Delta:", WaveLog.getTargetingModelDeltaLines());
-            printWaveModelDelta("Targeting Weights:", WaveLog.getTargetingModelAbsoluteLines());
-            printWaveModelDelta("Movement Delta:", WaveLog.getMovementModelDeltaLines());
-            printWaveModelDelta("Movement Weights:", WaveLog.getMovementModelAbsoluteLines());
-        } else if (modeId == ModeId.SHOT_DODGER || modeId == ModeId.WAVE_POISON) {
+        if (modeId == ModeId.SHOT_DODGER || isWavePoisonVariant(modeId)) {
             info.getRobot().out.println(ShotDodgerObservationProfile.describeBootstrapStatus());
         }
     }
 
-    private void printWaveModelDelta(String header, List<String> lines) {
-        info.getRobot().out.println(header);
+    private void announceEndOfBattleWeights(Saguaro robot) {
+        if (!WaveLog.isTargetingModelDefault()) {
+            printWaveModelDelta(robot, "Targeting Delta:", WaveLog.getTargetingModelDeltaLines());
+        }
+        if (!WaveLog.isMovementModelDefault()) {
+            printWaveModelDelta(robot, "Movement Delta:", WaveLog.getMovementModelDeltaLines());
+        }
+    }
+
+    private void printWaveModelDelta(Saguaro robot, String header, List<String> lines) {
+        robot.out.println(header);
         if (lines == null || lines.isEmpty()) {
-            info.getRobot().out.println("  none");
+            robot.out.println("  none");
             return;
         }
         for (String line : lines) {
-            info.getRobot().out.println("  " + line);
+            robot.out.println("  " + line);
         }
     }
 
     private static boolean isShieldMode(ModeId modeId) {
         return modeId == ModeId.BULLET_SHIELD || modeId == ModeId.MOVING_BULLET_SHIELD;
+    }
+
+    private static boolean isWavePoisonVariant(ModeId modeId) {
+        return modeId == ModeId.WAVE_POISON || modeId == ModeId.WAVE_POISON_SHIFT;
     }
 }

@@ -6,9 +6,13 @@ import oog.mega.saguaro.mode.ModeId;
 import oog.mega.saguaro.mode.ModePerformanceProfile;
 
 final class WavePoisonRoundOutcomeProfile implements RoundOutcomeProfile {
-    static final WavePoisonRoundOutcomeProfile INSTANCE = new WavePoisonRoundOutcomeProfile();
+    private final ModeId modeId;
 
-    private WavePoisonRoundOutcomeProfile() {
+    WavePoisonRoundOutcomeProfile(ModeId modeId) {
+        if (modeId == null) {
+            throw new IllegalArgumentException("WavePoisonRoundOutcomeProfile requires a non-null mode id");
+        }
+        this.modeId = modeId;
     }
 
     @Override
@@ -27,7 +31,7 @@ final class WavePoisonRoundOutcomeProfile implements RoundOutcomeProfile {
 
     @Override
     public double getSurvivalPrior() {
-        ModePerformanceProfile.ModeStatsSnapshot stats = ModePerformanceProfile.getPersistedStats(ModeId.WAVE_POISON);
+        ModePerformanceProfile.ModeStatsSnapshot stats = ModePerformanceProfile.getPersistedStats(modeId);
         double denominator = stats.totalOurScore + stats.totalOpponentScore;
         if (denominator > 0.0) {
             return stats.totalOurScore / denominator;

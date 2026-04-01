@@ -11,23 +11,28 @@ import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.DirectGunPlannerSupport;
 
 final class WavePoisonPlanner {
-    private static final double PREFIRE_REVERSE_DISTANCE = -1.0;
-    private static final double STOP_CRAWL_DISTANCE = 0.1;
     private static final double DESIRED_ORBIT_DISTANCE = 250.0;
     private static final double MIN_SAFE_WALL_SMOOTHED_OFFSET = Math.toRadians(45.0);
     private static final double WALL_PROBE_DISTANCE = 80.0;
     private static final double ORBIT_WAYPOINT_DISTANCE = 140.0;
     private static final double MAX_OUTWARD_TARGET_BIAS = 90.0;
     private static final double SAFE_WALL_MARGIN = PhysicsUtil.WALL_MARGIN + 8.0;
-    private static final int PREFIRE_REVERSE_TICKS = 1;
     private static final int GO_BURST_BUFFER_TICKS = 1;
 
+    private final Config config;
     private Info info;
     private GunController gun;
     private long lastObservedEnemyFireTime = Long.MIN_VALUE;
     private int travelDirection = 0;
     private boolean movingAfterEnemyFire;
     private MovementPhase lastMovementPhase = MovementPhase.STOP;
+
+    WavePoisonPlanner(Config config) {
+        if (config == null) {
+            throw new IllegalArgumentException("WavePoisonPlanner requires a non-null config");
+        }
+        this.config = config;
+    }
 
     void init(Info info, GunController gun) {
         if (info == null || gun == null) {
@@ -178,8 +183,8 @@ final class WavePoisonPlanner {
         double desiredHeading = wallSmoothedOrbitHeading(state, enemyAtTime, resolvedDirection);
         int ticksUntilEnemyReady = ticksUntilGunReady(enemyGunHeat);
         int brakingTicks = brakingTicksForVelocity(state.velocity);
-        if (ticksUntilEnemyReady == PREFIRE_REVERSE_TICKS) {
-            return createMovementCommand(state.heading, desiredHeading, PREFIRE_REVERSE_DISTANCE, MovementPhase.PREFIRE_REVERSE);
+        if (ticksUntilEnemyReady == config.prefireReverseTicks) {
+            return createMovementCommand(state.heading, desiredHeading, config.prefireReverseDistance, MovementPhase.PREFIRE_REVERSE);
         }
         if (movingAfterEnemyFire && ticksUntilEnemyReady > brakingTicks + GO_BURST_BUFFER_TICKS) {
             return createGoMovementCommand(state, enemyAtTime, resolvedDirection);
@@ -187,7 +192,7 @@ final class WavePoisonPlanner {
         return createMovementCommandWithTravelSign(
                 state.heading,
                 desiredHeading,
-                STOP_CRAWL_DISTANCE,
+                config.stopCrawlDistance,
                 resolvedDirection,
                 MovementPhase.STOP);
     }
@@ -419,5 +424,20 @@ final class WavePoisonPlanner {
         STOP,
         GO,
         PREFIRE_REVERSE
+    }
+
+    static final class Config {
+        static final Config BASELINE = new Config(1, 0.5, -0.5);
+        static final Config SHIFT = new Config(2, 0.5, -0.5);
+
+        final int prefireReverseTicks;
+        final double stopCrawlDistance;
+        final double prefireReverseDistance;
+
+        Config(int prefireReverseTicks, double stopCrawlDistance, double prefireReverseDistance) {
+            this.prefireReverseTicks = prefireReverseTicks;
+            this.stopCrawlDistance = stopCrawlDistance;
+            this.prefireReverseDistance = prefireReverseDistance;
+        }
     }
 }

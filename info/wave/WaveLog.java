@@ -1445,6 +1445,14 @@ public class WaveLog {
         return describeModel(DEFAULT_MOVEMENT_MODEL);
     }
 
+    public static boolean isTargetingModelDefault() {
+        return isDefaultModel(gunSegment, DEFAULT_TARGETING_MODEL);
+    }
+
+    public static boolean isMovementModelDefault() {
+        return isDefaultModel(movementSegment, DEFAULT_MOVEMENT_MODEL);
+    }
+
     private static boolean isDefaultModel(SegmentLog segment, ModelSpec defaultModel) {
         if (!nearlyEqual(segment.kdeBandwidth, defaultModel.kdeBandwidth)
                 || !nearlyEqual(segment.contextWeightSigma, defaultModel.contextWeightSigma)) {
