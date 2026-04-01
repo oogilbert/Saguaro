@@ -66,7 +66,7 @@ public final class BotConfig {
         // Baseline number of random path families generated each tick.
         public static final int BASE_RANDOM_FAMILY_COUNT = 4;
         // Extra random families granted around the reference planning horizon.
-        public static final int REFERENCE_EXTRA_RANDOM_FAMILY_COUNT = 7;
+        public static final int REFERENCE_EXTRA_RANDOM_FAMILY_COUNT = 4;
         // Maximum number of previously-selected families to carry forward unchanged.
         public static final int MAX_REUSED_FAMILY_COUNT = 1;
         // Optional primary-family slots beyond the mandatory anchor families.
@@ -101,7 +101,7 @@ public final class BotConfig {
         public static final double PATH_WALL_SMOOTHING_ANGLE_STEP_RADIANS = Math.toRadians(2.0);
 
         // Number of random tails considered when extending a committed perfect-prediction path.
-        public static final int RANDOM_TAIL_CANDIDATE_COUNT = 15;
+        public static final int RANDOM_TAIL_CANDIDATE_COUNT = 8;
         // Furthest random tail-leg target from the current committed endpoint.
         public static final double MAX_TAIL_SEGMENT_TARGET_DISTANCE = 150.0;
         // Longest random tail leg explored for perfect-prediction carry-forward tails.
@@ -156,7 +156,7 @@ public final class BotConfig {
         // Number of recent motion steps matched when searching for a repeated enemy pattern.
         public static final int LEARNED_PATTERN_CONTEXT_LENGTH = 12;
         // Maximum number of observed enemy motion steps retained for learned-pattern replay.
-        public static final int LEARNED_PATTERN_MAX_HISTORY_STEPS = 4096;
+        public static final int LEARNED_PATTERN_MAX_HISTORY_STEPS = 2048;
         // Maximum number of future learned-pattern steps replayed from a matched historical suffix.
         public static final int LEARNED_PATTERN_MAX_SCRIPT_TICKS = 96;
         // Quantization buckets used for raw turn-delta pattern matching.
@@ -174,7 +174,7 @@ public final class BotConfig {
         // Number of path families from the prior tick that remain eligible for reuse.
         public static final int MAX_CARRIED_FORWARD_FAMILIES = 2;
         // Number of candidate offensive powers sampled when building the global power bracket.
-        public static final int GLOBAL_OFFENSIVE_POWER_SAMPLE_COUNT = 6;
+        public static final int GLOBAL_OFFENSIVE_POWER_SAMPLE_COUNT = 4;
         // Default gun power used when tracking a likely future shot without firing immediately.
         public static final double DEFAULT_TRACKING_FIRE_POWER = 2.0;
         // Lower bound on the prior-weight blend used when little score history exists.

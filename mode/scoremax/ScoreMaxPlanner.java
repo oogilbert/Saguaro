@@ -26,6 +26,35 @@ public final class ScoreMaxPlanner {
     private static final double POWER_SAMPLE_EPSILON = 1e-6;
     private static final double GOLDEN_SECTION_LOCAL_STEP = 0.3819660112501051;
 
+    public static final class Config {
+        public static final Config DEFAULT = new Config(null, true, true, BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER);
+        public static final Config ANTI_BASIC_SURFER = new Config(
+                new double[]{
+                        Math.nextAfter(2.45, Double.NEGATIVE_INFINITY),
+                        1.95, 1.45, 0.95, 0.65, 0.45, 0.15
+                },
+                false,
+                false,
+                1.95);
+
+        final double[] fixedCandidatePowers;
+        final boolean allowShadow;
+        final boolean capByEnemyEnergy;
+        final double defaultTrackingPower;
+
+        public Config(double[] fixedCandidatePowers,
+                      boolean allowShadow,
+                      boolean capByEnemyEnergy,
+                      double defaultTrackingPower) {
+            this.fixedCandidatePowers = fixedCandidatePowers;
+            this.allowShadow = allowShadow;
+            this.capByEnemyEnergy = capByEnemyEnergy;
+            this.defaultTrackingPower = defaultTrackingPower;
+        }
+    }
+
+    private final Config config;
+
     private Info info;
     private MovementController movement;
     private GunController gun;
@@ -41,6 +70,17 @@ public final class ScoreMaxPlanner {
     private double offensivePowerBracketMin;
     private double offensivePowerBracketMax;
     private boolean offensivePowerBracketValid;
+
+    public ScoreMaxPlanner() {
+        this(Config.DEFAULT);
+    }
+
+    public ScoreMaxPlanner(Config config) {
+        if (config == null) {
+            throw new IllegalArgumentException("ScoreMaxPlanner requires a non-null config");
+        }
+        this.config = config;
+    }
 
     public void init(Info info, MovementController movement, GunController gun) {
         if (info == null || movement == null || gun == null) {
@@ -60,14 +100,15 @@ public final class ScoreMaxPlanner {
                         path,
                         pathIntersections,
                         selection,
-                        currentOurEnergy));
+                        currentOurEnergy),
+                config.defaultTrackingPower);
         this.lastSelectedPath = null;
         this.lastSelectedFamilyPaths = new ArrayList<>();
         this.lastSelectedPathIntersections = new ArrayList<>();
         this.lastSelectedWaveDangerRevision = info.getEnemyWaveDangerRevision();
         this.lastSelectedFirePower = 0.0;
         this.lastSelectedShotWasShadow = false;
-        this.retainedOffensivePower = BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER;
+        this.retainedOffensivePower = config.defaultTrackingPower;
         this.offensivePowerBracketMin = Double.NaN;
         this.offensivePowerBracketMax = Double.NaN;
         this.offensivePowerBracketValid = false;

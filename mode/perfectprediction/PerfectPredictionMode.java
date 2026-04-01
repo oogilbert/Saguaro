@@ -163,59 +163,41 @@ public final class PerfectPredictionMode implements BattleMode {
                 }
                 List<PathLeg> extensionTailLegs = Collections.emptyList();
                 if (prediction == null || !prediction.wavePassed) {
-                    int requiredTailTicks = MIN_TAIL_DURATION_TICKS;
-                    for (int attempt = 0; attempt < MAX_TAIL_EXTENSION_ATTEMPTS; attempt++) {
-                        extensionTailLegs = movement.generateBestRandomTail(
-                                frozenTrajectory,
-                                myNow.time,
-                                opponentStart,
-                                predictor,
-                                requiredTailTicks,
-                                extensionTailLegs);
-                        PhysicsUtil.Trajectory extensionTailTrajectory = simulateTailTrajectory(
-                                frozenTrajectory,
-                                extensionTailLegs,
-                                false);
-                        effectiveTrajectory = buildEffectiveTrajectory(frozenTrajectory, extensionTailTrajectory);
-                        if (canPredictOpponentFromTrajectory(effectiveTrajectory)) {
-                            prediction = predictOpponent(myNow, effectiveTrajectory, predictor);
-                        }
-                        if (prediction != null && prediction.wavePassed) {
-                            break;
-                        }
-                        int currentTailTicks = Math.max(0, effectiveTrajectory.length() - frozenTrajectory.length());
-                        requiredTailTicks = Math.max(requiredTailTicks + TAIL_EXTENSION_STEP_TICKS,
-                                currentTailTicks + TAIL_EXTENSION_STEP_TICKS);
+                    extensionTailLegs = movement.generateBestRandomTail(
+                            frozenTrajectory,
+                            myNow.time,
+                            opponentStart,
+                            predictor,
+                            minTailTicksForWavePass(myNow),
+                            extensionTailLegs);
+                    PhysicsUtil.Trajectory extensionTailTrajectory = simulateTailTrajectory(
+                            frozenTrajectory,
+                            extensionTailLegs,
+                            false);
+                    effectiveTrajectory = buildEffectiveTrajectory(frozenTrajectory, extensionTailTrajectory); 
+                    if (canPredictOpponentFromTrajectory(effectiveTrajectory)) {
+                        prediction = predictOpponent(myNow, effectiveTrajectory, predictor);
                     }
                 }
                 tentativeTailLegs = appendLegs(frozenTailLegs, extensionTailLegs);
                 lastTentativeTailTrajectory = simulateTailTrajectory(
                         planState.ourTrajectory, tentativeTailLegs, activeTailParkingPhase);
             } else {
-                int requiredTailTicks = MIN_TAIL_DURATION_TICKS;
-                for (int attempt = 0; attempt < MAX_TAIL_EXTENSION_ATTEMPTS; attempt++) {
-                    tentativeTailLegs = movement.generateBestRandomTail(
-                            planState.ourTrajectory,
-                            myNow.time,
-                            opponentStart,
-                            predictor,
-                            requiredTailTicks,
-                            tentativeTailLegs);
-                    boolean activeTailParkingPhase = planState.activeWaypoint == null
-                            ? updateActiveLegParkingPhase(myNow, tentativeTailLegs)
-                            : false;
-                    lastTentativeTailTrajectory = simulateTailTrajectory(
-                            planState.ourTrajectory, tentativeTailLegs, activeTailParkingPhase);
-                    effectiveTrajectory = buildEffectiveTrajectory(planState.ourTrajectory, lastTentativeTailTrajectory);
-                    if (canPredictOpponentFromTrajectory(effectiveTrajectory)) {
-                        prediction = predictOpponent(myNow, effectiveTrajectory, predictor);
-                    }
-                    if (prediction != null && prediction.wavePassed) {
-                        break;
-                    }
-                    int currentTailTicks = Math.max(0, effectiveTrajectory.length() - planState.ourTrajectory.length());
-                    requiredTailTicks = Math.max(requiredTailTicks + TAIL_EXTENSION_STEP_TICKS,
-                            currentTailTicks + TAIL_EXTENSION_STEP_TICKS);
+                tentativeTailLegs = movement.generateBestRandomTail(
+                        planState.ourTrajectory,
+                        myNow.time,
+                        opponentStart,
+                        predictor,
+                        minTailTicksForWavePass(myNow),
+                        tentativeTailLegs);
+                boolean activeTailParkingPhase = planState.activeWaypoint == null
+                        ? updateActiveLegParkingPhase(myNow, tentativeTailLegs)
+                        : false;
+                lastTentativeTailTrajectory = simulateTailTrajectory(
+                        planState.ourTrajectory, tentativeTailLegs, activeTailParkingPhase);
+                effectiveTrajectory = buildEffectiveTrajectory(planState.ourTrajectory, lastTentativeTailTrajectory);
+                if (canPredictOpponentFromTrajectory(effectiveTrajectory)) {
+                    prediction = predictOpponent(myNow, effectiveTrajectory, predictor);
                 }
             }
         } else {
@@ -820,6 +802,21 @@ public final class PerfectPredictionMode implements BattleMode {
         }
         PathLeg leg = tailLegs.get(0);
         return activeLegParkingTracker.update(myNow, leg.targetX, leg.targetY, leg.steeringMode);
+    }
+
+    private int minTailTicksForWavePass(RobotSnapshot myNow) {
+        EnemyInfo enemy = info.getEnemy();
+        if (enemy == null || !enemy.alive || !enemy.seenThisRound) {
+            return MIN_TAIL_DURATION_TICKS;
+        }
+        EnemyInfo.PredictedPosition enemyPos = enemy.predictPositionAtTime(
+                myNow.time, info.getBattlefieldWidth(), info.getBattlefieldHeight());
+        double distance = Math.hypot(myNow.x - enemyPos.x, myNow.y - enemyPos.y);
+        double bulletSpeed = Wave.bulletSpeed(BotConfig.PerfectPrediction.FIRE_POWER);
+        double halfDiagonal = RobotHitbox.HALF_WIDTH * Math.sqrt(2.0);
+        int minTicksForWavePass = (int) Math.ceil(
+                (distance + halfDiagonal) / (bulletSpeed - Rules.MAX_VELOCITY)) + 2;
+        return Math.max(MIN_TAIL_DURATION_TICKS, minTicksForWavePass);
     }
 
     private static boolean waveHasFullyPassedOpponent(double shooterX,

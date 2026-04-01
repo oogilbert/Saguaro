@@ -147,16 +147,20 @@ final class ShotPlanner {
     private final MovementController movement;
     private final GunController gun;
     private final ScoreEvaluator scoreEvaluator;
+    private final double defaultContinuationPower;
     private boolean scoringWaveCacheValid;
     private CandidatePath scoringWaveCachePath;
     private int scoringWaveCacheTickOffset;
     private List<Wave> scoringWaveCacheWaves;
+
     ShotPlanner(MovementController movement,
                 GunController gun,
-                ScoreEvaluator scoreEvaluator) {
+                ScoreEvaluator scoreEvaluator,
+                double defaultContinuationPower) {
         this.movement = movement;
         this.gun = gun;
         this.scoreEvaluator = scoreEvaluator;
+        this.defaultContinuationPower = defaultContinuationPower;
     }
 
     // Selects the best shot option for a given path. Establishes a no-fire baseline, then
