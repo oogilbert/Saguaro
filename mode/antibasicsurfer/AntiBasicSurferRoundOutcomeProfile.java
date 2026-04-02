@@ -5,10 +5,10 @@ import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.mode.ModeId;
 import oog.mega.saguaro.mode.ModePerformanceProfile;
 
-final class AntiBasicSurferRoundOutcomeProfile implements RoundOutcomeProfile {
+public final class AntiBasicSurferRoundOutcomeProfile implements RoundOutcomeProfile {
     private final ModeId modeId;
 
-    AntiBasicSurferRoundOutcomeProfile(ModeId modeId) {
+    public AntiBasicSurferRoundOutcomeProfile(ModeId modeId) {
         if (modeId == null) {
             throw new IllegalArgumentException("AntiBasicSurferRoundOutcomeProfile requires a non-null mode id");
         }

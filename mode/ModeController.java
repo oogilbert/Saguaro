@@ -1,13 +1,16 @@
 package oog.mega.saguaro.mode;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.info.Info;
+import oog.mega.saguaro.info.learning.ModeObservationPolicy;
 import oog.mega.saguaro.info.learning.ModeObservationProfile;
+import oog.mega.saguaro.info.learning.NoOpLearningProfile;
 import oog.mega.saguaro.info.learning.ObservationProfile;
 import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.info.learning.ScoreMaxLearningProfile;
@@ -17,6 +20,7 @@ import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.info.persistence.BulletPowerHitRateDataSet;
 import oog.mega.saguaro.info.persistence.ModePerformanceDataSet;
 import oog.mega.saguaro.info.persistence.WaveModelDataSet;
+import oog.mega.saguaro.mode.antibasicsurfer.AntiBasicSurferRoundOutcomeProfile;
 import oog.mega.saguaro.mode.antibasicsurfer.AntiBasicSurferMode;
 import oog.mega.saguaro.mode.perfectprediction.PerfectPredictionMode;
 import oog.mega.saguaro.mode.perfectprediction.PrecisePredictionProfile;
@@ -24,7 +28,9 @@ import oog.mega.saguaro.mode.scoremax.ScoreMaxMode;
 import oog.mega.saguaro.mode.shotdodger.ShotDodgerDataSet;
 import oog.mega.saguaro.mode.shotdodger.ShotDodgerMode;
 import oog.mega.saguaro.mode.shotdodger.ShotDodgerObservationProfile;
+import oog.mega.saguaro.mode.shotdodger.ShotDodgerRoundOutcomeProfile;
 import oog.mega.saguaro.mode.shotdodger.WavePoisonMode;
+import oog.mega.saguaro.mode.shotdodger.WavePoisonRoundOutcomeProfile;
 import oog.mega.saguaro.mode.shield.BulletShieldDataSet;
 import oog.mega.saguaro.mode.shield.BulletShieldMode;
 import oog.mega.saguaro.mode.shield.MovingBulletShieldDataSet;
@@ -39,23 +45,31 @@ import robocode.ScannedRobotEvent;
 
 public final class ModeController {
     private final ShotDodgerObservationProfile shotDodgerObservationProfile = new ShotDodgerObservationProfile();
-    private final ShotDodgerMode shotDodgerMode = new ShotDodgerMode(shotDodgerObservationProfile);
-    private final WavePoisonMode wavePoisonMode =
-            new WavePoisonMode(ModeId.WAVE_POISON, shotDodgerObservationProfile, 1, 0.5, -0.5);
-    private final WavePoisonMode wavePoisonShiftMode =
-            new WavePoisonMode(ModeId.WAVE_POISON_SHIFT, shotDodgerObservationProfile, 2, 0.5, -0.5);
-    private final BulletShieldMode bulletShieldMode =
-            new BulletShieldMode(ModeId.BULLET_SHIELD, false, BulletShieldDataSet.class);
-    private final BulletShieldMode movingBulletShieldMode =
-            new BulletShieldMode(ModeId.MOVING_BULLET_SHIELD, true, MovingBulletShieldDataSet.class);
-    private final PerfectPredictionMode perfectPredictionMode = new PerfectPredictionMode();
-    private final AntiBasicSurferMode antiBasicSurferMode = new AntiBasicSurferMode();
-    private final ScoreMaxMode scoreMaxMode = new ScoreMaxMode();
+    private final RoundOutcomeProfile bulletShieldRoundOutcomeProfile = NoOpLearningProfile.INSTANCE;
+    private final RoundOutcomeProfile movingBulletShieldRoundOutcomeProfile = NoOpLearningProfile.INSTANCE;
+    private final RoundOutcomeProfile perfectPredictionRoundOutcomeProfile = NoOpLearningProfile.INSTANCE;
+    private final RoundOutcomeProfile shotDodgerRoundOutcomeProfile = ShotDodgerRoundOutcomeProfile.INSTANCE;
+    private final RoundOutcomeProfile wavePoisonRoundOutcomeProfile =
+            new WavePoisonRoundOutcomeProfile(ModeId.WAVE_POISON);
+    private final RoundOutcomeProfile wavePoisonShiftRoundOutcomeProfile =
+            new WavePoisonRoundOutcomeProfile(ModeId.WAVE_POISON_SHIFT);
+    private final RoundOutcomeProfile antiBasicSurferRoundOutcomeProfile =
+            new AntiBasicSurferRoundOutcomeProfile(ModeId.ANTI_BASIC_SURFER);
+    private final RoundOutcomeProfile scoreMaxRoundOutcomeProfile = ScoreMaxScoreHistoryProfile.INSTANCE;
     private final ModeObservationProfile observationProfile = new ModeObservationProfile(ScoreMaxLearningProfile.INSTANCE);
     private final BattleDataStore dataStore = new BattleDataStore();
     private final ModeRoundScoreTracker roundScoreTracker = new ModeRoundScoreTracker();
     private final ModeSelector modeSelector = new ModeSelector(roundScoreTracker);
-    private BattleMode activeMode = scoreMaxMode;
+    private final EnumMap<ModeId, Integer> modeInitializedRounds = new EnumMap<ModeId, Integer>(ModeId.class);
+    private ShotDodgerMode shotDodgerMode;
+    private WavePoisonMode wavePoisonMode;
+    private WavePoisonMode wavePoisonShiftMode;
+    private BulletShieldMode bulletShieldMode;
+    private BulletShieldMode movingBulletShieldMode;
+    private PerfectPredictionMode perfectPredictionMode;
+    private AntiBasicSurferMode antiBasicSurferMode;
+    private ScoreMaxMode scoreMaxMode;
+    private BattleMode activeMode;
     private ModeId activeModeId = ModeId.SCORE_MAX;
     private final Set<BattleMode> modesUsedThisBattle = new LinkedHashSet<>();
     private final Set<ModeId> selectedModesThisBattle = new LinkedHashSet<>();
@@ -81,15 +95,18 @@ public final class ModeController {
     public void startBattle() {
         dataStore.startBattle();
         PrecisePredictionProfile.startBattle();
-        startRoundOutcomeProfile(bulletShieldMode.getRoundOutcomeProfile(), null);
-        startRoundOutcomeProfile(movingBulletShieldMode.getRoundOutcomeProfile(), bulletShieldMode.getRoundOutcomeProfile());
-        startRoundOutcomeProfile(scoreMaxMode.getRoundOutcomeProfile(), bulletShieldMode.getRoundOutcomeProfile());
-        startRoundOutcomeProfile(shotDodgerMode.getRoundOutcomeProfile(), scoreMaxMode.getRoundOutcomeProfile());
-        startRoundOutcomeProfile(wavePoisonMode.getRoundOutcomeProfile(), shotDodgerMode.getRoundOutcomeProfile());
-        startRoundOutcomeProfile(wavePoisonShiftMode.getRoundOutcomeProfile(), wavePoisonMode.getRoundOutcomeProfile());
-        startRoundOutcomeProfile(antiBasicSurferMode.getRoundOutcomeProfile(), wavePoisonShiftMode.getRoundOutcomeProfile());
+        startRoundOutcomeProfile(bulletShieldRoundOutcomeProfile, null);
+        startRoundOutcomeProfile(movingBulletShieldRoundOutcomeProfile, bulletShieldRoundOutcomeProfile);
+        startRoundOutcomeProfile(scoreMaxRoundOutcomeProfile, bulletShieldRoundOutcomeProfile);
+        startRoundOutcomeProfile(shotDodgerRoundOutcomeProfile, scoreMaxRoundOutcomeProfile);
+        startRoundOutcomeProfile(wavePoisonRoundOutcomeProfile, shotDodgerRoundOutcomeProfile);
+        startRoundOutcomeProfile(wavePoisonShiftRoundOutcomeProfile, wavePoisonRoundOutcomeProfile);
+        startRoundOutcomeProfile(antiBasicSurferRoundOutcomeProfile, wavePoisonShiftRoundOutcomeProfile);
+        resetModeInstances();
         modesUsedThisBattle.clear();
         selectedModesThisBattle.clear();
+        modeInitializedRounds.clear();
+        info = null;
         initializedRound = -1;
         opponentContextLoaded = false;
         pendingOpponentContextResolution = false;
@@ -106,14 +123,6 @@ public final class ModeController {
             services = new BattleServices(info, dataStore);
         }
         this.info = info;
-        shotDodgerMode.init(info, services);
-        wavePoisonMode.init(info, services);
-        wavePoisonShiftMode.init(info, services);
-        bulletShieldMode.init(info, services);
-        movingBulletShieldMode.init(info, services);
-        perfectPredictionMode.init(info, services);
-        antiBasicSurferMode.init(info, services);
-        scoreMaxMode.init(info, services);
         int roundNumber = info.getRobot().getRoundNum();
         if (roundNumber != initializedRound) {
             initializedRound = roundNumber;
@@ -132,7 +141,7 @@ public final class ModeController {
     }
 
     public RoundOutcomeProfile getRoundOutcomeProfile() {
-        return activeMode.getRoundOutcomeProfile();
+        return roundOutcomeProfileFor(activeModeId);
     }
 
     public ObservationProfile getObservationProfile() {
@@ -172,6 +181,9 @@ public final class ModeController {
     }
 
     public String describeSkippedTurnDiagnostics() {
+        if (activeMode == null) {
+            return activeModeId.toString();
+        }
         return activeModeId + " " + activeMode.describeSkippedTurnDiagnostics();
     }
 
@@ -234,8 +246,8 @@ public final class ModeController {
     }
 
     private void setActiveMode(ModeId nextModeId, boolean countAsBattleUsage) {
-        BattleMode nextMode = modeFor(nextModeId);
         activeModeId = nextModeId;
+        BattleMode nextMode = info != null && services != null ? modeFor(nextModeId) : null;
         activeMode = nextMode;
         boolean scoreMaxTracking = nextModeId == ModeId.SCORE_MAX || nextModeId == ModeId.SHOT_DODGER;
         ScoreMaxScoreHistoryProfile.INSTANCE.setTrackingEnabled(scoreMaxTracking);
@@ -243,15 +255,13 @@ public final class ModeController {
             info.setScoreMaxTrackingEnabled(scoreMaxTracking);
             info.setPrecisePredictionTrackingEnabled(nextModeId == ModeId.PERFECT_PREDICTION);
         }
-        if (nextModeId == ModeId.SHOT_DODGER) {
-            observationProfile.setDelegate(shotDodgerMode.getObservationProfile());
-        } else if (isWavePoisonVariant(nextModeId)) {
-            observationProfile.setDelegate(wavePoisonMode.getObservationProfile());
+        if (nextModeId == ModeId.SHOT_DODGER || isWavePoisonVariant(nextModeId)) {
+            observationProfile.setDelegate(shotDodgerObservationProfile);
         } else {
             observationProfile.setDelegate(ScoreMaxLearningProfile.INSTANCE);
         }
-        observationProfile.setPolicy(nextMode.getObservationPolicy());
-        if (countAsBattleUsage) {
+        observationProfile.setPolicy(observationPolicyFor(nextModeId));
+        if (countAsBattleUsage && nextMode != null) {
             modesUsedThisBattle.add(nextMode);
             selectedModesThisBattle.add(nextModeId);
         }
@@ -293,7 +303,7 @@ public final class ModeController {
         ModeId previousModeId = activeModeId;
         setActiveMode(selectedMode, countAsBattleUsage);
         roundScoreTracker.activateMode(selectedMode);
-        info.activateRoundOutcomeProfile(activeMode.getRoundOutcomeProfile());
+        info.activateRoundOutcomeProfile(roundOutcomeProfileFor(selectedMode));
         applyModeColorsIfNeeded();
         if (countAsBattleUsage && (!battleModeAnnouncementPrinted || selectedMode != previousModeId)) {
             announceMode(previousModeId, selectedMode);
@@ -373,30 +383,132 @@ public final class ModeController {
 
     private BattleMode modeFor(ModeId modeId) {
         if (modeId == ModeId.SCORE_MAX) {
+            if (scoreMaxMode == null) {
+                scoreMaxMode = new ScoreMaxMode();
+            }
+            ensureModeInitialized(modeId, scoreMaxMode);
             return scoreMaxMode;
         }
         if (modeId == ModeId.BULLET_SHIELD) {
+            if (bulletShieldMode == null) {
+                bulletShieldMode =
+                        new BulletShieldMode(ModeId.BULLET_SHIELD, false, BulletShieldDataSet.class);
+            }
+            ensureModeInitialized(modeId, bulletShieldMode);
             return bulletShieldMode;
         }
         if (modeId == ModeId.MOVING_BULLET_SHIELD) {
+            if (movingBulletShieldMode == null) {
+                movingBulletShieldMode =
+                        new BulletShieldMode(ModeId.MOVING_BULLET_SHIELD, true, MovingBulletShieldDataSet.class);
+            }
+            ensureModeInitialized(modeId, movingBulletShieldMode);
             return movingBulletShieldMode;
         }
         if (modeId == ModeId.PERFECT_PREDICTION) {
+            if (perfectPredictionMode == null) {
+                perfectPredictionMode = new PerfectPredictionMode();
+            }
+            ensureModeInitialized(modeId, perfectPredictionMode);
             return perfectPredictionMode;
         }
         if (modeId == ModeId.SHOT_DODGER) {
+            if (shotDodgerMode == null) {
+                shotDodgerMode = new ShotDodgerMode(shotDodgerObservationProfile);
+            }
+            ensureModeInitialized(modeId, shotDodgerMode);
             return shotDodgerMode;
         }
         if (modeId == ModeId.WAVE_POISON) {
+            if (wavePoisonMode == null) {
+                wavePoisonMode =
+                        new WavePoisonMode(ModeId.WAVE_POISON, shotDodgerObservationProfile, 1, 0.5, -0.5);
+            }
+            ensureModeInitialized(modeId, wavePoisonMode);
             return wavePoisonMode;
         }
         if (modeId == ModeId.WAVE_POISON_SHIFT) {
+            if (wavePoisonShiftMode == null) {
+                wavePoisonShiftMode =
+                        new WavePoisonMode(ModeId.WAVE_POISON_SHIFT, shotDodgerObservationProfile, 2, 0.5, -0.5);
+            }
+            ensureModeInitialized(modeId, wavePoisonShiftMode);
             return wavePoisonShiftMode;
         }
         if (modeId == ModeId.ANTI_BASIC_SURFER) {
+            if (antiBasicSurferMode == null) {
+                antiBasicSurferMode = new AntiBasicSurferMode();
+            }
+            ensureModeInitialized(modeId, antiBasicSurferMode);
             return antiBasicSurferMode;
         }
         throw new IllegalArgumentException("Unsupported mode id " + modeId);
+    }
+
+    private void ensureModeInitialized(ModeId modeId, BattleMode mode) {
+        if (modeId == null || mode == null || info == null || services == null) {
+            return;
+        }
+        int roundNumber = info.getRobot().getRoundNum();
+        Integer initializedModeRound = modeInitializedRounds.get(modeId);
+        if (initializedModeRound != null && initializedModeRound.intValue() == roundNumber) {
+            return;
+        }
+        mode.init(info, services);
+        modeInitializedRounds.put(modeId, roundNumber);
+    }
+
+    private RoundOutcomeProfile roundOutcomeProfileFor(ModeId modeId) {
+        if (modeId == ModeId.BULLET_SHIELD) {
+            return bulletShieldRoundOutcomeProfile;
+        }
+        if (modeId == ModeId.MOVING_BULLET_SHIELD) {
+            return movingBulletShieldRoundOutcomeProfile;
+        }
+        if (modeId == ModeId.PERFECT_PREDICTION) {
+            return perfectPredictionRoundOutcomeProfile;
+        }
+        if (modeId == ModeId.SHOT_DODGER) {
+            return shotDodgerRoundOutcomeProfile;
+        }
+        if (modeId == ModeId.WAVE_POISON) {
+            return wavePoisonRoundOutcomeProfile;
+        }
+        if (modeId == ModeId.WAVE_POISON_SHIFT) {
+            return wavePoisonShiftRoundOutcomeProfile;
+        }
+        if (modeId == ModeId.ANTI_BASIC_SURFER) {
+            return antiBasicSurferRoundOutcomeProfile;
+        }
+        if (modeId == ModeId.SCORE_MAX) {
+            return scoreMaxRoundOutcomeProfile;
+        }
+        throw new IllegalArgumentException("Unsupported mode id " + modeId);
+    }
+
+    private static ModeObservationPolicy observationPolicyFor(ModeId modeId) {
+        if (modeId == ModeId.BULLET_SHIELD || modeId == ModeId.MOVING_BULLET_SHIELD) {
+            return ModeObservationPolicy.TARGETING_ONLY;
+        }
+        if (modeId == ModeId.PERFECT_PREDICTION) {
+            return ModeObservationPolicy.MOVEMENT_UPDATE_ONLY;
+        }
+        if (modeId == ModeId.SHOT_DODGER || isWavePoisonVariant(modeId)) {
+            return ModeObservationPolicy.SHOT_DODGER_EXPERT_ONLY;
+        }
+        return ModeObservationPolicy.FULL;
+    }
+
+    private void resetModeInstances() {
+        shotDodgerMode = null;
+        wavePoisonMode = null;
+        wavePoisonShiftMode = null;
+        bulletShieldMode = null;
+        movingBulletShieldMode = null;
+        perfectPredictionMode = null;
+        antiBasicSurferMode = null;
+        scoreMaxMode = null;
+        activeMode = null;
     }
 
     private ModeId getLockedModeFromConfig() {

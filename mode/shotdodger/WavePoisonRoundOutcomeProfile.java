@@ -5,10 +5,10 @@ import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.mode.ModeId;
 import oog.mega.saguaro.mode.ModePerformanceProfile;
 
-final class WavePoisonRoundOutcomeProfile implements RoundOutcomeProfile {
+public final class WavePoisonRoundOutcomeProfile implements RoundOutcomeProfile {
     private final ModeId modeId;
 
-    WavePoisonRoundOutcomeProfile(ModeId modeId) {
+    public WavePoisonRoundOutcomeProfile(ModeId modeId) {
         if (modeId == null) {
             throw new IllegalArgumentException("WavePoisonRoundOutcomeProfile requires a non-null mode id");
         }

@@ -5,8 +5,8 @@ import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.mode.ModeId;
 import oog.mega.saguaro.mode.ModePerformanceProfile;
 
-final class ShotDodgerRoundOutcomeProfile implements RoundOutcomeProfile {
-    static final ShotDodgerRoundOutcomeProfile INSTANCE = new ShotDodgerRoundOutcomeProfile();
+public final class ShotDodgerRoundOutcomeProfile implements RoundOutcomeProfile {
+    public static final ShotDodgerRoundOutcomeProfile INSTANCE = new ShotDodgerRoundOutcomeProfile();
 
     private ShotDodgerRoundOutcomeProfile() {
     }
