@@ -164,8 +164,8 @@ final class ModeSelector {
             return false;
         }
         if (candidate.modeId == ModeId.ANTI_BASIC_SURFER) {
-            return candidate.totalScore > 0.0
-                    && candidate.observedShare + 1e-9
+            return candidate.totalScore == 0.0
+                    || candidate.observedShare + 1e-9
                     >= BotConfig.ModeSelection.ANTI_BASIC_SURFER_MIN_SELECTION_SCORE;
         }
         return true;
