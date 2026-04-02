@@ -31,6 +31,35 @@ final class ModeSelector {
                 stats.totalOpponentScore);
     }
 
+    static ModeId findSettledMode() {
+        ModePosterior[] relevantPosteriors = relevantCombinedModePosteriors();
+        if (relevantPosteriors.length < 1) {
+            return null;
+        }
+        for (ModePosterior posterior : relevantPosteriors) {
+            if (posterior.untested) {
+                return null;
+            }
+        }
+        ModePosterior best = relevantPosteriors[0];
+        for (int i = 1; i < relevantPosteriors.length; i++) {
+            if (prefersHigherMean(relevantPosteriors[i], best)) {
+                best = relevantPosteriors[i];
+            }
+        }
+        ModePosterior settled = null;
+        int qualifiedCount = 0;
+        for (ModePosterior posterior : relevantPosteriors) {
+            if (!isDisqualified(posterior, relevantPosteriors)) {
+                qualifiedCount++;
+                settled = posterior;
+            }
+        }
+        return qualifiedCount == 1 && settled != null && settled.modeId == best.modeId
+                ? best.modeId
+                : null;
+    }
+
     ModeId selectMode(ModeId[] candidateModes) {
         return selectMode(candidateModes, candidateModes);
     }
@@ -94,6 +123,24 @@ final class ModeSelector {
         double totalOurScore = stats.totalOurScore + roundScoreTracker.getLiveOurScore(modeId);
         double totalOpponentScore = stats.totalOpponentScore + roundScoreTracker.getLiveOpponentScore(modeId);
         return estimateMode(modeId, totalOurScore, totalOpponentScore);
+    }
+
+    private static ModePosterior[] relevantCombinedModePosteriors() {
+        List<ModePosterior> posteriors = new ArrayList<>();
+        for (ModeId modeId : ModeId.values()) {
+            ModePosterior posterior = estimateCombinedMode(modeId);
+            if (meetsSelectionRequirements(posterior)) {
+                posteriors.add(posterior);
+            }
+        }
+        return posteriors.toArray(new ModePosterior[0]);
+    }
+
+    private static ModePosterior estimateCombinedMode(ModeId modeId) {
+        if (modeId == null) {
+            throw new IllegalArgumentException("Combined mode estimate requires a non-null mode id");
+        }
+        return estimateMode(modeId, ModePerformanceProfile.getCombinedStats(modeId));
     }
 
     private static boolean isDisqualified(ModePosterior candidate, ModePosterior[] posteriors) {
@@ -228,6 +275,22 @@ final class ModeSelector {
             return true;
         }
         if (candidate.upperBound < incumbent.upperBound) {
+            return false;
+        }
+        if (candidate.posteriorMean > incumbent.posteriorMean) {
+            return true;
+        }
+        if (candidate.posteriorMean < incumbent.posteriorMean) {
+            return false;
+        }
+        return candidate.modeId.ordinal() < incumbent.modeId.ordinal();
+    }
+
+    private static boolean prefersHigherMean(ModePosterior candidate, ModePosterior incumbent) {
+        if (candidate.comparisonMean > incumbent.comparisonMean) {
+            return true;
+        }
+        if (candidate.comparisonMean < incumbent.comparisonMean) {
             return false;
         }
         if (candidate.posteriorMean > incumbent.posteriorMean) {

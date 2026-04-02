@@ -9,13 +9,15 @@ import java.io.IOException;
 public final class ModePerformanceProfile {
     // Opponent mode-performance records are disposable caches. When this layout changes, bump the
     // section version and let BattleDataStore discard stale files instead of maintaining migrations.
-    private static final int SECTION_VERSION = 9;
+    private static final int SECTION_VERSION = 10;
+    private static final int LEGACY_8_MODE_SECTION_VERSION = 9;
     private static final int LEGACY_4_MODE_SECTION_VERSION = 4;
     private static final int LEGACY_4_MODE_BYTES = 16 * 4;
     private static final int LEGACY_3_MODE_SECTION_VERSION = 3;
     private static final int LEGACY_3_MODE_BYTES = 16 * 3;
     private static final int MODE_BYTES = 16;
     private static final int SECTION_BYTES = MODE_BYTES * ModeId.values().length;
+    private static final int LOCKED_MODE_SECTION_BYTES = 1 + MODE_BYTES;
     private static final double MAX_RETAINED_TOTAL_SCORE = 1_000_000.0;
 
     private static final MutableModeStats[] persistedStats = createStatsArray();
@@ -23,6 +25,7 @@ public final class ModePerformanceProfile {
 
     private static String trackedOpponentName;
     private static boolean persistedModeStatsLoaded;
+    private static ModeId persistedLockedModeId;
 
     private ModePerformanceProfile() {
     }
@@ -32,6 +35,7 @@ public final class ModePerformanceProfile {
         clearStats(currentBattleStats);
         trackedOpponentName = null;
         persistedModeStatsLoaded = false;
+        persistedLockedModeId = null;
     }
 
     public static int persistenceSectionVersion() {
@@ -64,6 +68,10 @@ public final class ModePerformanceProfile {
 
     public static boolean isPersistedModeStatsLoaded() {
         return persistedModeStatsLoaded;
+    }
+
+    public static ModeId getPersistedLockedMode() {
+        return persistedLockedModeId;
     }
 
     public static boolean hasAnyPersistedSamples() {
@@ -121,6 +129,19 @@ public final class ModePerformanceProfile {
     }
 
     public static byte[] createPersistedSectionPayload(int maxPayloadBytes, boolean includeCurrentBattleData) {
+        return createPersistedSectionPayload(maxPayloadBytes, includeCurrentBattleData, null);
+    }
+
+    public static byte[] createPersistedSectionPayload(int maxPayloadBytes,
+                                                       boolean includeCurrentBattleData,
+                                                       ModeId lockedModeId) {
+        if (lockedModeId != null) {
+            return createLockedModePayload(maxPayloadBytes, includeCurrentBattleData, lockedModeId);
+        }
+        return createFullPayload(maxPayloadBytes, includeCurrentBattleData);
+    }
+
+    private static byte[] createFullPayload(int maxPayloadBytes, boolean includeCurrentBattleData) {
         if (maxPayloadBytes < SECTION_BYTES) {
             throw new IllegalStateException(
                     "Insufficient data quota to save mode-performance payload: payload budget="
@@ -152,7 +173,50 @@ public final class ModePerformanceProfile {
         }
     }
 
+    private static byte[] createLockedModePayload(int maxPayloadBytes,
+                                                  boolean includeCurrentBattleData,
+                                                  ModeId lockedModeId) {
+        if (lockedModeId == null) {
+            throw new IllegalArgumentException("Locked-mode payload requires a non-null mode id");
+        }
+        if (maxPayloadBytes < LOCKED_MODE_SECTION_BYTES) {
+            throw new IllegalStateException(
+                    "Insufficient data quota to save locked mode-performance payload: payload budget="
+                            + maxPayloadBytes + " bytes");
+        }
+        ModeStatsSnapshot stats = includeCurrentBattleData
+                ? getCombinedStats(lockedModeId)
+                : getPersistedStats(lockedModeId);
+        if (!stats.hasSamples()) {
+            return null;
+        }
+        try (ByteArrayOutputStream raw = new ByteArrayOutputStream();
+             DataOutputStream out = new DataOutputStream(raw)) {
+            out.writeByte(lockedModeId.ordinal());
+            out.writeDouble(stats.totalOurScore);
+            out.writeDouble(stats.totalOpponentScore);
+            out.flush();
+            byte[] payload = raw.toByteArray();
+            if (payload.length > maxPayloadBytes) {
+                throw new IllegalStateException(
+                        "Insufficient data quota to save locked mode-performance payload: required=" + payload.length
+                                + " bytes, available=" + maxPayloadBytes + " bytes");
+            }
+            return payload;
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to build locked mode-performance payload", e);
+        }
+    }
+
     private static void loadPersistedPayload(int sectionVersion, byte[] payload) {
+        if (sectionVersion == SECTION_VERSION) {
+            loadCurrentPayload(payload);
+            return;
+        }
+        if (sectionVersion == LEGACY_8_MODE_SECTION_VERSION) {
+            loadFixedPayload(payload);
+            return;
+        }
         if (sectionVersion == LEGACY_4_MODE_SECTION_VERSION) {
             loadLegacy4ModePayload(payload);
             return;
@@ -161,12 +225,26 @@ public final class ModePerformanceProfile {
             loadLegacy3ModePayload(payload);
             return;
         }
-        if (sectionVersion != SECTION_VERSION) {
-            throw new IllegalStateException("Unsupported mode-performance section version " + sectionVersion);
+        throw new IllegalStateException("Unsupported mode-performance section version " + sectionVersion);
+    }
+
+    private static void loadCurrentPayload(byte[] payload) {
+        if (payload.length == SECTION_BYTES) {
+            loadFixedPayload(payload);
+            return;
         }
+        if (payload.length == LOCKED_MODE_SECTION_BYTES) {
+            loadLockedModePayload(payload);
+            return;
+        }
+        throw new IllegalStateException("Unexpected mode-performance payload length");
+    }
+
+    private static void loadFixedPayload(byte[] payload) {
         if (payload.length != SECTION_BYTES) {
             throw new IllegalStateException("Unexpected mode-performance payload length");
         }
+        persistedLockedModeId = null;
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
             for (ModeId modeId : ModeId.values()) {
                 double totalOurScore = in.readDouble();
@@ -183,10 +261,40 @@ public final class ModePerformanceProfile {
         }
     }
 
+    private static void loadLockedModePayload(byte[] payload) {
+        if (payload.length != LOCKED_MODE_SECTION_BYTES) {
+            throw new IllegalStateException("Unexpected locked mode-performance payload length");
+        }
+        clearStats(persistedStats);
+        persistedLockedModeId = null;
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
+            int modeOrdinal = in.readUnsignedByte();
+            if (modeOrdinal < 0 || modeOrdinal >= ModeId.values().length) {
+                throw new IllegalStateException("Locked mode-performance payload contained invalid mode ordinal");
+            }
+            ModeId modeId = ModeId.values()[modeOrdinal];
+            double totalOurScore = in.readDouble();
+            double totalOpponentScore = in.readDouble();
+            validateLoadedStats(modeId, totalOurScore, totalOpponentScore);
+            if (totalOurScore <= 0.0 && totalOpponentScore <= 0.0) {
+                throw new IllegalStateException("Locked mode-performance payload must contain non-zero totals");
+            }
+            persistedStats[modeId.ordinal()].set(totalOurScore, totalOpponentScore);
+            if (in.available() != 0) {
+                throw new IllegalStateException("Locked mode-performance payload contained trailing bytes");
+            }
+            persistedLockedModeId = modeId;
+            persistedModeStatsLoaded = true;
+        } catch (IOException e) {
+            throw new IllegalStateException("Unreadable locked mode-performance payload", e);
+        }
+    }
+
     private static void loadLegacy4ModePayload(byte[] payload) {
         if (payload.length != LEGACY_4_MODE_BYTES) {
             throw new IllegalStateException("Unexpected legacy 4-mode payload length");
         }
+        persistedLockedModeId = null;
         ModeId[] legacyOrder = {
                 ModeId.SCORE_MAX,
                 ModeId.BULLET_SHIELD,
@@ -213,6 +321,7 @@ public final class ModePerformanceProfile {
         if (payload.length != LEGACY_3_MODE_BYTES) {
             throw new IllegalStateException("Unexpected legacy 3-mode payload length");
         }
+        persistedLockedModeId = null;
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
             ModeId[] legacyOrder = {
                     ModeId.SCORE_MAX,

@@ -17,13 +17,17 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.info.state.BulletPowerHitRateTracker;
 import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.mode.ModeController;
 import oog.mega.saguaro.mode.ModeId;
 import oog.mega.saguaro.mode.ModePerformanceProfile;
+import oog.mega.saguaro.mode.shield.BulletShieldDataSet;
 import oog.mega.saguaro.mode.shield.BulletShieldMode;
+import oog.mega.saguaro.mode.shield.MovingBulletShieldDataSet;
+import oog.mega.saguaro.mode.shotdodger.ShotDodgerDataSet;
 
 public final class BattleDataStore {
     private static final int CONTAINER_MAGIC = 0x50445354; // "PDST"
@@ -42,6 +46,7 @@ public final class BattleDataStore {
     private boolean suppressSaveStatusReportedThisBattle;
     private String suppressSaveReason;
     private boolean trackedOpponentHadPersistedData;
+    private ModeId persistedLockedModeId;
 
     public BattleDataStore() {
     }
@@ -55,6 +60,7 @@ public final class BattleDataStore {
         suppressSaveStatusReportedThisBattle = false;
         suppressSaveReason = null;
         trackedOpponentHadPersistedData = false;
+        persistedLockedModeId = null;
         for (OpponentDataSet dataSet : registeredDataSets) {
             dataSet.startBattle();
         }
@@ -74,6 +80,7 @@ public final class BattleDataStore {
             try {
                 loadRegisteredDataSets(robot, opponentName, sections);
                 trackedOpponentHadPersistedData = !sections.isEmpty();
+                persistedLockedModeId = ModePerformanceProfile.getPersistedLockedMode();
             } catch (RuntimeException e) {
                 if (!discardStaleRecord(robot, dataFile, opponentName, "invalid section payload")) {
                     suppressSavesForBattle(
@@ -82,6 +89,7 @@ public final class BattleDataStore {
                 resetRegisteredDataSetsForFallback();
                 loadRegisteredDataSets(robot, opponentName, new LinkedHashMap<Integer, StoredSection>());
                 trackedOpponentHadPersistedData = false;
+                persistedLockedModeId = ModePerformanceProfile.getPersistedLockedMode();
             }
             reportBaselineStatus(robot);
             return;
@@ -162,6 +170,10 @@ public final class BattleDataStore {
         return trackedOpponentName != null && !trackedOpponentHadPersistedData;
     }
 
+    public ModeId getPersistedLockedMode() {
+        return persistedLockedModeId;
+    }
+
     private void writeCurrentBattleRecord(Saguaro robot) {
         if (trackedOpponentName == null || requestedSaveTypes.isEmpty()) {
             return;
@@ -181,17 +193,25 @@ public final class BattleDataStore {
         }
 
         int globalBudget = (int) Math.min(Integer.MAX_VALUE, writableBytes);
+        PersistedModeDataPlan dataPlan = buildPersistedModeDataPlan();
 
         Map<Integer, byte[]> builtPayloads = new LinkedHashMap<>();
         int totalSize = CONTAINER_HEADER_BYTES;
         for (OpponentDataSet dataSet : registeredDataSets) {
+            if (!dataPlan.includesDataSet(dataSet)) {
+                continue;
+            }
             boolean includeCurrentBattleData = requestedSaveTypes.contains(dataSet.getClass());
             int maxPayloadBytes = globalBudget - totalSize - SECTION_HEADER_BYTES;
             if (maxPayloadBytes <= 0) {
                 continue;
             }
-            byte[] sectionPayload =
-                    dataSet.savePayload(robot, trackedOpponentName, maxPayloadBytes, includeCurrentBattleData);
+            byte[] sectionPayload = buildSectionPayload(
+                    robot,
+                    dataSet,
+                    maxPayloadBytes,
+                    includeCurrentBattleData,
+                    dataPlan);
             if (sectionPayload == null || sectionPayload.length == 0) {
                 continue;
             }
@@ -268,23 +288,29 @@ public final class BattleDataStore {
             return;
         }
         robot.out.println(hasAnyOpponentDataLoaded() ? "Opponent data loaded" : "No opponent data loaded");
-        robot.out.println(
-                "BulletShielding mode estimate: " + ModeController.describeModeEstimate(ModeId.BULLET_SHIELD));
-        robot.out.println(
-                "MovingBulletShielding mode estimate: "
-                        + ModeController.describeModeEstimate(ModeId.MOVING_BULLET_SHIELD));
-        robot.out.println(
-                "PerfectPrediction mode estimate: "
-                        + ModeController.describeModeEstimate(ModeId.PERFECT_PREDICTION));
-        robot.out.println("ScoreMax mode estimate: " + ModeController.describeModeEstimate(ModeId.SCORE_MAX));
-        robot.out.println("ShotDodger mode estimate: " + ModeController.describeModeEstimate(ModeId.SHOT_DODGER));
-        robot.out.println("WavePoison mode estimate: " + ModeController.describeModeEstimate(ModeId.WAVE_POISON));
-        robot.out.println(
-                "WavePoisonShift mode estimate: "
-                        + ModeController.describeModeEstimate(ModeId.WAVE_POISON_SHIFT));
-        robot.out.println(
-                "AntiBasicSurfer mode estimate: "
-                        + ModeController.describeModeEstimate(ModeId.ANTI_BASIC_SURFER));
+        if (persistedLockedModeId != null) {
+            robot.out.println("Persisted mode lock: " + persistedLockedModeId.displayName());
+            robot.out.println(
+                    "Locked mode estimate: " + ModeController.describeModeEstimate(persistedLockedModeId));
+        } else {
+            robot.out.println(
+                    "BulletShielding mode estimate: " + ModeController.describeModeEstimate(ModeId.BULLET_SHIELD));
+            robot.out.println(
+                    "MovingBulletShielding mode estimate: "
+                            + ModeController.describeModeEstimate(ModeId.MOVING_BULLET_SHIELD));
+            robot.out.println(
+                    "PerfectPrediction mode estimate: "
+                            + ModeController.describeModeEstimate(ModeId.PERFECT_PREDICTION));
+            robot.out.println("ScoreMax mode estimate: " + ModeController.describeModeEstimate(ModeId.SCORE_MAX));
+            robot.out.println("ShotDodger mode estimate: " + ModeController.describeModeEstimate(ModeId.SHOT_DODGER));
+            robot.out.println("WavePoison mode estimate: " + ModeController.describeModeEstimate(ModeId.WAVE_POISON));
+            robot.out.println(
+                    "WavePoisonShift mode estimate: "
+                            + ModeController.describeModeEstimate(ModeId.WAVE_POISON_SHIFT));
+            robot.out.println(
+                    "AntiBasicSurfer mode estimate: "
+                            + ModeController.describeModeEstimate(ModeId.ANTI_BASIC_SURFER));
+        }
         double historicalHitRate = BulletPowerHitRateTracker.getPersistedOverallHitRate();
         if (!Double.isNaN(historicalHitRate)) {
             robot.out.println(String.format(Locale.US, "Historical hit rate: %.2f%%", historicalHitRate * 100.0));
@@ -316,6 +342,40 @@ public final class BattleDataStore {
                 || BulletShieldMode.isAnyPersistedBootstrapLoaded()
                 || BulletPowerHitRateTracker.isPersistedBaselineLoaded()
                 || WaveLog.hasPersistedSectionData();
+    }
+
+    private PersistedModeDataPlan buildPersistedModeDataPlan() {
+        ModeId settledModeId = ModeController.findSettledModeForPersistence();
+        if (settledModeId == null) {
+            return PersistedModeDataPlan.unrestricted();
+        }
+        ModePerformanceProfile.ModeStatsSnapshot settledStats = ModePerformanceProfile.getCombinedStats(settledModeId);
+        double totalScore = settledStats.totalOurScore + settledStats.totalOpponentScore;
+        if (totalScore + 1e-9 < BotConfig.ModeSelection.MIN_SETTLED_MODE_TOTAL_SCORE) {
+            return PersistedModeDataPlan.unrestricted();
+        }
+        return PersistedModeDataPlan.locked(settledModeId);
+    }
+
+    private byte[] buildSectionPayload(Saguaro robot,
+                                       OpponentDataSet dataSet,
+                                       int maxPayloadBytes,
+                                       boolean includeCurrentBattleData,
+                                       PersistedModeDataPlan dataPlan) {
+        if (dataSet instanceof ModePerformanceDataSet) {
+            return ModePerformanceProfile.createPersistedSectionPayload(
+                    maxPayloadBytes,
+                    includeCurrentBattleData,
+                    dataPlan.lockedModeId);
+        }
+        if (dataSet instanceof WaveModelDataSet) {
+            return WaveLog.createPersistedSectionPayload(
+                    maxPayloadBytes,
+                    includeCurrentBattleData,
+                    dataPlan.includeWaveTargetingModel,
+                    dataPlan.includeWaveMovementModel);
+        }
+        return dataSet.savePayload(robot, trackedOpponentName, maxPayloadBytes, includeCurrentBattleData);
     }
 
     private Map<Integer, StoredSection> loadSections(Saguaro robot, String opponentName, File dataFile) {
@@ -476,6 +536,88 @@ public final class BattleDataStore {
         StoredSection(int version, byte[] payload) {
             this.version = version;
             this.payload = payload;
+        }
+    }
+
+    private static final class PersistedModeDataPlan {
+        final ModeId lockedModeId;
+        final boolean includeWaveTargetingModel;
+        final boolean includeWaveMovementModel;
+        final boolean includeBulletPowerHitRate;
+        final boolean includeShotDodgerBootstrap;
+        final boolean includeBulletShieldBootstrap;
+        final boolean includeMovingBulletShieldBootstrap;
+
+        private PersistedModeDataPlan(ModeId lockedModeId,
+                                      boolean includeWaveTargetingModel,
+                                      boolean includeWaveMovementModel,
+                                      boolean includeBulletPowerHitRate,
+                                      boolean includeShotDodgerBootstrap,
+                                      boolean includeBulletShieldBootstrap,
+                                      boolean includeMovingBulletShieldBootstrap) {
+            this.lockedModeId = lockedModeId;
+            this.includeWaveTargetingModel = includeWaveTargetingModel;
+            this.includeWaveMovementModel = includeWaveMovementModel;
+            this.includeBulletPowerHitRate = includeBulletPowerHitRate;
+            this.includeShotDodgerBootstrap = includeShotDodgerBootstrap;
+            this.includeBulletShieldBootstrap = includeBulletShieldBootstrap;
+            this.includeMovingBulletShieldBootstrap = includeMovingBulletShieldBootstrap;
+        }
+
+        static PersistedModeDataPlan unrestricted() {
+            return new PersistedModeDataPlan(null, true, true, true, true, true, true);
+        }
+
+        static PersistedModeDataPlan locked(ModeId modeId) {
+            if (modeId == null) {
+                throw new IllegalArgumentException("Locked persistence plan requires a non-null mode id");
+            }
+            if (modeId == ModeId.SCORE_MAX || modeId == ModeId.ANTI_BASIC_SURFER) {
+                return new PersistedModeDataPlan(modeId, true, true, true, false, false, false);
+            }
+            if (modeId == ModeId.PERFECT_PREDICTION) {
+                return new PersistedModeDataPlan(modeId, false, true, false, false, false, false);
+            }
+            if (modeId == ModeId.BULLET_SHIELD) {
+                return new PersistedModeDataPlan(modeId, true, false, false, false, true, false);
+            }
+            if (modeId == ModeId.MOVING_BULLET_SHIELD) {
+                return new PersistedModeDataPlan(modeId, true, false, false, false, false, true);
+            }
+            if (modeId == ModeId.SHOT_DODGER
+                    || modeId == ModeId.WAVE_POISON
+                    || modeId == ModeId.WAVE_POISON_SHIFT) {
+                return new PersistedModeDataPlan(modeId, true, false, false, true, false, false);
+            }
+            throw new IllegalArgumentException("Unsupported locked persistence mode " + modeId);
+        }
+
+        boolean includesDataSet(OpponentDataSet dataSet) {
+            if (dataSet == null) {
+                return false;
+            }
+            if (dataSet instanceof ModePerformanceDataSet) {
+                return true;
+            }
+            if (lockedModeId == null) {
+                return true;
+            }
+            if (dataSet instanceof WaveModelDataSet) {
+                return includeWaveTargetingModel || includeWaveMovementModel;
+            }
+            if (dataSet instanceof BulletPowerHitRateDataSet) {
+                return includeBulletPowerHitRate;
+            }
+            if (dataSet instanceof ShotDodgerDataSet) {
+                return includeShotDodgerBootstrap;
+            }
+            if (dataSet instanceof BulletShieldDataSet) {
+                return includeBulletShieldBootstrap;
+            }
+            if (dataSet instanceof MovingBulletShieldDataSet) {
+                return includeMovingBulletShieldBootstrap;
+            }
+            return false;
         }
     }
 }

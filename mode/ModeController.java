@@ -161,6 +161,10 @@ public final class ModeController {
         return ModeSelector.describeModeEstimate(modeId);
     }
 
+    public static ModeId findSettledModeForPersistence() {
+        return ModeSelector.findSettledMode();
+    }
+
     public void saveCurrentBattle(Saguaro robot) {
         dataStore.requestDataSetSave(ModePerformanceDataSet.class);
         dataStore.requestDataSetSave(BulletPowerHitRateDataSet.class);
@@ -328,7 +332,7 @@ public final class ModeController {
     }
 
     private ModeId selectModeForRoundStart() {
-        ModeId lockedMode = getLockedModeFromConfig();
+        ModeId lockedMode = getLockedMode();
         if (lockedMode != null) {
             return lockedMode;
         }
@@ -343,7 +347,7 @@ public final class ModeController {
     }
 
     private ModeId selectModeForBattle() {
-        ModeId lockedMode = getLockedModeFromConfig();
+        ModeId lockedMode = getLockedMode();
         if (lockedMode != null) {
             return lockedMode;
         }
@@ -549,6 +553,14 @@ public final class ModeController {
         antiBasicSurferMode = null;
         scoreMaxMode = null;
         activeMode = null;
+    }
+
+    private ModeId getLockedMode() {
+        ModeId configuredLockedMode = getLockedModeFromConfig();
+        if (configuredLockedMode != null) {
+            return configuredLockedMode;
+        }
+        return dataStore != null ? dataStore.getPersistedLockedMode() : null;
     }
 
     private ModeId getLockedModeFromConfig() {

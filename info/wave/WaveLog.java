@@ -46,7 +46,12 @@ public class WaveLog {
     private static final int MODEL_CANDIDATE_POOL = 7;
     private static final int GRADIENT_CANDIDATE_POOL = 50;
     private static final double WEIGHT_SOFT_FLOOR = 0.01;
-    private static final int PERSISTENCE_SECTION_VERSION = 2;
+    private static final int PERSISTENCE_SECTION_VERSION = 3;
+    private static final int LEGACY_PERSISTENCE_SECTION_VERSION = 2;
+    private static final int PERSISTED_MODEL_BYTES = (CONTEXT_DIMENSIONS * 3 + 2) * Double.BYTES;
+    private static final int FULL_PERSISTED_SECTION_BYTES = PERSISTED_MODEL_BYTES * 2;
+    private static final int PERSISTED_TARGETING_MODEL_MASK = 0x01;
+    private static final int PERSISTED_MOVEMENT_MODEL_MASK = 0x02;
     private static final double MAX_LATERAL_VELOCITY = 8.0;
     private static final double MIN_VELOCITY_DELTA = -2.0;
     private static final double MAX_VELOCITY_DELTA = 1.0;
@@ -1241,8 +1246,23 @@ public class WaveLog {
         if (payload == null) {
             return;
         }
+        if (sectionVersion == LEGACY_PERSISTENCE_SECTION_VERSION) {
+            loadFullPersistedSection(payload);
+            return;
+        }
         if (sectionVersion != PERSISTENCE_SECTION_VERSION) {
             throw new IllegalStateException("Unsupported wave-model section version " + sectionVersion);
+        }
+        if (payload.length == FULL_PERSISTED_SECTION_BYTES) {
+            loadFullPersistedSection(payload);
+            return;
+        }
+        loadSelectivePersistedSection(payload);
+    }
+
+    private static void loadFullPersistedSection(byte[] payload) {
+        if (payload.length != FULL_PERSISTED_SECTION_BYTES) {
+            throw new IllegalStateException("Unexpected wave-model payload length");
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
             ModelSpec targetingModel = readPersistedModel(in, DEFAULT_TARGETING_MODEL);
@@ -1250,17 +1270,31 @@ public class WaveLog {
             if (in.available() != 0) {
                 throw new IllegalStateException("Wave-model payload contained trailing bytes");
             }
-            persistedTargetingModel = targetingModel;
-            persistedMovementModel = movementModel;
-            persistedSectionLoaded = true;
-            gunSegment.applyModel(targetingModel);
-            movementSegment.applyModel(movementModel);
-            if (!gunSegment.currentBattleSamples.isEmpty()) {
-                gunSegment.rebuildIndex();
+            applyPersistedModels(targetingModel, true, movementModel, true);
+        } catch (IOException e) {
+            throw new IllegalStateException("Unreadable wave-model payload", e);
+        }
+    }
+
+    private static void loadSelectivePersistedSection(byte[] payload) {
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
+            int componentMask = in.readUnsignedByte();
+            if ((componentMask & ~(PERSISTED_TARGETING_MODEL_MASK | PERSISTED_MOVEMENT_MODEL_MASK)) != 0
+                    || componentMask == 0) {
+                throw new IllegalStateException("Wave-model payload contained an invalid component mask");
             }
-            if (!movementSegment.currentBattleSamples.isEmpty()) {
-                movementSegment.rebuildIndex();
+            boolean hasTargetingModel = (componentMask & PERSISTED_TARGETING_MODEL_MASK) != 0;
+            boolean hasMovementModel = (componentMask & PERSISTED_MOVEMENT_MODEL_MASK) != 0;
+            ModelSpec targetingModel = hasTargetingModel
+                    ? readPersistedModel(in, DEFAULT_TARGETING_MODEL)
+                    : DEFAULT_TARGETING_MODEL;
+            ModelSpec movementModel = hasMovementModel
+                    ? readPersistedModel(in, DEFAULT_MOVEMENT_MODEL)
+                    : DEFAULT_MOVEMENT_MODEL;
+            if (in.available() != 0) {
+                throw new IllegalStateException("Wave-model payload contained trailing bytes");
             }
+            applyPersistedModels(targetingModel, hasTargetingModel, movementModel, hasMovementModel);
         } catch (IOException e) {
             throw new IllegalStateException("Unreadable wave-model payload", e);
         }
@@ -1272,25 +1306,45 @@ public class WaveLog {
 
     public static byte[] createPersistedSectionPayload(int maxPayloadBytes,
                                                        boolean includeCurrentBattleData) {
-        ModelSpec targetingModel;
-        ModelSpec movementModel;
-        if (includeCurrentBattleData) {
-            if (!persistedSectionLoaded && !currentBattleModelUpdated) {
-                return null;
-            }
-            targetingModel = copyCurrentModel(gunSegment);
-            movementModel = copyCurrentModel(movementSegment);
-        } else {
-            if (!persistedSectionLoaded || persistedTargetingModel == null || persistedMovementModel == null) {
-                return null;
-            }
-            targetingModel = persistedTargetingModel;
-            movementModel = persistedMovementModel;
+        return createPersistedSectionPayload(maxPayloadBytes, includeCurrentBattleData, true, true);
+    }
+
+    public static byte[] createPersistedSectionPayload(int maxPayloadBytes,
+                                                       boolean includeCurrentBattleData,
+                                                       boolean includeTargetingModel,
+                                                       boolean includeMovementModel) {
+        ModelSpec targetingModel = includeTargetingModel
+                ? modelForPersistence(includeCurrentBattleData, true)
+                : null;
+        ModelSpec movementModel = includeMovementModel
+                ? modelForPersistence(includeCurrentBattleData, false)
+                : null;
+        boolean hasTargetingModel = targetingModel != null;
+        boolean hasMovementModel = movementModel != null;
+        if (!hasTargetingModel && !hasMovementModel) {
+            return null;
         }
         try (ByteArrayOutputStream raw = new ByteArrayOutputStream();
              DataOutputStream out = new DataOutputStream(raw)) {
-            writePersistedModel(out, targetingModel);
-            writePersistedModel(out, movementModel);
+            if (hasTargetingModel && hasMovementModel) {
+                writePersistedModel(out, targetingModel);
+                writePersistedModel(out, movementModel);
+            } else {
+                int componentMask = 0;
+                if (hasTargetingModel) {
+                    componentMask |= PERSISTED_TARGETING_MODEL_MASK;
+                }
+                if (hasMovementModel) {
+                    componentMask |= PERSISTED_MOVEMENT_MODEL_MASK;
+                }
+                out.writeByte(componentMask);
+                if (hasTargetingModel) {
+                    writePersistedModel(out, targetingModel);
+                }
+                if (hasMovementModel) {
+                    writePersistedModel(out, movementModel);
+                }
+            }
             out.flush();
             byte[] payload = raw.toByteArray();
             if (payload.length > maxPayloadBytes) {
@@ -1301,6 +1355,39 @@ public class WaveLog {
             return payload;
         } catch (IOException e) {
             throw new IllegalStateException("Failed to build wave-model payload", e);
+        }
+    }
+
+    private static ModelSpec modelForPersistence(boolean includeCurrentBattleData, boolean targetingModel) {
+        SegmentLog segment = targetingModel ? gunSegment : movementSegment;
+        ModelSpec defaultModel = targetingModel ? DEFAULT_TARGETING_MODEL : DEFAULT_MOVEMENT_MODEL;
+        ModelSpec persistedModel = targetingModel ? persistedTargetingModel : persistedMovementModel;
+        if (includeCurrentBattleData) {
+            if (!persistedSectionLoaded && !currentBattleModelUpdated) {
+                return null;
+            }
+            if (persistedModel == null && isDefaultModel(segment, defaultModel)) {
+                return null;
+            }
+            return copyCurrentModel(segment);
+        }
+        return persistedModel;
+    }
+
+    private static void applyPersistedModels(ModelSpec targetingModel,
+                                             boolean hasTargetingModel,
+                                             ModelSpec movementModel,
+                                             boolean hasMovementModel) {
+        persistedTargetingModel = hasTargetingModel ? targetingModel : null;
+        persistedMovementModel = hasMovementModel ? movementModel : null;
+        persistedSectionLoaded = true;
+        gunSegment.applyModel(hasTargetingModel ? targetingModel : DEFAULT_TARGETING_MODEL);
+        movementSegment.applyModel(hasMovementModel ? movementModel : DEFAULT_MOVEMENT_MODEL);
+        if (!gunSegment.currentBattleSamples.isEmpty()) {
+            gunSegment.rebuildIndex();
+        }
+        if (!movementSegment.currentBattleSamples.isEmpty()) {
+            movementSegment.rebuildIndex();
         }
     }
 
