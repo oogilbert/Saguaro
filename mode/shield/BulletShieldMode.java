@@ -474,11 +474,6 @@ public final class BulletShieldMode implements BattleMode {
                 ShieldPlan candidate = buildShieldPlan(nextWave, myNow);
                 if (candidate != null) {
                     activePlan = candidate;
-                } else {
-                    BattlePlan directAttack = tryFireDirectAttack(myNow);
-                    if (directAttack != null) {
-                        return directAttack;
-                    }
                 }
             }
         }
@@ -1056,10 +1051,15 @@ public final class BulletShieldMode implements BattleMode {
         if (!BotConfig.Shield.ENABLE_SHIELD_SLACK_AGGRESSION) {
             return null;
         }
+        long latestViableShieldFireTime = latestShieldFireTimeForExpectedNextWave(myNow, enemy);
+        if (latestViableShieldFireTime == Long.MIN_VALUE) {
+            return null;
+        }
 
         double candidate = Math.floor(maxPower * 10.0) / 10.0;
         while (candidate >= Rules.MIN_BULLET_POWER - 1e-9) {
-            if (canShieldNextExpectedShotAfterAggressiveFire(myNow, enemy, candidate)) {
+            long conservativeShieldReadyTime = conservativeShieldReadyTimeAfterAggressiveFire(myNow, candidate);
+            if (conservativeShieldReadyTime <= latestViableShieldFireTime) {
                 return new AggressiveAttackDecision(candidate, "slack");
             }
             candidate -= 0.1;
@@ -1116,19 +1116,16 @@ public final class BulletShieldMode implements BattleMode {
         return false;
     }
 
-    private boolean canShieldNextExpectedShotAfterAggressiveFire(Snapshot myNow,
-                                                                 EnemyInfo enemy,
-                                                                 double firePower) {
+    private long latestShieldFireTimeForExpectedNextWave(Snapshot myNow, EnemyInfo enemy) {
         long expectedEnemyFireTime = expectedNextEnemyFireTime(myNow, enemy);
         if (expectedEnemyFireTime == Long.MIN_VALUE) {
-            return false;
+            return Long.MIN_VALUE;
         }
         EnemyWave expectedWave = buildPessimisticExpectedNextWave(myNow, expectedEnemyFireTime);
         if (expectedWave == null) {
-            return false;
+            return Long.MIN_VALUE;
         }
-        long conservativeShieldReadyTime = conservativeShieldReadyTimeAfterAggressiveFire(myNow, firePower);
-        return latestShieldFireTime(expectedWave, myNow, conservativeShieldReadyTime) != Long.MIN_VALUE;
+        return latestShieldFireTime(expectedWave, myNow);
     }
 
     private long latestShieldFireTime(EnemyWave wave, Snapshot myNow) {
