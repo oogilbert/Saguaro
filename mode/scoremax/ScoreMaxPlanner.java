@@ -447,7 +447,8 @@ public final class ScoreMaxPlanner {
         if (lastSelectedFirePower < ShotPlanner.MIN_FIRE_POWER - POWER_SAMPLE_EPSILON) {
             return FirstPassShotMode.NO_FIRE;
         }
-        if (lastSelectedShotWasShadow
+        if (allowsShadowShots()
+                && lastSelectedShotWasShadow
                 && Math.abs(lastSelectedFirePower - ShotPlanner.SHADOW_FIRE_POWER) <= POWER_SAMPLE_EPSILON) {
             return FirstPassShotMode.SHADOW;
         }
@@ -456,6 +457,33 @@ public final class ScoreMaxPlanner {
 
     private static boolean firstPassIncludesOffensiveShot(FirstPassShotMode shotMode) {
         return shotMode == FirstPassShotMode.OFFENSIVE;
+    }
+
+    private boolean usesFixedOffensivePowers() {
+        return config.fixedCandidatePowers != null && config.fixedCandidatePowers.length > 0;
+    }
+
+    private boolean allowsShadowShots() {
+        return config.allowShadow;
+    }
+
+    private static double nearestAvailablePower(List<Double> candidatePowers,
+                                                double preferredPower) {
+        if (candidatePowers == null || candidatePowers.isEmpty()) {
+            return 0.0;
+        }
+        double bestPower = candidatePowers.get(0);
+        double bestDistance = Math.abs(bestPower - preferredPower);
+        for (double candidatePower : candidatePowers) {
+            double distance = Math.abs(candidatePower - preferredPower);
+            if (distance < bestDistance - POWER_SAMPLE_EPSILON
+                    || (Math.abs(distance - bestDistance) <= POWER_SAMPLE_EPSILON
+                    && candidatePower > bestPower)) {
+                bestPower = candidatePower;
+                bestDistance = distance;
+            }
+        }
+        return bestPower;
     }
 
     private CandidatePath firstPassContinuityCandidate(List<CandidatePath> paths) {
@@ -477,10 +505,20 @@ public final class ScoreMaxPlanner {
         if (!(maxPower >= ShotPlanner.MIN_FIRE_POWER)) {
             return 0.0;
         }
+        if (usesFixedOffensivePowers()) {
+            List<Double> candidatePowers = buildCandidateOffensivePowers(maxPower);
+            if (candidatePowers.isEmpty()) {
+                return 0.0;
+            }
+            double preferredPower = retainedOffensivePower >= ShotPlanner.MIN_FIRE_POWER
+                    ? retainedOffensivePower
+                    : config.defaultTrackingPower;
+            return nearestAvailablePower(candidatePowers, preferredPower);
+        }
         if (retainedOffensivePower >= ShotPlanner.MIN_FIRE_POWER) {
             return Math.min(maxPower, retainedOffensivePower);
         }
-        return Math.min(maxPower, BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER);
+        return Math.min(maxPower, config.defaultTrackingPower);
     }
 
     private static void appendUniquePower(List<Double> powers, double power) {
@@ -492,19 +530,32 @@ public final class ScoreMaxPlanner {
         powers.add(power);
     }
 
-    private static double maxCandidateOffensivePower(double availableEnergy,
-                                                     double enemyEnergyForScoring) {
+    private double maxCandidateOffensivePower(double availableEnergy,
+                                              double enemyEnergyForScoring) {
         if (!(availableEnergy >= ShotPlanner.MIN_FIRE_POWER)) {
             return 0.0;
         }
-        return Math.min(
-                ShotPlanner.MAX_FIRE_POWER,
-                Math.min(availableEnergy, PhysicsUtil.requiredBulletPowerForDamage(enemyEnergyForScoring)));
+        double maxPower = Math.min(ShotPlanner.MAX_FIRE_POWER, availableEnergy);
+        if (config.capByEnemyEnergy) {
+            maxPower = Math.min(maxPower, PhysicsUtil.requiredBulletPowerForDamage(enemyEnergyForScoring));
+        }
+        return maxPower;
     }
 
     private List<Double> buildCandidateOffensivePowers(double maxPower) {
         List<Double> powers = new ArrayList<>();
         if (!(maxPower >= ShotPlanner.MIN_FIRE_POWER)) {
+            return powers;
+        }
+        if (usesFixedOffensivePowers()) {
+            for (double configuredPower : config.fixedCandidatePowers) {
+                if (!(configuredPower >= ShotPlanner.MIN_FIRE_POWER)
+                        || !(configuredPower <= ShotPlanner.MAX_FIRE_POWER)
+                        || configuredPower > maxPower + POWER_SAMPLE_EPSILON) {
+                    continue;
+                }
+                appendUniquePower(powers, configuredPower);
+            }
             return powers;
         }
         if (Math.abs(maxPower - ShotPlanner.MIN_FIRE_POWER) <= POWER_SAMPLE_EPSILON) {
@@ -1006,8 +1057,10 @@ public final class ScoreMaxPlanner {
             double priorOffensivePower = firstPassOffensivePower;
             List<Double> globalOffensivePowers = buildCandidateOffensivePowers(maxOffensivePower);
             List<Double> offensivePowers = new ArrayList<>(globalOffensivePowers);
-            ensureOffensivePowerBracket(globalOffensivePowers, maxOffensivePower);
-            appendBracketEndpointPowers(offensivePowers, maxOffensivePower);
+            if (!usesFixedOffensivePowers()) {
+                ensureOffensivePowerBracket(globalOffensivePowers, maxOffensivePower);
+                appendBracketEndpointPowers(offensivePowers, maxOffensivePower);
+            }
             FireWindowContext bestPathFireWindow = buildFireWindowContext(
                     firstPassSelection.bestPath,
                     firstFiringTickOffset,
@@ -1036,7 +1089,7 @@ public final class ScoreMaxPlanner {
                         bestPathFireWindow);
                 refinedSelection.consider(noFireEvaluation);
             }
-            if (bestPathFirstPassShotMode != FirstPassShotMode.SHADOW) {
+            if (allowsShadowShots() && bestPathFirstPassShotMode != FirstPassShotMode.SHADOW) {
                 PlanEvaluation shadowEvaluation = evaluatePlanForPath(
                         firstPassSelection.bestPath,
                         createShadowOnlyBranch(firstPassOffensivePower),
@@ -1074,17 +1127,19 @@ public final class ScoreMaxPlanner {
                     && offensiveSelection.bestPlan.firePower >= ShotPlanner.MIN_FIRE_POWER) {
                 double bestOffensivePower = offensiveSelection.bestPlan.firePower;
                 retainedOffensivePower = bestOffensivePower;
-                if (selectionFired(refinedSelection.bestPlan)
-                        || offensivePowerOutsideBracket(bestOffensivePower)
-                        || Math.abs(bestOffensivePower - priorOffensivePower) > POWER_SAMPLE_EPSILON
-                        || !offensivePowerBracketValid) {
-                    recenterOffensivePowerBracket(bestOffensivePower, globalOffensivePowers, maxOffensivePower);
-                } else {
-                    advanceOffensivePowerBracket(
-                            offensiveEvaluations,
-                            priorOffensivePower,
-                            globalOffensivePowers,
-                            maxOffensivePower);
+                if (!usesFixedOffensivePowers()) {
+                    if (selectionFired(refinedSelection.bestPlan)
+                            || offensivePowerOutsideBracket(bestOffensivePower)
+                            || Math.abs(bestOffensivePower - priorOffensivePower) > POWER_SAMPLE_EPSILON
+                            || !offensivePowerBracketValid) {
+                        recenterOffensivePowerBracket(bestOffensivePower, globalOffensivePowers, maxOffensivePower);
+                    } else {
+                        advanceOffensivePowerBracket(
+                                offensiveEvaluations,
+                                priorOffensivePower,
+                                globalOffensivePowers,
+                                maxOffensivePower);
+                    }
                 }
             }
             if (refinedSelection.bestPlan != null) {
