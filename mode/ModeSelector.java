@@ -66,6 +66,13 @@ final class ModeSelector {
         return current == null || isDisqualified(current, posteriors);
     }
 
+    boolean meetsSelectionRequirements(ModeId modeId) {
+        if (modeId == null) {
+            return false;
+        }
+        return meetsSelectionRequirements(estimateLiveMode(modeId));
+    }
+
     private ModePosterior[] candidateModePosteriors(ModeId[] candidateModes) {
         List<ModePosterior> posteriors = new ArrayList<>();
         if (candidateModes == null) {
@@ -105,6 +112,18 @@ final class ModeSelector {
         return candidate.comparisonUpperBound + 1e-9 < bestOtherComparisonMean;
     }
 
+    private static boolean meetsSelectionRequirements(ModePosterior candidate) {
+        if (candidate == null) {
+            return false;
+        }
+        if (candidate.modeId == ModeId.ANTI_BASIC_SURFER) {
+            return candidate.totalScore > 0.0
+                    && candidate.observedShare + 1e-9
+                    >= BotConfig.ModeSelection.ANTI_BASIC_SURFER_MIN_SELECTION_SCORE;
+        }
+        return true;
+    }
+
     private static ModePosterior estimateMode(ModeId modeId, ModePerformanceProfile.ModeStatsSnapshot stats) {
         if (modeId == null || stats == null) {
             throw new IllegalArgumentException("Mode estimate requires non-null mode stats");
@@ -120,6 +139,7 @@ final class ModeSelector {
             throw new IllegalArgumentException("Mode estimate totals must be non-negative");
         }
         double totalScore = totalOurScore + totalOpponentScore;
+        double observedShare = totalScore > 0.0 ? totalOurScore / totalScore : Double.NaN;
         double priorScale = Math.max(0.0, 1.0 - totalScore / BotConfig.ModeSelection.PRIOR_FADE_SCORE);
         double priorOurScore = BotConfig.ModeSelection.PRIOR_SCORE * priorScale;
         double effectiveTotalScore = totalScore + priorOurScore;
@@ -137,6 +157,8 @@ final class ModeSelector {
         double intervalWidth = upperBound - lowerBound;
         return new ModePosterior(
                 modeId,
+                totalScore,
+                observedShare,
                 posteriorMean,
                 totalScore <= 0.0,
                 intervalWidth,
@@ -283,6 +305,8 @@ final class ModeSelector {
 
     private static final class ModePosterior {
         final ModeId modeId;
+        final double totalScore;
+        final double observedShare;
         final double posteriorMean;
         final boolean untested;
         final double intervalWidth;
@@ -293,6 +317,8 @@ final class ModeSelector {
         final double comparisonUpperBound;
 
         ModePosterior(ModeId modeId,
+                      double totalScore,
+                      double observedShare,
                       double posteriorMean,
                       boolean untested,
                       double intervalWidth,
@@ -302,6 +328,8 @@ final class ModeSelector {
                       double comparisonMean,
                       double comparisonUpperBound) {
             this.modeId = modeId;
+            this.totalScore = totalScore;
+            this.observedShare = observedShare;
             this.posteriorMean = posteriorMean;
             this.untested = untested;
             this.intervalWidth = intervalWidth;

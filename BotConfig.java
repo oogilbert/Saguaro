@@ -232,6 +232,10 @@ public final class BotConfig {
         public static final double UNCERTAINTY_PRIOR_BETA = 1.0;
         // Confidence-interval width below which a mode is considered settled.
         public static final double SETTLED_CI_WIDTH = 0.10;
+        // Minimum consecutive rounds to spend in a mode before round-start switching is allowed.
+        public static final int MIN_ROUNDS_BEFORE_SWITCH = 2;
+        // AntiBasicSurfer must already be winning by at least this observed score share before it can be selected.
+        public static final double ANTI_BASIC_SURFER_MIN_SELECTION_SCORE = 0.80;
     }
 
     public static final class Learning {

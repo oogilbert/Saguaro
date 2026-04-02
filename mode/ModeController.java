@@ -6,6 +6,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ModeObservationPolicy;
@@ -82,6 +83,8 @@ public final class ModeController {
     private int remainingBulletShieldForgivenHits;
     private Saguaro colorAppliedRobot;
     private ModeId colorAppliedModeId;
+    private ModeId selectedModeStreakModeId;
+    private int selectedModeStreakRounds;
 
     public ModeController() {
         dataStore.registerDataSet(new BulletShieldDataSet());
@@ -114,6 +117,8 @@ public final class ModeController {
         remainingBulletShieldForgivenHits = 0;
         colorAppliedRobot = null;
         colorAppliedModeId = null;
+        selectedModeStreakModeId = null;
+        selectedModeStreakRounds = 0;
         roundScoreTracker.startBattle();
         setActiveMode(ModeId.SCORE_MAX, false);
     }
@@ -301,6 +306,9 @@ public final class ModeController {
 
     private void activateModeForRound(ModeId selectedMode, boolean countAsBattleUsage) {
         ModeId previousModeId = activeModeId;
+        if (countAsBattleUsage) {
+            noteSelectedModeRound(selectedMode);
+        }
         setActiveMode(selectedMode, countAsBattleUsage);
         roundScoreTracker.activateMode(selectedMode);
         info.activateRoundOutcomeProfile(roundOutcomeProfileFor(selectedMode));
@@ -324,9 +332,12 @@ public final class ModeController {
         if (lockedMode != null) {
             return lockedMode;
         }
-        ModeId[] selectableModes = selectableModes();
+        if (!canSwitchAwayFromActiveMode()) {
+            return activeModeId;
+        }
+        ModeId[] selectableModes = selectableModes(true);
         if (modeSelector.isModeDisqualified(activeModeId, selectableModes)) {
-            return modeSelector.selectMode(selectableModes);
+            return modeSelector.selectMode(selectableModes(false));
         }
         return activeModeId;
     }
@@ -336,31 +347,60 @@ public final class ModeController {
         if (lockedMode != null) {
             return lockedMode;
         }
-        return modeSelector.selectMode(selectableModes());
+        return modeSelector.selectMode(selectableModes(false));
     }
 
     private ModeId[] selectableModes() {
+        return selectableModes(false);
+    }
+
+    private ModeId[] selectableModes(boolean retainActiveAntiBasicSurferBelowThreshold) {
         List<ModeId> selectable = new ArrayList<>();
         for (ModeId modeId : ModeId.values()) {
-            if (isModeSelectable(modeId)) {
+            if (isModeSelectable(modeId, retainActiveAntiBasicSurferBelowThreshold)) {
                 selectable.add(modeId);
             }
         }
         return selectable.toArray(new ModeId[0]);
     }
 
-    private boolean isModeSelectable(ModeId modeId) {
+    private boolean isModeSelectable(ModeId modeId, boolean retainActiveAntiBasicSurferBelowThreshold) {
         if (modeId == null) {
             return false;
         }
         if (modeId == ModeId.BULLET_SHIELD || isWavePoisonVariant(modeId)
                 || modeId == ModeId.ANTI_BASIC_SURFER) {
-            return !hasUsedAnyModeOtherThan(modeId);
+            if (hasUsedAnyModeOtherThan(modeId)) {
+                return false;
+            }
+        } else if (modeId == ModeId.MOVING_BULLET_SHIELD) {
+            if (hasUsedAnyModeOutside(ModeId.BULLET_SHIELD, ModeId.MOVING_BULLET_SHIELD)) {
+                return false;
+            }
         }
-        if (modeId == ModeId.MOVING_BULLET_SHIELD) {
-            return !hasUsedAnyModeOutside(ModeId.BULLET_SHIELD, ModeId.MOVING_BULLET_SHIELD);
+        if (modeId == ModeId.ANTI_BASIC_SURFER
+                && !modeSelector.meetsSelectionRequirements(modeId)
+                && !(retainActiveAntiBasicSurferBelowThreshold && modeId == activeModeId)) {
+            return false;
         }
         return true;
+    }
+
+    private boolean canSwitchAwayFromActiveMode() {
+        return activeModeId != selectedModeStreakModeId
+                || selectedModeStreakRounds >= BotConfig.ModeSelection.MIN_ROUNDS_BEFORE_SWITCH;
+    }
+
+    private void noteSelectedModeRound(ModeId selectedMode) {
+        if (selectedMode == null) {
+            return;
+        }
+        if (selectedMode == selectedModeStreakModeId) {
+            selectedModeStreakRounds++;
+            return;
+        }
+        selectedModeStreakModeId = selectedMode;
+        selectedModeStreakRounds = 1;
     }
 
     private boolean hasUsedAnyModeOtherThan(ModeId allowedMode) {
