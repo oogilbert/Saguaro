@@ -13,11 +13,13 @@ public class Saguaro extends AdvancedRobot {
     private static final Info info = new Info();
     private static final Radar radar = new Radar();
     private static final ModeController mode = new ModeController();
+    private static boolean renderingEnabled;
 
     @Override
     public void run() {
         if (getRoundNum() == 0) {
             mode.startBattle();
+            renderingEnabled = BotConfig.Debug.ENABLE_WAVE_RENDERING && isDebugMode();
         }
         info.init(this, mode.getRoundOutcomeProfile(), mode.getObservationProfile(), mode.getDataStore());
         mode.init(info);
@@ -31,7 +33,7 @@ public class Saguaro extends AdvancedRobot {
 
             BattlePlan plan = mode.getPlan();
             RenderState renderState = mode.getRenderState();
-            Graphics2D graphics = BotConfig.Debug.ENABLE_WAVE_RENDERING ? getGraphics() : null;
+            Graphics2D graphics = renderingEnabled ? getGraphics() : null;
 
             info.updateWaves(
                     graphics,
@@ -113,4 +115,11 @@ public class Saguaro extends AdvancedRobot {
         mode.onRoundEnded();
     }
 
+    private static boolean isDebugMode() {
+        try {
+            return Boolean.getBoolean("debug");
+        } catch (SecurityException e) {
+            return false;
+        }
+    }
 }

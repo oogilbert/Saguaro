@@ -116,18 +116,15 @@ public final class ScoreMaxPlanner {
 
     private static class FiringResult {
         private final double firstTickFirePower;
-        private final double firstTickGunTurn;
         private final List<PathWaveIntersection> pathIntersections;
         private final ShotPlanner.ShotSelection shotSelection;
         private final boolean valid;
 
         private FiringResult(double firstTickFirePower,
-                             double firstTickGunTurn,
                              List<PathWaveIntersection> pathIntersections,
                              ShotPlanner.ShotSelection shotSelection,
                              boolean valid) {
             this.firstTickFirePower = firstTickFirePower;
-            this.firstTickGunTurn = firstTickGunTurn;
             this.pathIntersections = pathIntersections;
             this.shotSelection = shotSelection;
             this.valid = valid;
@@ -199,6 +196,7 @@ public final class ScoreMaxPlanner {
         private final BattlePlan plan;
         private final CandidatePath path;
         private final List<PathWaveIntersection> pathIntersections;
+        private final ShotPlanner.ShotSelection shotSelection;
         private final double score;
         private final double absoluteScore;
         private final boolean selectedShotWasShadow;
@@ -206,12 +204,14 @@ public final class ScoreMaxPlanner {
         private PlanEvaluation(BattlePlan plan,
                                CandidatePath path,
                                List<PathWaveIntersection> pathIntersections,
+                               ShotPlanner.ShotSelection shotSelection,
                                double score,
                                double absoluteScore,
                                boolean selectedShotWasShadow) {
             this.plan = plan;
             this.path = path;
             this.pathIntersections = pathIntersections;
+            this.shotSelection = shotSelection;
             this.score = score;
             this.absoluteScore = absoluteScore;
             this.selectedShotWasShadow = selectedShotWasShadow;
@@ -320,10 +320,6 @@ public final class ScoreMaxPlanner {
         List<PathWaveIntersection> pathIntersections = activeFireWindow.pathIntersections;
         double firstTickFirePower = 0;
 
-        double firstWindowPower = 0;
-        double firstWindowFiringAngle = Double.NaN;
-        PhysicsUtil.PositionState firstWindowState = null;
-        EnemyInfo.PredictedPosition firstWindowEnemyAtFireTime = null;
         ShotPlanner.ShotSelection selectedShot = new ShotPlanner.ShotSelection(
                 0.0,
                 Double.NaN,
@@ -344,8 +340,6 @@ public final class ScoreMaxPlanner {
 
         if (activeFireWindow.active) {
             PhysicsUtil.PositionState state = activeFireWindow.state;
-            firstWindowState = state;
-            firstWindowEnemyAtFireTime = activeFireWindow.enemyAtFireTime;
 
             // NOTE: Power selection currently happens after movement path generation.
             // Outgoing bullet-shadow survival is modeled here, but path danger
@@ -373,9 +367,6 @@ public final class ScoreMaxPlanner {
                 if (activeFireWindow.tickOffset == 0) {
                     firstTickFirePower = shotSelection.power;
                 }
-
-                firstWindowPower = shotSelection.power;
-                firstWindowFiringAngle = shotSelection.firingAngle;
             }
         }
 
@@ -384,32 +375,8 @@ public final class ScoreMaxPlanner {
                     scorer.scoreShotSelection(path, pathIntersections, selectedShot, currentOurEnergy));
         }
 
-        // Even when not firing, keep the gun tracking the best reachable shot
-        // from the same future firing state we just evaluated for this path.
-        double aimPower = firstWindowPower > 0
-                ? firstWindowPower
-                : BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER;
-        double firstTickGunTurn;
-        if (Double.isFinite(firstWindowFiringAngle)) {
-            firstTickGunTurn = MathUtils.normalizeAngle(firstWindowFiringAngle - currentGunHeading);
-        } else {
-            ShotSolution trackingShot = firstWindowEnemyAtFireTime != null && firstWindowState != null
-                    ? gun.selectOptimalUnconstrainedShotFromPosition(
-                            firstWindowState.x,
-                            firstWindowState.y,
-                            firstWindowEnemyAtFireTime.x,
-                            firstWindowEnemyAtFireTime.y,
-                            aimPower,
-                            0)
-                    : new ShotSolution(0.0, Double.NaN);
-            firstTickGunTurn = Double.isFinite(trackingShot.firingAngle)
-                    ? MathUtils.normalizeAngle(trackingShot.firingAngle - currentGunHeading)
-                    : optimalGunTurnFromHeading(aimPower, currentGunHeading);
-        }
-
         return new FiringResult(
                 firstTickFirePower,
-                firstTickGunTurn,
                 pathIntersections,
                 selectedShot,
                 valid);
@@ -885,15 +852,96 @@ public final class ScoreMaxPlanner {
 
         BattlePlan plan = new BattlePlan(
                 instruction[0], instruction[1],
-                firingResult.firstTickGunTurn, firingResult.firstTickFirePower);
+                Double.NaN, firingResult.firstTickFirePower);
 
         return new PlanEvaluation(
                 plan,
                 path,
                 firingResult.pathIntersections,
+                firingResult.shotSelection,
                 firingResult.shotSelection.score,
                 firingResult.shotSelection.absoluteScore,
                 firingResult.shotSelection.shadowShot);
+    }
+
+    private double[] movementInstructionForPath(CandidatePath path,
+                                                RobotSnapshot robotState) {
+        return path.segmentLegs.isEmpty()
+                ? PhysicsUtil.computeMovementInstruction(
+                        robotState.x,
+                        robotState.y,
+                        robotState.heading,
+                        robotState.velocity,
+                        path.firstTargetX,
+                        path.firstTargetY,
+                        PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                        PhysicsUtil.SteeringMode.DIRECT,
+                        info.getBattlefieldWidth(),
+                        info.getBattlefieldHeight())
+                : PhysicsUtil.computeMovementInstruction(
+                        robotState.x,
+                        robotState.y,
+                        robotState.heading,
+                        robotState.velocity,
+                        path.segmentLegs.get(0).targetX,
+                        path.segmentLegs.get(0).targetY,
+                        PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                        path.segmentLegs.get(0).steeringMode,
+                        info.getBattlefieldWidth(),
+                        info.getBattlefieldHeight());
+    }
+
+    private double resolveSelectedGunTurn(PlanEvaluation evaluation,
+                                          int firstFiringTickOffset,
+                                          double currentGunHeading) {
+        if (evaluation == null || evaluation.path == null) {
+            return optimalGunTurnFromHeading(BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER, currentGunHeading);
+        }
+        if (evaluation.shotSelection != null && Double.isFinite(evaluation.shotSelection.firingAngle)) {
+            return MathUtils.normalizeAngle(evaluation.shotSelection.firingAngle - currentGunHeading);
+        }
+
+        CandidatePath path = evaluation.path;
+        double aimPower = evaluation.plan != null && evaluation.plan.firePower >= ShotPlanner.MIN_FIRE_POWER
+                ? evaluation.plan.firePower
+                : BotConfig.ScoreMax.DEFAULT_TRACKING_FIRE_POWER;
+        if (path.trajectory == null || path.trajectory.length() == 0) {
+            return optimalGunTurnFromHeading(aimPower, currentGunHeading);
+        }
+
+        int fireStateIndex = Math.min(firstFiringTickOffset, Math.max(0, path.trajectory.length() - 1));
+        PhysicsUtil.PositionState fireState = path.trajectory.stateAt(fireStateIndex);
+        long fireTime = path.startTime + Math.max(0, firstFiringTickOffset);
+        EnemyInfo.PredictedPosition enemyAtFireTime = predictEnemyPositionAt(fireTime);
+        if (enemyAtFireTime == null) {
+            return optimalGunTurnFromHeading(aimPower, currentGunHeading);
+        }
+
+        ShotSolution trackingShot = gun.selectOptimalUnconstrainedShotFromPosition(
+                fireState.x,
+                fireState.y,
+                enemyAtFireTime.x,
+                enemyAtFireTime.y,
+                aimPower,
+                0);
+        return Double.isFinite(trackingShot.firingAngle)
+                ? MathUtils.normalizeAngle(trackingShot.firingAngle - currentGunHeading)
+                : optimalGunTurnFromHeading(aimPower, currentGunHeading);
+    }
+
+    private BattlePlan finalizeSelectedPlan(PlanEvaluation evaluation,
+                                            RobotSnapshot robotState,
+                                            int firstFiringTickOffset,
+                                            double currentGunHeading) {
+        if (evaluation == null || evaluation.path == null || evaluation.plan == null) {
+            return null;
+        }
+        double[] instruction = movementInstructionForPath(evaluation.path, robotState);
+        return new BattlePlan(
+                instruction[0],
+                instruction[1],
+                resolveSelectedGunTurn(evaluation, firstFiringTickOffset, currentGunHeading),
+                evaluation.plan.firePower);
     }
 
     public BattlePlan getBestPlan() {
@@ -1053,7 +1101,14 @@ public final class ScoreMaxPlanner {
                     0.0);
         }
 
-        BattlePlan bestPlan = selection.bestPlan;
+        BattlePlan bestPlan = finalizeSelectedPlan(
+                selection.bestEvaluation,
+                robotState,
+                firstFiringTickOffset,
+                currentGunHeading);
+        if (bestPlan == null) {
+            bestPlan = selection.bestPlan;
+        }
         lastSelectedPath = selection.bestPath;
         lastSelectedFamilyPaths = selectTopDistinctFamilyPaths(
                 firstPassEvaluations,
