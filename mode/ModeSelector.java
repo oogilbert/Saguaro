@@ -47,6 +47,9 @@ final class ModeSelector {
                 best = relevantPosteriors[i];
             }
         }
+        if (best.totalScore + 1e-9 < BotConfig.ModeSelection.MIN_SETTLED_MODE_TOTAL_SCORE) {
+            return null;
+        }
         ModePosterior settled = null;
         int qualifiedCount = 0;
         for (ModePosterior posterior : relevantPosteriors) {
