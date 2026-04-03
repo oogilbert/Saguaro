@@ -12,6 +12,7 @@ import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.math.PhysicsUtil;
 import oog.mega.saguaro.mode.BattlePlan;
 import oog.mega.saguaro.mode.DirectGunPlannerSupport;
+import oog.mega.saguaro.mode.OpeningAntiGravityPlannerSupport;
 import oog.mega.saguaro.movement.CandidatePath;
 import oog.mega.saguaro.movement.MovementController;
 import oog.mega.saguaro.movement.PathGenerationContext;
@@ -51,7 +52,8 @@ final class ShotDodgerPlanner {
     BattlePlan getBestPlan() {
         RobotSnapshot robotState = info.captureRobotSnapshot();
         invalidateSelectedPathStateIfWaveDangerChanged();
-
+        OpeningAntiGravityPlannerSupport.MovementInstruction openingMove =
+                OpeningAntiGravityPlannerSupport.maybeBuildMovementInstruction(info, robotState);
         int firstFiringTickOffset = DirectGunPlannerSupport.firstFiringTickOffset(robotState.gunHeat);
         PathGenerationContext pathGenerationContext = movement.createPathGenerationContext();
         pathGenerationContext.minPathTicks = firstFiringTickOffset;
@@ -59,6 +61,13 @@ final class ShotDodgerPlanner {
         List<CandidatePath> paths = movement.generateCandidatePaths(pathGenerationContext, lastSelectedFamilyPaths);
         CandidatePath bestPath = selectBestPath(paths);
         if (bestPath == null) {
+            if (openingMove != null) {
+                return new BattlePlan(
+                        openingMove.moveDistance,
+                        openingMove.turnAngle,
+                        OpeningAntiGravityPlannerSupport.directGunTurnToEnemy(info, robotState),
+                        0.0);
+            }
             return new BattlePlan(0.0, 0.0, 0.0, 0.0);
         }
 
@@ -75,6 +84,13 @@ final class ShotDodgerPlanner {
                 robotState,
                 firstFiringTickOffset,
                 DirectGunPlannerSupport.selectFirePower(info, robotState));
+        if (openingMove != null) {
+            return new BattlePlan(
+                    openingMove.moveDistance,
+                    openingMove.turnAngle,
+                    OpeningAntiGravityPlannerSupport.directGunTurnToEnemy(info, robotState),
+                    0.0);
+        }
         return new BattlePlan(
                 movementInstruction[0],
                 movementInstruction[1],

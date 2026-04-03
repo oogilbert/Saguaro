@@ -14,6 +14,7 @@ import oog.mega.saguaro.info.state.RobotSnapshot;
 import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.mode.BattlePlan;
+import oog.mega.saguaro.mode.OpeningAntiGravityPlannerSupport;
 import oog.mega.saguaro.math.PhysicsUtil;
 import oog.mega.saguaro.movement.CandidatePath;
 import oog.mega.saguaro.movement.MovementController;
@@ -1013,7 +1014,8 @@ public final class ScoreMaxPlanner {
             scorer.clearScoreContext();
             return disabledRamPlan;
         }
-
+        OpeningAntiGravityPlannerSupport.MovementInstruction openingMove =
+                OpeningAntiGravityPlannerSupport.maybeBuildMovementInstruction(info, robotState);
         double currentGunHeat = robotState.gunHeat;
         int firstFiringTickOffset = firstFiringTickOffset(currentGunHeat);
         double currentOurEnergy = robotState.energy;
@@ -1173,6 +1175,13 @@ public final class ScoreMaxPlanner {
         lastSelectedFirePower = bestPlan.firePower;
         lastSelectedShotWasShadow = selection.bestShotWasShadow;
         scorer.clearScoreContext();
+        if (openingMove != null) {
+            return new BattlePlan(
+                    openingMove.moveDistance,
+                    openingMove.turnAngle,
+                    OpeningAntiGravityPlannerSupport.directGunTurnToEnemy(info, robotState),
+                    0.0);
+        }
         return bestPlan;
     }
 

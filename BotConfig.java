@@ -104,6 +104,8 @@ public final class BotConfig {
         public static final double ANCHOR_WALL_SMOOTHED_TARGET_DISTANCE = 100.0;
         // Inset applied only to generated CW/CCW path targets so they do not sit directly on the wall margin.
         public static final double PATH_TARGET_WALL_INSET = 6.0;
+        // Keep path planners on opening anti-gravity until this many ticks before the opponent's first gun-ready tick.
+        public static final int OPENING_ANTI_GRAVITY_STOP_LEAD_TICKS = 8;
 
         // Number of random tails considered when extending a committed perfect-prediction path.
         public static final int RANDOM_TAIL_CANDIDATE_COUNT = 8;
