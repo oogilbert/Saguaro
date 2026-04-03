@@ -126,6 +126,14 @@ public final class ModeObservationProfile implements ObservationProfile {
     }
 
     @Override
+    public GuessFactorDistribution createMovementDistribution(Wave wave) {
+        if (!policy.useMovementDistributions) {
+            return null;
+        }
+        return delegate.createMovementDistribution(wave);
+    }
+
+    @Override
     public double[] createGunRecentPerformanceScores(WaveContextFeatures.WaveContext context) {
         if (!policy.useTargetingDistributions) {
             return null;
@@ -224,6 +232,11 @@ public final class ModeObservationProfile implements ObservationProfile {
     public void onResolvedEnemyWaveHit(Wave wave,
                                        double gf) {
         delegate.onResolvedEnemyWaveHit(wave, gf);
+    }
+
+    @Override
+    public void onOurBulletHitEnemyHeading(double bulletHeading) {
+        delegate.onOurBulletHitEnemyHeading(bulletHeading);
     }
 
     @Override

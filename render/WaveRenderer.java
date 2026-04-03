@@ -19,6 +19,10 @@ public final class WaveRenderer {
     private static final int ARC_SEGMENTS = 160;
     private static final int EXPERT_TICK_HALF_LENGTH = 4;
     private static final int REACHABLE_INTERVAL_SEGMENTS = 48;
+    // Mirrors mode.shotdodger.ShotDodgerExpertId: DROID_IMPACT_HEADING is the
+    // final expert in the current shotDodger render ordering.
+    private static final int SHOT_DODGER_EXPERT_COUNT = 12;
+    private static final int SHOT_DODGER_DROID_IMPACT_EXPERT_INDEX = 11;
     private static final Color OUTSIDE_PRECISE_MEA_COLOR = new Color(120, 120, 120);
     private static final Color FULL_SHADOW_COLOR = Color.BLACK;
     private static final Color HALF_SHADOW_COLOR = Color.GRAY;
@@ -26,6 +30,8 @@ public final class WaveRenderer {
     private static final Color EXPERT_TICK_OUTLINE_COLOR = Color.BLACK;
     private static final Color EXPERT_TICK_INNER_COLOR = Color.WHITE;
     private static final Color EXPERT_TICK_SELECTED_INNER_COLOR = new Color(255, 64, 64);
+    private static final Color EXPERT_TICK_DROID_IMPACT_INNER_COLOR = new Color(96, 180, 255);
+    private static final Color EXPERT_TICK_DROID_IMPACT_SELECTED_INNER_COLOR = new Color(48, 112, 255);
     private static final List<BulletShadowUtil.WeightedGfInterval> NO_SHADOW_INTERVALS = Collections.emptyList();
     // Debug rendering still needs a visible density band before learning data exists.
     private static final GuessFactorDistribution DEFAULT_RENDER_DISTRIBUTION = new DefaultDistribution();
@@ -276,11 +282,31 @@ public final class WaveRenderer {
             graphics.setColor(EXPERT_TICK_OUTLINE_COLOR);
             graphics.setStroke(new BasicStroke(3f));
             graphics.drawLine(x1, y1, x2, y2);
-            graphics.setColor(i == selectedExpertIndex ? EXPERT_TICK_SELECTED_INNER_COLOR : EXPERT_TICK_INNER_COLOR);
+            graphics.setColor(expertTickInnerColor(wave, i, i == selectedExpertIndex));
             graphics.setStroke(new BasicStroke(1f));
             graphics.drawLine(x1, y1, x2, y2);
         }
         graphics.setStroke(oldStroke);
+    }
+
+    private static Color expertTickInnerColor(Wave wave,
+                                              int expertIndex,
+                                              boolean selected) {
+        if (isShotDodgerDroidImpactExpert(wave, expertIndex)) {
+            return selected
+                    ? EXPERT_TICK_DROID_IMPACT_SELECTED_INNER_COLOR
+                    : EXPERT_TICK_DROID_IMPACT_INNER_COLOR;
+        }
+        return selected ? EXPERT_TICK_SELECTED_INNER_COLOR : EXPERT_TICK_INNER_COLOR;
+    }
+
+    private static boolean isShotDodgerDroidImpactExpert(Wave wave,
+                                                         int expertIndex) {
+        return wave != null
+                && wave.isEnemy
+                && wave.fireTimeRenderGfMarkers != null
+                && wave.fireTimeRenderGfMarkers.length == SHOT_DODGER_EXPERT_COUNT
+                && expertIndex == SHOT_DODGER_DROID_IMPACT_EXPERT_INDEX;
     }
 
     private static int selectedExpertIndex(Wave wave) {

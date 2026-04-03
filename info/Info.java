@@ -164,6 +164,7 @@ public class Info {
     }
 
     public void onBulletHit(BulletHitEvent e) {
+        observationProfile.onOurBulletHitEnemyHeading(e.getBullet().getHeadingRadians());
         Wave matchedWave = waveManager.validateAndRemoveMyWave(e);
         bulletPowerHitRateTracker.onMyWaveHit(matchedWave);
         double enemyEnergyBeforeHit = currentEnemyEnergyForScoring();

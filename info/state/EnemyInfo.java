@@ -209,7 +209,7 @@ public class EnemyInfo {
                         observationProfile.shouldUpdateMovementModel(),
                         enemyShotsFired + 1);
                 firedWave.fireTimeDistributionHandle = GuessFactorDistributionHandle.orNull(
-                        observationProfile.createMovementDistribution(firedWave.fireTimeContext));
+                        observationProfile.createMovementDistribution(firedWave));
                 firedWave.fireTimeRecentExpertScores =
                         observationProfile.createMovementRecentPerformanceScores(firedWave.fireTimeContext);
                 firedWave.fireTimeRenderGfMarkers =

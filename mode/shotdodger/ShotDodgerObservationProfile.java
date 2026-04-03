@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.info.Info;
 import oog.mega.saguaro.info.learning.ObservationProfile;
 import oog.mega.saguaro.info.state.EnemyInfo;
@@ -19,6 +20,7 @@ import oog.mega.saguaro.info.learning.ScoreMaxLearningProfile;
 import oog.mega.saguaro.info.wave.Wave;
 import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.GuessFactorDistribution;
+import oog.mega.saguaro.math.KDEDistribution;
 import oog.mega.saguaro.math.MathUtils;
 
 public final class ShotDodgerObservationProfile implements ObservationProfile {
@@ -30,7 +32,7 @@ public final class ShotDodgerObservationProfile implements ObservationProfile {
     private static final double MAX_LEARNED_DIVISOR = 30.0;
     private static final int MAX_AVERAGED_LINEAR_CONSTANT = 100;
     private static final double CONSTANT_DIVISOR_ROLLING_DECAY = 0.85;
-    private static final int PERSISTED_BOOTSTRAP_SECTION_VERSION = 1;
+    private static final int PERSISTED_BOOTSTRAP_SECTION_VERSION = 2;
     private static final int PERSISTED_BOOTSTRAP_BYTES = 9;
 
     private static ShotDodgerObservationProfile activeInstance;
@@ -69,6 +71,7 @@ public final class ShotDodgerObservationProfile implements ObservationProfile {
     private double linearConstantDivisorWeight;
     private double linearConstantDivisorNoAdjustSum;
     private double linearConstantDivisorNoAdjustWeight;
+    private double latestHitBulletReturnHeading = Double.NaN;
 
     void setInfo(Info info) {
         this.info = info;
@@ -93,6 +96,7 @@ public final class ShotDodgerObservationProfile implements ObservationProfile {
         pendingPassSamples.clear();
         Arrays.fill(averagedLinearCandidateValues, 0.0);
         lastAveragedLinearCandidateUpdateTime = Long.MIN_VALUE;
+        latestHitBulletReturnHeading = Double.NaN;
         movementSnapshotCache.clear();
     }
 
@@ -151,6 +155,27 @@ public final class ShotDodgerObservationProfile implements ObservationProfile {
                 activeExpertId.sourceExpertId() != null ? activeExpertId.sourceExpertId() : activeExpertId;
         ExpertPrediction prediction = snapshot.get(sourceExpertId);
         return prediction != null ? prediction.distribution : null;
+    }
+
+    @Override
+    public GuessFactorDistribution createMovementDistribution(Wave wave) {
+        if (wave == null) {
+            return null;
+        }
+        ShotDodgerExpertSnapshot snapshot = movementSnapshotForWave(wave);
+        if (snapshot == null || snapshot.isEmpty()) {
+            return null;
+        }
+        double centerGf = ShotDodgerExpertTransforms.resolveWaveCenterGf(
+                snapshot,
+                currentBestMovementExpertId(),
+                wave);
+        if (!Double.isFinite(centerGf)) {
+            return null;
+        }
+        return new KDEDistribution(
+                new double[] { centerGf },
+                BotConfig.Learning.DEFAULT_MOVEMENT_KDE_BANDWIDTH);
     }
 
     @Override
@@ -255,6 +280,15 @@ public final class ShotDodgerObservationProfile implements ObservationProfile {
     }
 
     @Override
+    public void onOurBulletHitEnemyHeading(double bulletHeading) {
+        if (!Double.isFinite(bulletHeading)) {
+            return;
+        }
+        latestHitBulletReturnHeading = normalizeAngle(bulletHeading + Math.PI);
+        movementSnapshotCache.clear();
+    }
+
+    @Override
     public void prepareWaveRenderState(Info info,
                                        List<Wave> enemyWaves,
                                        List<Wave> myWaves) {
@@ -341,7 +375,8 @@ public final class ShotDodgerObservationProfile implements ObservationProfile {
                 currentBestAveragedLinearLateralVelocity(false),
                 currentBestAveragedLinearLateralVelocity(true),
                 currentLearnedDivisor(linearConstantDivisorSum, linearConstantDivisorWeight, context),
-                currentLearnedDivisor(linearConstantDivisorNoAdjustSum, linearConstantDivisorNoAdjustWeight, context));
+                currentLearnedDivisor(linearConstantDivisorNoAdjustSum, linearConstantDivisorNoAdjustWeight, context),
+                latestHitBulletReturnHeading);
     }
 
     private double[] centersForWave(Wave wave) {
@@ -624,9 +659,7 @@ public final class ShotDodgerObservationProfile implements ObservationProfile {
                 }
                 sourceAngle = normalizeAngle(sourceAngle + bodyTurn);
             }
-            candidateGfs[constant] = Math.max(
-                    -1.0,
-                    Math.min(1.0, MathUtils.angleToGf(fireReferenceBearing, sourceAngle, fireMea)));
+            candidateGfs[constant] = MathUtils.angleToGf(fireReferenceBearing, sourceAngle, fireMea);
         }
         return candidateGfs;
     }

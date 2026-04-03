@@ -12,7 +12,7 @@ enum ShotDodgerExpertId {
     LINEAR_CONSTANT_DIVISOR_NO_GUN_ADJUST(true),
     CIRCULAR_NO_GUN_ADJUST(CIRCULAR, true),
     BATTLEFIELD_CENTER,
-    BATTLEFIELD_CENTER_NO_GUN_ADJUST(BATTLEFIELD_CENTER, true);
+    DROID_IMPACT_HEADING;
 
     static final ShotDodgerExpertId[] VALUES = values();
 

@@ -20,7 +20,6 @@ final class AveragedLinearTargetingExpert {
         double centerGf = mea > 0.0
                 ? MathUtils.angleToGf(absoluteBearing, predictedAngle, mea)
                 : 0.0;
-        centerGf = Math.max(-1.0, Math.min(1.0, centerGf));
         return new ExpertPrediction(
                 new KDEDistribution(new double[] { centerGf }, BotConfig.Learning.DEFAULT_MOVEMENT_KDE_BANDWIDTH),
                 null,

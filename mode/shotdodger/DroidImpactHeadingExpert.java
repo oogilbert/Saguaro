@@ -5,24 +5,23 @@ import oog.mega.saguaro.info.wave.WaveContextFeatures;
 import oog.mega.saguaro.math.KDEDistribution;
 import oog.mega.saguaro.math.MathUtils;
 
-final class ConstantDivisorLinearExpert {
-    private ConstantDivisorLinearExpert() {
+final class DroidImpactHeadingExpert {
+    private DroidImpactHeadingExpert() {
     }
 
     static ExpertPrediction createMovementPrediction(WaveContextFeatures.WaveContext context,
-                                                     double divisor) {
+                                                     double latestHitBulletReturnHeading) {
         validateContext(context);
-        double effectiveDivisor = Double.isFinite(divisor) && divisor > 0.0
-                ? divisor
-                : context.bulletSpeed;
+        if (!Double.isFinite(latestHitBulletReturnHeading)) {
+            return BattlefieldCenterTargetingExpert.createMovementPrediction(context);
+        }
+
         double absoluteBearing = Math.atan2(
                 context.targetX - context.sourceX,
                 context.targetY - context.sourceY);
-        double predictedAngle = absoluteBearing
-                + context.targetVelocity * Math.sin(context.targetHeading - absoluteBearing) / effectiveDivisor;
         double mea = MathUtils.maxEscapeAngle(context.bulletSpeed);
         double centerGf = mea > 0.0
-                ? MathUtils.angleToGf(absoluteBearing, predictedAngle, mea)
+                ? MathUtils.angleToGf(absoluteBearing, latestHitBulletReturnHeading, mea)
                 : 0.0;
         return new ExpertPrediction(
                 new KDEDistribution(new double[] { centerGf }, BotConfig.Learning.DEFAULT_MOVEMENT_KDE_BANDWIDTH),
@@ -32,19 +31,18 @@ final class ConstantDivisorLinearExpert {
 
     private static void validateContext(WaveContextFeatures.WaveContext context) {
         if (context == null) {
-            throw new IllegalArgumentException("Constant-divisor linear expert requires a non-null context");
+            throw new IllegalArgumentException("Droid-impact-heading expert requires a non-null context");
         }
         if (!Double.isFinite(context.bulletSpeed) || context.bulletSpeed <= 0.0) {
-            throw new IllegalArgumentException("Constant-divisor linear expert requires a positive bullet speed");
+            throw new IllegalArgumentException("Droid-impact-heading expert requires a positive bullet speed");
         }
         if (!Double.isFinite(context.sourceX)
                 || !Double.isFinite(context.sourceY)
                 || !Double.isFinite(context.targetX)
                 || !Double.isFinite(context.targetY)
-                || !Double.isFinite(context.targetHeading)
-                || !Double.isFinite(context.targetVelocity)) {
-            throw new IllegalArgumentException(
-                    "Constant-divisor linear expert requires finite source/target state");
+                || !Double.isFinite(context.battlefieldWidth)
+                || !Double.isFinite(context.battlefieldHeight)) {
+            throw new IllegalArgumentException("Droid-impact-heading expert requires finite source/target state");
         }
     }
 }

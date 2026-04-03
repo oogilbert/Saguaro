@@ -244,7 +244,7 @@ public final class BotConfig {
         // AntiBasicSurfer must beat ScoreMax by more than this observed score-share margin before it can be selected.
         public static final double ANTI_BASIC_SURFER_MIN_SCOREMAX_ADVANTAGE = 0.01;
         // Minimum total raw score required for the best mode before mode selection can settle.
-        public static final double MIN_SETTLED_MODE_TOTAL_SCORE = 10_000.0;
+        public static final double MIN_SETTLED_MODE_TOTAL_SCORE = 15_000.0;
         // Once every non-disqualified mode reaches this raw-score total, force settling to the highest-mean mode.
         public static final double FORCED_SETTLED_MODE_TOTAL_SCORE = 100_000.0;
     }

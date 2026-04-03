@@ -442,7 +442,7 @@ public class WaveManager {
                 continue;
             }
             wave.fireTimeDistributionHandle = GuessFactorDistributionHandle.orNull(
-                    info.getObservationProfile().createMovementDistribution(wave.fireTimeContext));
+                    info.getObservationProfile().createMovementDistribution(wave));
             wave.fireTimeRecentExpertScores =
                     info.getObservationProfile().createMovementRecentPerformanceScores(wave.fireTimeContext);
             wave.fireTimeRenderGfMarkers =

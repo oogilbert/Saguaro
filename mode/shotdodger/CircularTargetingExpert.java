@@ -47,7 +47,6 @@ final class CircularTargetingExpert {
         double centerGf = mea > 0.0
                 ? MathUtils.angleToGf(absoluteBearing, predictedAngle, mea)
                 : 0.0;
-        centerGf = clamp(centerGf, -1.0, 1.0);
         return new ExpertPrediction(
                 new KDEDistribution(new double[] { centerGf }, BotConfig.Learning.DEFAULT_MOVEMENT_KDE_BANDWIDTH),
                 null,

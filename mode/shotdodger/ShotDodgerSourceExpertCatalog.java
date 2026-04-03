@@ -10,7 +10,8 @@ final class ShotDodgerSourceExpertCatalog {
                                                            double averagedLinearLateralVelocity,
                                                            double averagedLinearNoAdjustLateralVelocity,
                                                            double linearConstantDivisor,
-                                                           double linearConstantDivisorNoGunAdjust) {
+                                                           double linearConstantDivisorNoGunAdjust,
+                                                           double latestHitBulletReturnHeading) {
         ShotDodgerExpertSnapshot snapshot = new ShotDodgerExpertSnapshot();
         snapshot.set(ShotDodgerExpertId.HEAD_ON, HeadOnExpert.createMovementPrediction(context));
         snapshot.set(ShotDodgerExpertId.LINEAR, LinearTargetingExpert.createMovementPrediction(context));
@@ -24,6 +25,9 @@ final class ShotDodgerSourceExpertCatalog {
         snapshot.set(
                 ShotDodgerExpertId.BATTLEFIELD_CENTER,
                 BattlefieldCenterTargetingExpert.createMovementPrediction(context));
+        snapshot.set(
+                ShotDodgerExpertId.DROID_IMPACT_HEADING,
+                DroidImpactHeadingExpert.createMovementPrediction(context, latestHitBulletReturnHeading));
         snapshot.set(
                 ShotDodgerExpertId.AVERAGED_LINEAR_NO_GUN_ADJUST,
                 AveragedLinearTargetingExpert.createMovementPrediction(context, averagedLinearNoAdjustLateralVelocity));

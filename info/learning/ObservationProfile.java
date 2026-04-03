@@ -66,6 +66,10 @@ public interface ObservationProfile {
 
     GuessFactorDistribution createMovementDistribution(WaveContextFeatures.WaveContext context);
 
+    default GuessFactorDistribution createMovementDistribution(Wave wave) {
+        return wave != null ? createMovementDistribution(wave.fireTimeContext) : null;
+    }
+
     default double[] createGunRecentPerformanceScores(WaveContextFeatures.WaveContext context) {
         return null;
     }
@@ -126,6 +130,9 @@ public interface ObservationProfile {
         if (wave != null) {
             onResolvedEnemyWaveHit(wave.fireTimeContext, gf);
         }
+    }
+
+    default void onOurBulletHitEnemyHeading(double bulletHeading) {
     }
 
     default boolean shouldRefreshEnemyWavesAfterResolvedHit() {

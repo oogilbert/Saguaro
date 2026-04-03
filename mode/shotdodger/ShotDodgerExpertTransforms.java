@@ -26,9 +26,9 @@ final class ShotDodgerExpertTransforms {
         return centers;
     }
 
-    private static double resolveWaveCenterGf(ShotDodgerExpertSnapshot snapshot,
-                                              ShotDodgerExpertId expertId,
-                                              Wave wave) {
+    static double resolveWaveCenterGf(ShotDodgerExpertSnapshot snapshot,
+                                      ShotDodgerExpertId expertId,
+                                      Wave wave) {
         double sourceReferenceBearing = sourceReferenceBearing(wave);
         double sourceMea = sourceMea(wave);
         double referenceBearing = fireTimeReferenceBearing(wave);
@@ -45,8 +45,7 @@ final class ShotDodgerExpertTransforms {
         if (!Double.isFinite(absoluteAngle)) {
             return Double.NaN;
         }
-        double gf = MathUtils.angleToGf(referenceBearing, absoluteAngle, mea);
-        return Math.max(-1.0, Math.min(1.0, gf));
+        return MathUtils.angleToGf(referenceBearing, absoluteAngle, mea);
     }
 
     private static double resolveAbsoluteAngle(ShotDodgerExpertSnapshot snapshot,

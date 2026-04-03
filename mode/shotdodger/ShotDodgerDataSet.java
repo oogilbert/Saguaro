@@ -6,7 +6,7 @@ import oog.mega.saguaro.info.persistence.OpponentDataSet;
 public final class ShotDodgerDataSet implements OpponentDataSet {
     static final String DATA_SET_KEY = "shotdodger-bootstrap";
     private static final int SECTION_MASK_BIT = 0x10;
-    private static final int SECTION_VERSION = 1;
+    private static final int SECTION_VERSION = 2;
 
     @Override
     public String key() {
