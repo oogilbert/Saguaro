@@ -114,17 +114,26 @@ public class EnemyInfo {
     private long predictionCacheTargetTime = Long.MIN_VALUE;
     private long predictionCacheScanTime = Long.MIN_VALUE;
     private PredictedPosition predictionCacheValue;
+    private long lastGunHeatUpdateTime;
 
     public EnemyInfo(long currentTime) {
         this.gunHeat = Math.max(0, INITIAL_GUN_HEAT - currentTime * GUN_COOLING_RATE);
+        this.lastGunHeatUpdateTime = currentTime;
     }
 
     /**
      * Called every tick for the tracked enemy, regardless of whether it was scanned.
      * Handles predictable state changes like gun heat cooling.
      */
-    public void updateTick() {
-        gunHeat = Math.max(0, gunHeat - GUN_COOLING_RATE);
+    public void updateTick(long currentTime) {
+        long elapsedTicks = Math.max(0L, currentTime - lastGunHeatUpdateTime);
+        if (elapsedTicks > 0L) {
+            gunHeat = Math.max(0, gunHeat - elapsedTicks * GUN_COOLING_RATE);
+            if (gunHeat <= GUN_READY_EPSILON) {
+                gunHeat = 0.0;
+            }
+            lastGunHeatUpdateTime = currentTime;
+        }
     }
 
     public UpdateResult update(Saguaro robot,
@@ -188,7 +197,7 @@ public class EnemyInfo {
                 }
             }
             double firepower = energyDrop - wallDamage;
-            boolean isFiring = firepower >= 0.099 && firepower <= 3.001 && gunHeat <= 0;
+            boolean isFiring = firepower >= 0.099 && firepower <= 3.001 && gunHeat <= GUN_READY_EPSILON;
             if (isFiring) {
                 firepower = Math.max(0.1, Math.min(3.0, firepower));
                 long fireTime = currentTime - 1;

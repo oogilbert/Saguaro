@@ -46,9 +46,9 @@ public final class EnemyTracker {
         }
     }
 
-    public void updateTick() {
+    public void updateTick(long currentTime) {
         if (enemy != null && enemy.alive) {
-            enemy.updateTick();
+            enemy.updateTick(currentTime);
         }
     }
 

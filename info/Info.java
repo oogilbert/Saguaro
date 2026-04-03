@@ -118,7 +118,7 @@ public class Info {
      */
     public void updateTickState() {
         robotMotionTracker.update();
-        enemyTracker.updateTick();
+        enemyTracker.updateTick(robot.getTime());
     }
 
     public void onScannedRobot(ScannedRobotEvent e) {

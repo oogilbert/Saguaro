@@ -101,6 +101,7 @@ public final class BulletShieldMode implements BattleMode {
     private long lastDetectedEnemyShotTime = Long.MIN_VALUE;
     private double lastDetectedEnemyBulletPower = 2.0;
     private long pendingAggressiveShotTime = Long.MIN_VALUE;
+    private long lastTickTime = Long.MIN_VALUE;
 
     public BulletShieldMode(ModeId modeId,
                             boolean allowOpeningCenterReposition,
@@ -154,6 +155,7 @@ public final class BulletShieldMode implements BattleMode {
         this.lastDetectedEnemyShotTime = Long.MIN_VALUE;
         this.lastDetectedEnemyBulletPower = 2.0;
         this.pendingAggressiveShotTime = Long.MIN_VALUE;
+        this.lastTickTime = Long.MIN_VALUE;
         this.myHistory.clear();
         this.enemyHistory.clear();
         this.enemyWaves.clear();
@@ -457,6 +459,14 @@ public final class BulletShieldMode implements BattleMode {
 
     private BattlePlan tick() {
         Snapshot myNow = captureSelf();
+        if (activePlan != null
+                && !activePlan.fireIssued
+                && lastTickTime != Long.MIN_VALUE
+                && lastTickTime < activePlan.fireTime
+                && myNow.time > activePlan.fireTime) {
+            activePlan = null;
+        }
+        lastTickTime = myNow.time;
         if (lastScanEvent != null && lastScanEvent.getTime() == myNow.time) {
             processScan(lastScanEvent, myNow);
         }
@@ -533,25 +543,15 @@ public final class BulletShieldMode implements BattleMode {
         ingestSharedEnemyWaves(myNow);
     }
 
-    private boolean historyReady() {
-        return myHistory.size() >= 3 && enemyHistory.size() >= 3;
-    }
-
-    private EnemyWave buildEnemyWave(Wave sharedWave, long currentTime) {
-        Snapshot my2 = nth(myHistory, 2);
-        Snapshot enemy1 = nth(enemyHistory, 1);
-        Snapshot enemy2 = nth(enemyHistory, 2);
-        if (my2 == null || enemy1 == null || enemy2 == null) {
-            throw new IllegalStateException("Shield history unavailable while creating an enemy wave");
-        }
+    private EnemyWave buildEnemyWave(Wave sharedWave) {
         if (sharedWave == null || !sharedWave.isEnemy || sharedWave.isVirtual) {
             throw new IllegalArgumentException("Shield mode requires a real shared enemy wave");
         }
-        long expectedFireTime = currentTime - 1L;
-        if (sharedWave.fireTime != expectedFireTime) {
-            throw new IllegalStateException(
-                    "Shared enemy wave fireTime mismatch: expected " + expectedFireTime
-                            + " but was " + sharedWave.fireTime);
+        Snapshot my2 = snapshotFromSharedWavePriorTickTarget(sharedWave);
+        Snapshot enemy1 = snapshotFromSharedWaveFireTimeShooter(sharedWave);
+        Snapshot enemy2 = snapshotFromSharedWavePriorTickShooter(sharedWave);
+        if (my2 == null || enemy1 == null || enemy2 == null) {
+            return null;
         }
         double originError = Point2D.distance(sharedWave.originX, sharedWave.originY, enemy1.x, enemy1.y);
         if (originError > SHARED_WAVE_ORIGIN_TOLERANCE) {
@@ -564,7 +564,10 @@ public final class BulletShieldMode implements BattleMode {
 
         double[] predictedHeadings = new double[OPTIONS];
         predictedHeadings[0] = absoluteBearing(enemy2.x, enemy2.y, my2.x, my2.y);
-        predictedHeadings[1] = normalize(predictedHeadings[0] + enemy1.heading - enemy2.heading);
+        double bodyTurn = Double.isFinite(sharedWave.fireTimeShooterBodyTurn)
+                ? sharedWave.fireTimeShooterBodyTurn
+                : normalize(enemy1.heading - enemy2.heading);
+        predictedHeadings[1] = normalize(predictedHeadings[0] + bodyTurn);
         predictedHeadings[2] = absoluteBearing(enemy1.x, enemy1.y, my2.x, my2.y);
         Point2D.Double predictedNext = project(enemy2.x, enemy2.y, enemy2.heading, enemy2.velocity);
         predictedHeadings[3] = absoluteBearing(predictedNext.x, predictedNext.y, my2.x, my2.y);
@@ -602,13 +605,16 @@ public final class BulletShieldMode implements BattleMode {
             if (enemyWavesBySharedWave.containsKey(sharedWave)) {
                 continue;
             }
-            if (sharedWave.fireTime != myNow.time - 1L) {
+            if (sharedWave.fireTime > myNow.time - 1L) {
                 continue;
             }
-            if (!historyReady()) {
+            EnemyWave newWave = buildEnemyWave(sharedWave);
+            if (newWave == null) {
                 continue;
             }
-            EnemyWave newWave = buildEnemyWave(sharedWave, myNow.time);
+            if (waveHasPassed(newWave, myNow.x, myNow.y, myNow.time)) {
+                continue;
+            }
             enemyWaves.add(newWave);
             enemyWavesBySharedWave.put(sharedWave, newWave);
             enemyShots++;
@@ -667,8 +673,7 @@ public final class BulletShieldMode implements BattleMode {
 
     private ShieldPlan buildShieldPlan(EnemyWave wave, Snapshot myNow) {
         long fireTime = myNow.time + Math.max(1, ticksUntilShieldGunReady(myNow.gunHeat, myNow.gunCoolingRate));
-        ShieldPlan best = buildShieldPlanForFireTime(wave, myNow, fireTime);
-        return best;
+        return buildShieldPlanForFireTime(wave, myNow, fireTime);
     }
 
     private ShieldPlan buildShieldPlanForFireTime(EnemyWave wave, Snapshot myNow, long fireTime) {
@@ -1434,6 +1439,69 @@ public final class BulletShieldMode implements BattleMode {
         }
     }
 
+    private static Snapshot snapshotFromSharedWavePriorTickTarget(Wave sharedWave) {
+        if (sharedWave == null
+                || !Double.isFinite(sharedWave.priorTickTargetX)
+                || !Double.isFinite(sharedWave.priorTickTargetY)
+                || !Double.isFinite(sharedWave.priorTickTargetHeading)
+                || !Double.isFinite(sharedWave.priorTickTargetVelocity)) {
+            return null;
+        }
+        return new Snapshot(
+                sharedWave.priorTickTargetX,
+                sharedWave.priorTickTargetY,
+                normalize(sharedWave.priorTickTargetHeading),
+                sharedWave.priorTickTargetVelocity,
+                Double.NaN,
+                Double.NaN,
+                sharedWave.fireTime - 1L,
+                Double.NaN,
+                Double.NaN,
+                Double.NaN);
+    }
+
+    private static Snapshot snapshotFromSharedWaveFireTimeShooter(Wave sharedWave) {
+        if (sharedWave == null
+                || !Double.isFinite(sharedWave.originX)
+                || !Double.isFinite(sharedWave.originY)
+                || !Double.isFinite(sharedWave.fireTimeShooterHeading)
+                || !Double.isFinite(sharedWave.fireTimeShooterVelocity)) {
+            return null;
+        }
+        return new Snapshot(
+                sharedWave.originX,
+                sharedWave.originY,
+                normalize(sharedWave.fireTimeShooterHeading),
+                sharedWave.fireTimeShooterVelocity,
+                Double.NaN,
+                Double.NaN,
+                sharedWave.fireTime,
+                Double.NaN,
+                Double.NaN,
+                Double.NaN);
+    }
+
+    private static Snapshot snapshotFromSharedWavePriorTickShooter(Wave sharedWave) {
+        if (sharedWave == null
+                || !Double.isFinite(sharedWave.priorTickShooterX)
+                || !Double.isFinite(sharedWave.priorTickShooterY)
+                || !Double.isFinite(sharedWave.priorTickShooterHeading)
+                || !Double.isFinite(sharedWave.priorTickShooterVelocity)) {
+            return null;
+        }
+        return new Snapshot(
+                sharedWave.priorTickShooterX,
+                sharedWave.priorTickShooterY,
+                normalize(sharedWave.priorTickShooterHeading),
+                sharedWave.priorTickShooterVelocity,
+                Double.NaN,
+                Double.NaN,
+                sharedWave.fireTime - 1L,
+                Double.NaN,
+                Double.NaN,
+                Double.NaN);
+    }
+
     private static Snapshot nth(Deque<Snapshot> history, int index) {
         if (index < 0 || index >= history.size()) {
             return null;
@@ -1447,6 +1515,7 @@ public final class BulletShieldMode implements BattleMode {
         }
         return null;
     }
+
 
     private static double normalize(double angle) {
         return Utils.normalRelativeAngle(angle);
