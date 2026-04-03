@@ -52,15 +52,20 @@ final class ModeSelector {
         }
         ModePosterior settled = null;
         int qualifiedCount = 0;
+        boolean allQualifiedAtForcedSettleThreshold = true;
         for (ModePosterior posterior : relevantPosteriors) {
             if (!isDisqualified(posterior, relevantPosteriors)) {
                 qualifiedCount++;
                 settled = posterior;
+                if (posterior.totalScore + 1e-9 < BotConfig.ModeSelection.FORCED_SETTLED_MODE_TOTAL_SCORE) {
+                    allQualifiedAtForcedSettleThreshold = false;
+                }
             }
         }
-        return qualifiedCount == 1 && settled != null && settled.modeId == best.modeId
-                ? best.modeId
-                : null;
+        if (qualifiedCount == 1 && settled != null && settled.modeId == best.modeId) {
+            return best.modeId;
+        }
+        return qualifiedCount > 0 && allQualifiedAtForcedSettleThreshold ? best.modeId : null;
     }
 
     ModeId selectMode(ModeId[] candidateModes) {
