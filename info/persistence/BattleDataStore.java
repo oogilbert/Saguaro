@@ -584,9 +584,10 @@ public final class BattleDataStore {
             if (modeId == ModeId.MOVING_BULLET_SHIELD) {
                 return new PersistedModeDataPlan(modeId, false, false, false, false, false, true);
             }
-            if (modeId == ModeId.SHOT_DODGER
-                    || modeId == ModeId.WAVE_POISON
-                    || modeId == ModeId.WAVE_POISON_SHIFT) {
+            if (modeId == ModeId.SHOT_DODGER) {
+                return new PersistedModeDataPlan(modeId, false, false, false, true, false, false);
+            }
+            if (modeId == ModeId.WAVE_POISON || modeId == ModeId.WAVE_POISON_SHIFT) {
                 return new PersistedModeDataPlan(modeId, true, false, false, true, false, false);
             }
             throw new IllegalArgumentException("Unsupported locked persistence mode " + modeId);

@@ -9,16 +9,14 @@ import java.io.IOException;
 public final class ModePerformanceProfile {
     // Opponent mode-performance records are disposable caches. When this layout changes, bump the
     // section version and let BattleDataStore discard stale files instead of maintaining migrations.
-    private static final int SECTION_VERSION = 10;
-    private static final int LEGACY_8_MODE_SECTION_VERSION = 9;
-    private static final int LEGACY_4_MODE_SECTION_VERSION = 4;
-    private static final int LEGACY_4_MODE_BYTES = 16 * 4;
-    private static final int LEGACY_3_MODE_SECTION_VERSION = 3;
-    private static final int LEGACY_3_MODE_BYTES = 16 * 3;
-    private static final int MODE_BYTES = 16;
+    private static final int SECTION_VERSION = 11;
+    private static final int MODE_BYTES = Short.BYTES * 2;
     private static final int SECTION_BYTES = MODE_BYTES * ModeId.values().length;
     private static final int LOCKED_MODE_SECTION_BYTES = 1 + MODE_BYTES;
     private static final double MAX_RETAINED_TOTAL_SCORE = 1_000_000.0;
+    private static final double PERSISTED_UNSIGNED_SHORT_MAX = 65535.0;
+    private static final double PERSISTED_POSITIVE_TOTAL_SCORE_STEPS = 65534.0;
+    private static final double MIN_PERSISTED_POSITIVE_TOTAL_SCORE = 1e-6;
 
     private static final MutableModeStats[] persistedStats = createStatsArray();
     private static final MutableModeStats[] currentBattleStats = createStatsArray();
@@ -157,8 +155,7 @@ public final class ModePerformanceProfile {
                 ModeStatsSnapshot stats = includeCurrentBattleData
                         ? getCombinedStats(modeId)
                         : getPersistedStats(modeId);
-                out.writeDouble(stats.totalOurScore);
-                out.writeDouble(stats.totalOpponentScore);
+                writePersistedStats(out, stats);
             }
             out.flush();
             byte[] payload = raw.toByteArray();
@@ -193,8 +190,7 @@ public final class ModePerformanceProfile {
         try (ByteArrayOutputStream raw = new ByteArrayOutputStream();
              DataOutputStream out = new DataOutputStream(raw)) {
             out.writeByte(lockedModeId.ordinal());
-            out.writeDouble(stats.totalOurScore);
-            out.writeDouble(stats.totalOpponentScore);
+            writePersistedStats(out, stats);
             out.flush();
             byte[] payload = raw.toByteArray();
             if (payload.length > maxPayloadBytes) {
@@ -209,28 +205,15 @@ public final class ModePerformanceProfile {
     }
 
     private static void loadPersistedPayload(int sectionVersion, byte[] payload) {
-        if (sectionVersion == SECTION_VERSION) {
-            loadCurrentPayload(payload);
-            return;
+        if (sectionVersion != SECTION_VERSION) {
+            throw new IllegalStateException("Unsupported mode-performance section version " + sectionVersion);
         }
-        if (sectionVersion == LEGACY_8_MODE_SECTION_VERSION) {
-            loadFixedPayload(payload);
-            return;
-        }
-        if (sectionVersion == LEGACY_4_MODE_SECTION_VERSION) {
-            loadLegacy4ModePayload(payload);
-            return;
-        }
-        if (sectionVersion == LEGACY_3_MODE_SECTION_VERSION) {
-            loadLegacy3ModePayload(payload);
-            return;
-        }
-        throw new IllegalStateException("Unsupported mode-performance section version " + sectionVersion);
+        loadCurrentPayload(payload);
     }
 
     private static void loadCurrentPayload(byte[] payload) {
         if (payload.length == SECTION_BYTES) {
-            loadFixedPayload(payload);
+            loadFullPayload(payload);
             return;
         }
         if (payload.length == LOCKED_MODE_SECTION_BYTES) {
@@ -240,17 +223,17 @@ public final class ModePerformanceProfile {
         throw new IllegalStateException("Unexpected mode-performance payload length");
     }
 
-    private static void loadFixedPayload(byte[] payload) {
+    private static void loadFullPayload(byte[] payload) {
         if (payload.length != SECTION_BYTES) {
             throw new IllegalStateException("Unexpected mode-performance payload length");
         }
+        clearStats(persistedStats);
         persistedLockedModeId = null;
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
             for (ModeId modeId : ModeId.values()) {
-                double totalOurScore = in.readDouble();
-                double totalOpponentScore = in.readDouble();
-                validateLoadedStats(modeId, totalOurScore, totalOpponentScore);
-                persistedStats[modeId.ordinal()].set(totalOurScore, totalOpponentScore);
+                DecodedPersistedStats decoded = readPersistedStats(in);
+                validateLoadedStats(modeId, decoded.totalOurScore, decoded.totalOpponentScore);
+                persistedStats[modeId.ordinal()].set(decoded.totalOurScore, decoded.totalOpponentScore);
             }
             if (in.available() != 0) {
                 throw new IllegalStateException("Mode-performance payload contained trailing bytes");
@@ -273,13 +256,12 @@ public final class ModePerformanceProfile {
                 throw new IllegalStateException("Locked mode-performance payload contained invalid mode ordinal");
             }
             ModeId modeId = ModeId.values()[modeOrdinal];
-            double totalOurScore = in.readDouble();
-            double totalOpponentScore = in.readDouble();
-            validateLoadedStats(modeId, totalOurScore, totalOpponentScore);
-            if (totalOurScore <= 0.0 && totalOpponentScore <= 0.0) {
+            DecodedPersistedStats decoded = readPersistedStats(in);
+            validateLoadedStats(modeId, decoded.totalOurScore, decoded.totalOpponentScore);
+            if (decoded.totalOurScore <= 0.0 && decoded.totalOpponentScore <= 0.0) {
                 throw new IllegalStateException("Locked mode-performance payload must contain non-zero totals");
             }
-            persistedStats[modeId.ordinal()].set(totalOurScore, totalOpponentScore);
+            persistedStats[modeId.ordinal()].set(decoded.totalOurScore, decoded.totalOpponentScore);
             if (in.available() != 0) {
                 throw new IllegalStateException("Locked mode-performance payload contained trailing bytes");
             }
@@ -287,59 +269,6 @@ public final class ModePerformanceProfile {
             persistedModeStatsLoaded = true;
         } catch (IOException e) {
             throw new IllegalStateException("Unreadable locked mode-performance payload", e);
-        }
-    }
-
-    private static void loadLegacy4ModePayload(byte[] payload) {
-        if (payload.length != LEGACY_4_MODE_BYTES) {
-            throw new IllegalStateException("Unexpected legacy 4-mode payload length");
-        }
-        persistedLockedModeId = null;
-        ModeId[] legacyOrder = {
-                ModeId.SCORE_MAX,
-                ModeId.BULLET_SHIELD,
-                ModeId.PERFECT_PREDICTION,
-                ModeId.SHOT_DODGER
-        };
-        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
-            for (ModeId modeId : legacyOrder) {
-                double totalOurScore = in.readDouble();
-                double totalOpponentScore = in.readDouble();
-                validateLoadedStats(modeId, totalOurScore, totalOpponentScore);
-                persistedStats[modeId.ordinal()].set(totalOurScore, totalOpponentScore);
-            }
-            if (in.available() != 0) {
-                throw new IllegalStateException("Legacy 4-mode payload contained trailing bytes");
-            }
-            persistedModeStatsLoaded = true;
-        } catch (IOException e) {
-            throw new IllegalStateException("Unreadable legacy 4-mode payload", e);
-        }
-    }
-
-    private static void loadLegacy3ModePayload(byte[] payload) {
-        if (payload.length != LEGACY_3_MODE_BYTES) {
-            throw new IllegalStateException("Unexpected legacy 3-mode payload length");
-        }
-        persistedLockedModeId = null;
-        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
-            ModeId[] legacyOrder = {
-                    ModeId.SCORE_MAX,
-                    ModeId.BULLET_SHIELD,
-                    ModeId.PERFECT_PREDICTION
-            };
-            for (ModeId modeId : legacyOrder) {
-                double totalOurScore = in.readDouble();
-                double totalOpponentScore = in.readDouble();
-                validateLoadedStats(modeId, totalOurScore, totalOpponentScore);
-                persistedStats[modeId.ordinal()].set(totalOurScore, totalOpponentScore);
-            }
-            if (in.available() != 0) {
-                throw new IllegalStateException("Legacy 3-mode payload contained trailing bytes");
-            }
-            persistedModeStatsLoaded = true;
-        } catch (IOException e) {
-            throw new IllegalStateException("Unreadable legacy 3-mode payload", e);
         }
     }
 
@@ -402,6 +331,75 @@ public final class ModePerformanceProfile {
         return new NormalizedTotals(totalOurScore * scale, totalOpponentScore * scale);
     }
 
+    private static void writePersistedStats(DataOutputStream out,
+                                            ModeStatsSnapshot stats) throws IOException {
+        if (stats == null || !stats.hasSamples()) {
+            out.writeShort(0);
+            out.writeShort(0);
+            return;
+        }
+        out.writeShort(quantizeShare(stats.aggregateRawShare()));
+        out.writeShort(quantizeTotalScore(stats.totalOurScore + stats.totalOpponentScore));
+    }
+
+    private static DecodedPersistedStats readPersistedStats(DataInputStream in) throws IOException {
+        int shareQuantized = in.readUnsignedShort();
+        int totalQuantized = in.readUnsignedShort();
+        if (totalQuantized == 0) {
+            return new DecodedPersistedStats(0.0, 0.0);
+        }
+        double totalScore = dequantizeTotalScore(totalQuantized);
+        double share = dequantizeLinear(shareQuantized, 0.0, 1.0);
+        double totalOurScore = totalScore * share;
+        double totalOpponentScore = Math.max(0.0, totalScore - totalOurScore);
+        return new DecodedPersistedStats(totalOurScore, totalOpponentScore);
+    }
+
+    private static int quantizeShare(double share) {
+        return quantizeLinear(share, 0.0, 1.0);
+    }
+
+    private static int quantizeTotalScore(double totalScore) {
+        if (!(totalScore > 0.0)) {
+            return 0;
+        }
+        double clamped = clamp(totalScore, MIN_PERSISTED_POSITIVE_TOTAL_SCORE, MAX_RETAINED_TOTAL_SCORE);
+        double normalized = (Math.log(clamped) - Math.log(MIN_PERSISTED_POSITIVE_TOTAL_SCORE))
+                / (Math.log(MAX_RETAINED_TOTAL_SCORE) - Math.log(MIN_PERSISTED_POSITIVE_TOTAL_SCORE));
+        return 1 + (int) Math.round(normalized * PERSISTED_POSITIVE_TOTAL_SCORE_STEPS);
+    }
+
+    private static double dequantizeTotalScore(int quantized) {
+        if (quantized <= 0) {
+            return 0.0;
+        }
+        double normalized = clamp(quantized - 1.0, 0.0, PERSISTED_POSITIVE_TOTAL_SCORE_STEPS)
+                / PERSISTED_POSITIVE_TOTAL_SCORE_STEPS;
+        double logTotal = Math.log(MIN_PERSISTED_POSITIVE_TOTAL_SCORE)
+                + (Math.log(MAX_RETAINED_TOTAL_SCORE) - Math.log(MIN_PERSISTED_POSITIVE_TOTAL_SCORE)) * normalized;
+        return Math.exp(logTotal);
+    }
+
+    private static int quantizeLinear(double value, double min, double max) {
+        if (!(max > min)) {
+            return 0;
+        }
+        double normalized = (clamp(value, min, max) - min) / (max - min);
+        return (int) Math.round(normalized * PERSISTED_UNSIGNED_SHORT_MAX);
+    }
+
+    private static double dequantizeLinear(int quantized, double min, double max) {
+        if (!(max > min)) {
+            return min;
+        }
+        double clamped = clamp(quantized, 0.0, PERSISTED_UNSIGNED_SHORT_MAX);
+        return min + (max - min) * (clamped / PERSISTED_UNSIGNED_SHORT_MAX);
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
     private static final class MutableModeStats {
         double totalOurScore;
         double totalOpponentScore;
@@ -423,6 +421,16 @@ public final class ModePerformanceProfile {
 
         boolean hasData() {
             return totalOurScore > 0.0 || totalOpponentScore > 0.0;
+        }
+    }
+
+    private static final class DecodedPersistedStats {
+        final double totalOurScore;
+        final double totalOpponentScore;
+
+        DecodedPersistedStats(double totalOurScore, double totalOpponentScore) {
+            this.totalOurScore = totalOurScore;
+            this.totalOpponentScore = totalOpponentScore;
         }
     }
 
