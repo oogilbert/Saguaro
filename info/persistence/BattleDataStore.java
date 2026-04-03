@@ -17,7 +17,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.info.state.BulletPowerHitRateTracker;
 import oog.mega.saguaro.info.wave.WaveLog;
@@ -347,11 +346,6 @@ public final class BattleDataStore {
     private PersistedModeDataPlan buildPersistedModeDataPlan() {
         ModeId settledModeId = ModeController.findSettledModeForPersistence();
         if (settledModeId == null) {
-            return PersistedModeDataPlan.unrestricted();
-        }
-        ModePerformanceProfile.ModeStatsSnapshot settledStats = ModePerformanceProfile.getCombinedStats(settledModeId);
-        double totalScore = settledStats.totalOurScore + settledStats.totalOpponentScore;
-        if (totalScore + 1e-9 < BotConfig.ModeSelection.MIN_SETTLED_MODE_TOTAL_SCORE) {
             return PersistedModeDataPlan.unrestricted();
         }
         return PersistedModeDataPlan.locked(settledModeId);
