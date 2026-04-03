@@ -344,6 +344,9 @@ public final class BattleDataStore {
     }
 
     private PersistedModeDataPlan buildPersistedModeDataPlan() {
+        if (persistedLockedModeId != null) {
+            return PersistedModeDataPlan.locked(persistedLockedModeId);
+        }
         ModeId settledModeId = ModeController.findSettledModeForPersistence();
         if (settledModeId == null) {
             return PersistedModeDataPlan.unrestricted();
