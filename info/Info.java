@@ -1,6 +1,5 @@
 package oog.mega.saguaro.info;
 
-import java.awt.Graphics2D;
 import java.util.List;
 
 import oog.mega.saguaro.Saguaro;
@@ -87,10 +86,16 @@ public class Info {
         trackedOurEnergy = robot.getEnergy();
     }
 
-    public void updateWaves(Graphics2D g,
-                            RenderState renderState) {
+    public void updateWaves() {
         waveManager.update();
+    }
+
+    public void prepareWaveRenderState() {
         observationProfile.prepareWaveRenderState(this, waveManager.getEnemyWaves(), waveManager.getMyWaves());
+    }
+
+    public void renderWaves(java.awt.Graphics2D g,
+                            RenderState renderState) {
         RenderState activeRenderState = renderState != null ? renderState : new RenderState(null);
         if (activeRenderState.renderDefaultWaveGraphics) {
             waveRenderer.render(

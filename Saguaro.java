@@ -10,17 +10,21 @@ import oog.mega.saguaro.render.RenderState;
 import robocode.*;
 
 public class Saguaro extends AdvancedRobot {
+    private static final long PAINT_ACTIVITY_TIMEOUT_NANOS = 500_000_000L;
+    private static final RenderState EMPTY_RENDER_STATE = new RenderState(null, false);
     private static final Info info = new Info();
     private static final Radar radar = new Radar();
     private static final ModeController mode = new ModeController();
-    private static boolean renderingEnabled;
+    private static volatile long lastPaintHeartbeatNanos = Long.MIN_VALUE;
+    private static volatile RenderState latestRenderState = EMPTY_RENDER_STATE;
 
     @Override
     public void run() {
         if (getRoundNum() == 0) {
             mode.startBattle();
-            renderingEnabled = BotConfig.Debug.ENABLE_WAVE_RENDERING && isDebugMode();
         }
+        lastPaintHeartbeatNanos = Long.MIN_VALUE;
+        latestRenderState = EMPTY_RENDER_STATE;
         info.init(this, mode.getRoundOutcomeProfile(), mode.getObservationProfile(), mode.getDataStore());
         mode.init(info);
         radar.reset(this);
@@ -32,12 +36,11 @@ public class Saguaro extends AdvancedRobot {
             radar.execute(info);
 
             BattlePlan plan = mode.getPlan();
-            RenderState renderState = mode.getRenderState();
-            Graphics2D graphics = renderingEnabled ? getGraphics() : null;
-
-            info.updateWaves(
-                    graphics,
-                    renderState);
+            info.updateWaves();
+            if (isPaintingActive()) {
+                info.prepareWaveRenderState();
+                latestRenderState = mode.getRenderState();
+            }
 
             setAhead(plan.moveDistance);
             setTurnRightRadians(plan.turnAngle);
@@ -115,11 +118,21 @@ public class Saguaro extends AdvancedRobot {
         mode.onRoundEnded();
     }
 
-    private static boolean isDebugMode() {
-        try {
-            return Boolean.getBoolean("debug");
-        } catch (SecurityException e) {
+    @Override
+    public void onPaint(Graphics2D g) {
+        if (!BotConfig.Debug.ENABLE_WAVE_RENDERING || g == null) {
+            return;
+        }
+        lastPaintHeartbeatNanos = System.nanoTime();
+        info.renderWaves(g, latestRenderState);
+    }
+
+    private static boolean isPaintingActive() {
+        if (!BotConfig.Debug.ENABLE_WAVE_RENDERING) {
             return false;
         }
+        long heartbeat = lastPaintHeartbeatNanos;
+        return heartbeat != Long.MIN_VALUE
+                && System.nanoTime() - heartbeat <= PAINT_ACTIVITY_TIMEOUT_NANOS;
     }
 }
