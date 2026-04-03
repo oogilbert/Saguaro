@@ -46,12 +46,15 @@ public class WaveLog {
     private static final int MODEL_CANDIDATE_POOL = 7;
     private static final int GRADIENT_CANDIDATE_POOL = 50;
     private static final double WEIGHT_SOFT_FLOOR = 0.01;
-    private static final int PERSISTENCE_SECTION_VERSION = 3;
-    private static final int LEGACY_PERSISTENCE_SECTION_VERSION = 2;
-    private static final int PERSISTED_MODEL_BYTES = (CONTEXT_DIMENSIONS * 3 + 2) * Double.BYTES;
-    private static final int FULL_PERSISTED_SECTION_BYTES = PERSISTED_MODEL_BYTES * 2;
+    private static final int PERSISTENCE_SECTION_VERSION = 5;
+    private static final int PERSISTED_MODEL_VALUE_COUNT = CONTEXT_DIMENSIONS * 3 + 2;
+    private static final int PERSISTED_MODEL_BYTES = PERSISTED_MODEL_VALUE_COUNT * Short.BYTES;
     private static final int PERSISTED_TARGETING_MODEL_MASK = 0x01;
     private static final int PERSISTED_MOVEMENT_MODEL_MASK = 0x02;
+    private static final int PERSISTED_MODEL_COMPONENT_MASK_BYTES = 1;
+    private static final double PERSISTED_UNSIGNED_SHORT_MAX = 65535.0;
+    private static final double MIN_PERSISTED_WEIGHT = WEIGHT_SOFT_FLOOR;
+    private static final double MAX_PERSISTED_WEIGHT = 32.0;
     private static final double MAX_LATERAL_VELOCITY = 8.0;
     private static final double MIN_VELOCITY_DELTA = -2.0;
     private static final double MAX_VELOCITY_DELTA = 1.0;
@@ -1223,6 +1226,44 @@ public class WaveLog {
         return Math.max(min, Math.min(max, value));
     }
 
+    private static int quantizeLinear(double value, double min, double max) {
+        if (!(max > min)) {
+            return 0;
+        }
+        double clamped = clamp(Double.isFinite(value) ? value : min, min, max);
+        double normalized = (clamped - min) / (max - min);
+        return (int) Math.round(normalized * PERSISTED_UNSIGNED_SHORT_MAX);
+    }
+
+    private static double dequantizeLinear(int quantized, double min, double max) {
+        if (!(max > min)) {
+            return min;
+        }
+        double clamped = clamp(quantized, 0.0, PERSISTED_UNSIGNED_SHORT_MAX);
+        return min + (max - min) * (clamped / PERSISTED_UNSIGNED_SHORT_MAX);
+    }
+
+    private static int quantizeLogScaled(double value, double min, double max) {
+        double safeMin = Math.max(MODEL_EPSILON, min);
+        double safeMax = Math.max(safeMin, max);
+        double clamped = clamp(Double.isFinite(value) ? value : safeMin, safeMin, safeMax);
+        return quantizeLinear(Math.log(clamped), Math.log(safeMin), Math.log(safeMax));
+    }
+
+    private static double dequantizeLogScaled(int quantized, double min, double max) {
+        double safeMin = Math.max(MODEL_EPSILON, min);
+        double safeMax = Math.max(safeMin, max);
+        return Math.exp(dequantizeLinear(quantized, Math.log(safeMin), Math.log(safeMax)));
+    }
+
+    private static int quantizeWeight(double value) {
+        return quantizeLogScaled(value, MIN_PERSISTED_WEIGHT, MAX_PERSISTED_WEIGHT);
+    }
+
+    private static double dequantizeWeight(int quantized) {
+        return dequantizeLogScaled(quantized, MIN_PERSISTED_WEIGHT, MAX_PERSISTED_WEIGHT);
+    }
+
     public static void startBattlePersistence() {
         persistedSectionLoaded = false;
         currentBattleModelUpdated = false;
@@ -1246,42 +1287,22 @@ public class WaveLog {
         if (payload == null) {
             return;
         }
-        if (sectionVersion == LEGACY_PERSISTENCE_SECTION_VERSION) {
-            loadFullPersistedSection(payload);
-            return;
-        }
         if (sectionVersion != PERSISTENCE_SECTION_VERSION) {
             throw new IllegalStateException("Unsupported wave-model section version " + sectionVersion);
         }
-        if (payload.length == FULL_PERSISTED_SECTION_BYTES) {
-            loadFullPersistedSection(payload);
-            return;
-        }
-        loadSelectivePersistedSection(payload);
-    }
-
-    private static void loadFullPersistedSection(byte[] payload) {
-        if (payload.length != FULL_PERSISTED_SECTION_BYTES) {
-            throw new IllegalStateException("Unexpected wave-model payload length");
-        }
-        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
-            ModelSpec targetingModel = readPersistedModel(in, DEFAULT_TARGETING_MODEL);
-            ModelSpec movementModel = readPersistedModel(in, DEFAULT_MOVEMENT_MODEL);
-            if (in.available() != 0) {
-                throw new IllegalStateException("Wave-model payload contained trailing bytes");
-            }
-            applyPersistedModels(targetingModel, true, movementModel, true);
-        } catch (IOException e) {
-            throw new IllegalStateException("Unreadable wave-model payload", e);
-        }
-    }
-
-    private static void loadSelectivePersistedSection(byte[] payload) {
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
             int componentMask = in.readUnsignedByte();
             if ((componentMask & ~(PERSISTED_TARGETING_MODEL_MASK | PERSISTED_MOVEMENT_MODEL_MASK)) != 0
                     || componentMask == 0) {
                 throw new IllegalStateException("Wave-model payload contained an invalid component mask");
+            }
+            int persistedModelCount = Integer.bitCount(componentMask);
+            int expectedPayloadBytes =
+                    PERSISTED_MODEL_COMPONENT_MASK_BYTES + persistedModelCount * PERSISTED_MODEL_BYTES;
+            if (payload.length != expectedPayloadBytes) {
+                throw new IllegalStateException(
+                        "Unexpected wave-model payload length: expected "
+                                + expectedPayloadBytes + " but was " + payload.length);
             }
             boolean hasTargetingModel = (componentMask & PERSISTED_TARGETING_MODEL_MASK) != 0;
             boolean hasMovementModel = (componentMask & PERSISTED_MOVEMENT_MODEL_MASK) != 0;
@@ -1326,24 +1347,19 @@ public class WaveLog {
         }
         try (ByteArrayOutputStream raw = new ByteArrayOutputStream();
              DataOutputStream out = new DataOutputStream(raw)) {
-            if (hasTargetingModel && hasMovementModel) {
+            int componentMask = 0;
+            if (hasTargetingModel) {
+                componentMask |= PERSISTED_TARGETING_MODEL_MASK;
+            }
+            if (hasMovementModel) {
+                componentMask |= PERSISTED_MOVEMENT_MODEL_MASK;
+            }
+            out.writeByte(componentMask);
+            if (hasTargetingModel) {
                 writePersistedModel(out, targetingModel);
+            }
+            if (hasMovementModel) {
                 writePersistedModel(out, movementModel);
-            } else {
-                int componentMask = 0;
-                if (hasTargetingModel) {
-                    componentMask |= PERSISTED_TARGETING_MODEL_MASK;
-                }
-                if (hasMovementModel) {
-                    componentMask |= PERSISTED_MOVEMENT_MODEL_MASK;
-                }
-                out.writeByte(componentMask);
-                if (hasTargetingModel) {
-                    writePersistedModel(out, targetingModel);
-                }
-                if (hasMovementModel) {
-                    writePersistedModel(out, movementModel);
-                }
             }
             out.flush();
             byte[] payload = raw.toByteArray();
@@ -1394,15 +1410,24 @@ public class WaveLog {
     private static void writePersistedModel(DataOutputStream out,
                                             ModelSpec model) throws IOException {
         for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
-            out.writeDouble(model.contextDistanceWeights[i]);
+            out.writeShort(quantizeWeight(model.contextDistanceWeights[i]));
         }
-        out.writeDouble(model.kdeBandwidth);
-        out.writeDouble(model.contextWeightSigma);
+        out.writeShort(quantizeLogScaled(
+                model.kdeBandwidth,
+                BotConfig.Learning.MIN_KDE_BANDWIDTH,
+                BotConfig.Learning.MAX_KDE_BANDWIDTH));
+        out.writeShort(quantizeLogScaled(
+                model.contextWeightSigma,
+                BotConfig.Learning.MIN_CONTEXT_WEIGHT_SIGMA,
+                BotConfig.Learning.MAX_CONTEXT_WEIGHT_SIGMA));
         for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
-            out.writeDouble(model.featureBiases[i]);
+            out.writeShort(quantizeLinear(model.featureBiases[i], MIN_FEATURE_BIAS, MAX_FEATURE_BIAS));
         }
         for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
-            out.writeDouble(model.featureExponents[i]);
+            out.writeShort(quantizeLinear(
+                    model.featureExponents[i],
+                    MIN_FEATURE_EXPONENT,
+                    MAX_FEATURE_EXPONENT));
         }
     }
 
@@ -1412,15 +1437,24 @@ public class WaveLog {
         double[] biases = new double[CONTEXT_DIMENSIONS];
         double[] exponents = new double[CONTEXT_DIMENSIONS];
         for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
-            weights[i] = in.readDouble();
+            weights[i] = dequantizeWeight(in.readUnsignedShort());
         }
-        double bandwidth = in.readDouble();
-        double sigma = in.readDouble();
+        double bandwidth = dequantizeLogScaled(
+                in.readUnsignedShort(),
+                BotConfig.Learning.MIN_KDE_BANDWIDTH,
+                BotConfig.Learning.MAX_KDE_BANDWIDTH);
+        double sigma = dequantizeLogScaled(
+                in.readUnsignedShort(),
+                BotConfig.Learning.MIN_CONTEXT_WEIGHT_SIGMA,
+                BotConfig.Learning.MAX_CONTEXT_WEIGHT_SIGMA);
         for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
-            biases[i] = in.readDouble();
+            biases[i] = dequantizeLinear(in.readUnsignedShort(), MIN_FEATURE_BIAS, MAX_FEATURE_BIAS);
         }
         for (int i = 0; i < CONTEXT_DIMENSIONS; i++) {
-            exponents[i] = in.readDouble();
+            exponents[i] = dequantizeLinear(
+                    in.readUnsignedShort(),
+                    MIN_FEATURE_EXPONENT,
+                    MAX_FEATURE_EXPONENT);
         }
         return sanitizeModel(defaultModel, weights, bandwidth, sigma, biases, exponents);
     }

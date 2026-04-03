@@ -236,6 +236,8 @@ public final class BotConfig {
         public static final int MIN_ROUNDS_BEFORE_SWITCH = 2;
         // AntiBasicSurfer must already be winning by at least this observed score share before it can be selected.
         public static final double ANTI_BASIC_SURFER_MIN_SELECTION_SCORE = 0.80;
+        // AntiBasicSurfer must beat ScoreMax by more than this observed score-share margin before it can be selected.
+        public static final double ANTI_BASIC_SURFER_MIN_SCOREMAX_ADVANTAGE = 0.01;
         // Minimum total score retained by a settled best mode before we collapse persistence to that mode only.
         public static final double MIN_SETTLED_MODE_TOTAL_SCORE = 10_000.0;
     }

@@ -99,7 +99,10 @@ final class ModeSelector {
         if (modeId == null) {
             return false;
         }
-        return meetsSelectionRequirements(estimateLiveMode(modeId));
+        ModePosterior candidate = estimateLiveMode(modeId);
+        ModePosterior scoreMaxPosterior =
+                modeId == ModeId.ANTI_BASIC_SURFER ? estimateLiveMode(ModeId.SCORE_MAX) : null;
+        return meetsSelectionRequirements(candidate, scoreMaxPosterior);
     }
 
     private ModePosterior[] candidateModePosteriors(ModeId[] candidateModes) {
@@ -127,9 +130,10 @@ final class ModeSelector {
 
     private static ModePosterior[] relevantCombinedModePosteriors() {
         List<ModePosterior> posteriors = new ArrayList<>();
+        ModePosterior scoreMaxPosterior = estimateCombinedMode(ModeId.SCORE_MAX);
         for (ModeId modeId : ModeId.values()) {
             ModePosterior posterior = estimateCombinedMode(modeId);
-            if (meetsSelectionRequirements(posterior)) {
+            if (meetsSelectionRequirements(posterior, scoreMaxPosterior)) {
                 posteriors.add(posterior);
             }
         }
@@ -159,14 +163,25 @@ final class ModeSelector {
         return candidate.comparisonUpperBound + 1e-9 < bestOtherComparisonMean;
     }
 
-    private static boolean meetsSelectionRequirements(ModePosterior candidate) {
+    private static boolean meetsSelectionRequirements(ModePosterior candidate,
+                                                      ModePosterior scoreMaxPosterior) {
         if (candidate == null) {
             return false;
         }
         if (candidate.modeId == ModeId.ANTI_BASIC_SURFER) {
-            return candidate.totalScore == 0.0
-                    || candidate.observedShare + 1e-9
-                    >= BotConfig.ModeSelection.ANTI_BASIC_SURFER_MIN_SELECTION_SCORE;
+            if (candidate.totalScore == 0.0) {
+                return true;
+            }
+            if (candidate.observedShare + 1e-9
+                    < BotConfig.ModeSelection.ANTI_BASIC_SURFER_MIN_SELECTION_SCORE) {
+                return false;
+            }
+            if (scoreMaxPosterior == null || scoreMaxPosterior.totalScore == 0.0) {
+                return true;
+            }
+            return candidate.observedShare
+                    > scoreMaxPosterior.observedShare
+                    + BotConfig.ModeSelection.ANTI_BASIC_SURFER_MIN_SCOREMAX_ADVANTAGE;
         }
         return true;
     }

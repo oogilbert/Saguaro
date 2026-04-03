@@ -572,17 +572,20 @@ public final class BattleDataStore {
             if (modeId == null) {
                 throw new IllegalArgumentException("Locked persistence plan requires a non-null mode id");
             }
-            if (modeId == ModeId.SCORE_MAX || modeId == ModeId.ANTI_BASIC_SURFER) {
+            if (modeId == ModeId.SCORE_MAX) {
                 return new PersistedModeDataPlan(modeId, true, true, true, false, false, false);
+            }
+            if (modeId == ModeId.ANTI_BASIC_SURFER) {
+                return new PersistedModeDataPlan(modeId, false, true, true, false, false, false);
             }
             if (modeId == ModeId.PERFECT_PREDICTION) {
                 return new PersistedModeDataPlan(modeId, false, true, false, false, false, false);
             }
             if (modeId == ModeId.BULLET_SHIELD) {
-                return new PersistedModeDataPlan(modeId, true, false, false, false, true, false);
+                return new PersistedModeDataPlan(modeId, false, false, false, false, true, false);
             }
             if (modeId == ModeId.MOVING_BULLET_SHIELD) {
-                return new PersistedModeDataPlan(modeId, true, false, false, false, false, true);
+                return new PersistedModeDataPlan(modeId, false, false, false, false, false, true);
             }
             if (modeId == ModeId.SHOT_DODGER
                     || modeId == ModeId.WAVE_POISON

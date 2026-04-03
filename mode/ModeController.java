@@ -537,6 +537,9 @@ public final class ModeController {
         if (modeId == ModeId.PERFECT_PREDICTION) {
             return ModeObservationPolicy.MOVEMENT_UPDATE_ONLY;
         }
+        if (modeId == ModeId.ANTI_BASIC_SURFER) {
+            return ModeObservationPolicy.MOVEMENT_FULL_TARGETING_READ_ONLY;
+        }
         if (modeId == ModeId.SHOT_DODGER || isWavePoisonVariant(modeId)) {
             return ModeObservationPolicy.SHOT_DODGER_EXPERT_ONLY;
         }
