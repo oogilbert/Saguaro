@@ -58,7 +58,6 @@ public final class BotConfig {
         public static final double MAX_EFFECTIVE_VIRTUAL_GUN_HEAT = 1.6;
         // Allows disabling virtual-wave planning without changing movement code paths.
         public static final boolean ENABLE_VIRTUAL_WAVES = true;
-
         // Anchor-family count for single-wave planning.
         public static final int SINGLE_WAVE_ANCHOR_FAMILY_COUNT = 3;
         // Anchor-family count for dual-wave planning.
@@ -99,6 +98,12 @@ public final class BotConfig {
         public static final double PATH_WALL_SMOOTHING_STICK_LENGTH = 140.0;
         // Angular step used when rotating a wall-smoothed travel angle back into the field.
         public static final double PATH_WALL_SMOOTHING_ANGLE_STEP_RADIANS = Math.toRadians(2.0);
+        // Tick budget for each explicit CW/CCW anchor sub-segment before re-evaluating wave pass timing.
+        public static final int ANCHOR_WALL_SMOOTHED_SEGMENT_TICKS = 10;
+        // Waypoint distance used for short CW/CCW anchor sub-segments; intentionally longer than one segment can reach.
+        public static final double ANCHOR_WALL_SMOOTHED_TARGET_DISTANCE = 100.0;
+        // Inset applied only to generated CW/CCW path targets so they do not sit directly on the wall margin.
+        public static final double PATH_TARGET_WALL_INSET = 6.0;
 
         // Number of random tails considered when extending a committed perfect-prediction path.
         public static final int RANDOM_TAIL_CANDIDATE_COUNT = 8;

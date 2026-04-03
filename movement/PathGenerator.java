@@ -597,35 +597,82 @@ final class PathGenerator {
             throw new IllegalArgumentException(
                     "Anchor wave generation requires non-null context, first planning wave, and first movement");
         }
-        List<PathLeg> anchorLegs = new ArrayList<>(secondPlanningWave != null && secondWaveMovement != null ? 2 : 1);
+        List<PathLeg> anchorLegs = new ArrayList<>(secondPlanningWave != null && secondWaveMovement != null ? 12 : 6);
         PhysicsUtil.PositionState currentState = context.startState;
         long currentTime = context.currentTime;
-
-        PathLeg firstLeg = buildAnchorLeg(context, firstPlanningWave, currentState, currentTime, firstWaveMovement);
-        anchorLegs.add(firstLeg);
-
-        if (secondPlanningWave == null || secondWaveMovement == null) {
-            return anchorLegs;
-        }
-
         List<PhysicsUtil.PositionState> replayStates = new ArrayList<>(2);
         replayStates.add(currentState);
-        SegmentReplay firstReplay = appendLegToPath(
-                firstLeg,
-                currentState,
-                currentTime,
-                context.bfWidth,
-                context.bfHeight,
-                replayStates);
-        currentState = firstReplay.endState;
-        currentTime = firstReplay.endTime;
-        if (!secondPlanningWave.hasPassed(currentState.x, currentState.y, currentTime)) {
-            anchorLegs.add(buildAnchorLeg(
-                    context,
-                    secondPlanningWave,
+
+        SegmentReplay replay = new SegmentReplay(currentState, currentTime, 0);
+        while (!firstPlanningWave.hasHit(currentState.x, currentState.y, currentTime)) {
+            PathLeg firstLeg = buildAnchorLeg(context, firstPlanningWave, currentState, currentTime, firstWaveMovement);
+            anchorLegs.add(firstLeg);
+            replay = appendLegToPath(
+                    firstLeg,
                     currentState,
                     currentTime,
-                    secondWaveMovement));
+                    context.bfWidth,
+                    context.bfHeight,
+                    replayStates);
+            currentState = replay.endState;
+            currentTime = replay.endTime;
+        }
+
+        if (secondPlanningWave != null && secondWaveMovement != null) {
+            while (!secondPlanningWave.hasHit(currentState.x, currentState.y, currentTime)) {
+                PathLeg secondLeg = buildAnchorLeg(
+                        context,
+                        secondPlanningWave,
+                        currentState,
+                        currentTime,
+                        secondWaveMovement);
+                anchorLegs.add(secondLeg);
+                replay = appendLegToPath(
+                        secondLeg,
+                        currentState,
+                        currentTime,
+                        context.bfWidth,
+                        context.bfHeight,
+                        replayStates);
+                currentState = replay.endState;
+                currentTime = replay.endTime;
+            }
+        }
+
+        AnchorMovement continuationMovement = continuationAnchorMovement(firstWaveMovement, secondWaveMovement);
+        if (continuationMovement != null) {
+            double continuationReferenceX = continuationReferenceX(
+                    context,
+                    firstPlanningWave,
+                    secondPlanningWave,
+                    firstWaveMovement,
+                    secondWaveMovement);
+            double continuationReferenceY = continuationReferenceY(
+                    context,
+                    firstPlanningWave,
+                    secondPlanningWave,
+                    firstWaveMovement,
+                    secondWaveMovement);
+            while (!allPlanningWavesPassed(context.planningWaves, currentState, currentTime)
+                    || (currentTime - context.currentTime) < context.minPathTicks) {
+                PathLeg continuationLeg = buildContinuationAnchorLeg(
+                        context,
+                        currentState,
+                        currentTime,
+                        continuationMovement,
+                        continuationReferenceX,
+                        continuationReferenceY);
+                anchorLegs.add(continuationLeg);
+                replay = appendLegToPath(
+                        continuationLeg,
+                        currentState,
+                        currentTime,
+                        context.bfWidth,
+                        context.bfHeight,
+                        replayStates);
+                currentState = replay.endState;
+                currentTime = replay.endTime;
+            }
         }
         return anchorLegs;
     }
@@ -638,28 +685,130 @@ final class PathGenerator {
         if (context == null || planningWave == null || state == null || anchorMovement == null) {
             throw new IllegalArgumentException("Anchor leg generation requires non-null inputs");
         }
-        int durationTicks = Math.max(1, ticksUntilWavePasses(planningWave, state, currentTime));
+        int durationTicks = anchorSegmentDurationTicks(ticksUntilWaveHits(planningWave, state, currentTime));
+        return buildAnchorLeg(
+                context,
+                state,
+                planningWave.originX,
+                planningWave.originY,
+                durationTicks,
+                anchorMovement);
+    }
+
+    private static PathLeg buildContinuationAnchorLeg(PathGenerationContext context,
+                                                      PhysicsUtil.PositionState state,
+                                                      long currentTime,
+                                                      AnchorMovement anchorMovement,
+                                                      double referenceX,
+                                                      double referenceY) {
+        if (context == null || state == null || anchorMovement == null) {
+            throw new IllegalArgumentException("Continuation anchor leg generation requires non-null inputs");
+        }
+        int durationTicks = continuationDurationTicks(context, state, currentTime);
+        return buildAnchorLeg(context, state, referenceX, referenceY, durationTicks, anchorMovement);
+    }
+
+    private static PathLeg buildAnchorLeg(PathGenerationContext context,
+                                          PhysicsUtil.PositionState state,
+                                          double referenceX,
+                                          double referenceY,
+                                          int durationTicks,
+                                          AnchorMovement anchorMovement) {
         if (anchorMovement == AnchorMovement.CENTER) {
             return new PathLeg(state.x, state.y, durationTicks, PhysicsUtil.SteeringMode.DIRECT);
         }
 
-        double currentBearing = Math.atan2(state.x - planningWave.originX, state.y - planningWave.originY);
-        double travelAngle = currentBearing + anchorMovement.tangentialDirectionSign * (Math.PI * 0.5);
-        double maxDistance = MovementEngine.maxDistanceInField(
+        double currentBearing = Math.atan2(state.x - referenceX, state.y - referenceY);
+        double desiredTravelAngle = currentBearing + anchorMovement.tangentialDirectionSign * (Math.PI * 0.5);
+        double waypointDistance = BotConfig.Movement.ANCHOR_WALL_SMOOTHED_TARGET_DISTANCE;
+        double rawTargetX = state.x + FastTrig.sin(desiredTravelAngle) * waypointDistance;
+        double rawTargetY = state.y + FastTrig.cos(desiredTravelAngle) * waypointDistance;
+        double waypointAngle = PhysicsUtil.computeTravelAngle(
                 state.x,
                 state.y,
-                travelAngle,
+                rawTargetX,
+                rawTargetY,
+                steeringModeForAnchorMovement(anchorMovement),
                 context.bfWidth,
                 context.bfHeight);
-        double targetX = MovementEngine.clampToField(
-                state.x + FastTrig.sin(travelAngle) * maxDistance,
+        if (!Double.isFinite(waypointAngle)) {
+            waypointAngle = desiredTravelAngle;
+        }
+        double targetX = clampPathTargetToField(
+                state.x + FastTrig.sin(waypointAngle) * waypointDistance,
                 context.bfWidth,
                 true);
-        double targetY = MovementEngine.clampToField(
-                state.y + FastTrig.cos(travelAngle) * maxDistance,
+        double targetY = clampPathTargetToField(
+                state.y + FastTrig.cos(waypointAngle) * waypointDistance,
                 context.bfHeight,
                 false);
         return new PathLeg(targetX, targetY, durationTicks, steeringModeForAnchorMovement(anchorMovement));
+    }
+
+    private static AnchorMovement continuationAnchorMovement(AnchorMovement firstWaveMovement,
+                                                             AnchorMovement secondWaveMovement) {
+        if (secondWaveMovement != null && secondWaveMovement != AnchorMovement.CENTER) {
+            return secondWaveMovement;
+        }
+        if (firstWaveMovement != null && firstWaveMovement != AnchorMovement.CENTER) {
+            return firstWaveMovement;
+        }
+        return null;
+    }
+
+    private static double continuationReferenceX(PathGenerationContext context,
+                                                 Wave firstPlanningWave,
+                                                 Wave secondPlanningWave,
+                                                 AnchorMovement firstWaveMovement,
+                                                 AnchorMovement secondWaveMovement) {
+        if (secondPlanningWave != null && secondWaveMovement != null && secondWaveMovement != AnchorMovement.CENTER) {
+            return secondPlanningWave.originX;
+        }
+        if (firstPlanningWave != null && firstWaveMovement != null && firstWaveMovement != AnchorMovement.CENTER) {
+            return firstPlanningWave.originX;
+        }
+        return Double.isFinite(context.opponentReferenceX) ? context.opponentReferenceX : context.startState.x;
+    }
+
+    private static double continuationReferenceY(PathGenerationContext context,
+                                                 Wave firstPlanningWave,
+                                                 Wave secondPlanningWave,
+                                                 AnchorMovement firstWaveMovement,
+                                                 AnchorMovement secondWaveMovement) {
+        if (secondPlanningWave != null && secondWaveMovement != null && secondWaveMovement != AnchorMovement.CENTER) {
+            return secondPlanningWave.originY;
+        }
+        if (firstPlanningWave != null && firstWaveMovement != null && firstWaveMovement != AnchorMovement.CENTER) {
+            return firstPlanningWave.originY;
+        }
+        return Double.isFinite(context.opponentReferenceY) ? context.opponentReferenceY : context.startState.y;
+    }
+
+    private static int continuationDurationTicks(PathGenerationContext context,
+                                                 PhysicsUtil.PositionState state,
+                                                 long currentTime) {
+        int remainingNeedTicks = 1;
+        long remainingMinTicks = (long) context.minPathTicks - (currentTime - context.currentTime);
+        if (remainingMinTicks > 0L) {
+            remainingNeedTicks = (int) Math.min(Integer.MAX_VALUE, Math.max(remainingNeedTicks, remainingMinTicks));
+        }
+        for (Wave wave : context.planningWaves) {
+            if (!wave.hasPassed(state.x, state.y, currentTime)) {
+                remainingNeedTicks = Math.max(remainingNeedTicks, ticksUntilWavePasses(wave, state, currentTime));
+            }
+        }
+        return anchorSegmentDurationTicks(remainingNeedTicks);
+    }
+
+    private static int anchorSegmentDurationTicks(int remainingTicks) {
+        return Math.max(
+                1,
+                Math.min(BotConfig.Movement.ANCHOR_WALL_SMOOTHED_SEGMENT_TICKS, Math.max(1, remainingTicks)));
+    }
+
+    private static double clampPathTargetToField(double value, double fieldSize, boolean isX) {
+        double insetMargin = PhysicsUtil.WALL_MARGIN + BotConfig.Movement.PATH_TARGET_WALL_INSET;
+        return Math.max(insetMargin, Math.min(fieldSize - insetMargin, value));
     }
 
     private PathBuildResult buildPathFromLegs(
@@ -748,6 +897,9 @@ final class PathGenerator {
                                                  double bfWidth,
                                                  double bfHeight,
                                                  List<PhysicsUtil.PositionState> pathStates) {
+        PhysicsUtil.EndpointBehavior endpointBehavior = leg.steeringMode == PhysicsUtil.SteeringMode.DIRECT
+                ? PhysicsUtil.EndpointBehavior.PARK_AND_WAIT
+                : PhysicsUtil.EndpointBehavior.PASS_THROUGH;
         PhysicsUtil.Trajectory segment = PhysicsUtil.simulateTrajectory(
                 currentState,
                 leg.targetX,
@@ -755,7 +907,7 @@ final class PathGenerator {
                 currentTime,
                 null,
                 currentTime + leg.durationTicks,
-                PhysicsUtil.EndpointBehavior.PARK_AND_WAIT,
+                endpointBehavior,
                 leg.steeringMode,
                 bfWidth,
                 bfHeight);
@@ -946,6 +1098,12 @@ final class PathGenerator {
             return 0;
         }
         return (int) Math.ceil(remainingDistance / wave.speed);
+    }
+
+    private static int ticksUntilWaveHits(Wave wave,
+                                          PhysicsUtil.PositionState state,
+                                          long currentTime) {
+        return PhysicsUtil.waveArrivalTick(wave, state.x, state.y, currentTime);
     }
 
     private static void appendTrajectoryStates(List<PhysicsUtil.PositionState> pathStates,
