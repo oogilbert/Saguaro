@@ -26,7 +26,7 @@ final class ModeSelector {
                 "share %.1f%% [%.1f%%, %.1f%%], raw %.0f-%.0f",
                 estimate.posteriorMean * 100.0,
                 estimate.lowerBound * 100.0,
-                estimate.upperBound * 100.0,
+                disqualificationUpperBound(estimate) * 100.0,
                 stats.totalOurScore,
                 stats.totalOpponentScore);
     }
@@ -168,7 +168,10 @@ final class ModeSelector {
                 bestOtherComparisonMean = other.comparisonMean;
             }
         }
-        return candidate.comparisonUpperBound + 1e-9 < bestOtherComparisonMean;
+        // Keep a temporary optimism margin for low-evidence modes so a few noisy rounds do not
+        // eliminate them before they have accumulated enough score history.
+        double protectedUpperBound = protectedComparisonUpperBound(candidate);
+        return protectedUpperBound + 1e-9 < bestOtherComparisonMean;
     }
 
     private static boolean meetsSelectionRequirements(ModePosterior candidate,
@@ -255,6 +258,26 @@ final class ModeSelector {
                         + BotConfig.ModeSelection.UNCERTAINTY_PRIOR_BETA) * priorScale
                         + totalScore / BotConfig.ModeSelection.POSTERIOR_SCORE_UNIT;
         return 1.0 / Math.sqrt(Math.max(MODE_UNCERTAINTY_PRIOR_EPSILON, effectiveEvidence));
+    }
+
+    private static double protectedComparisonUpperBound(ModePosterior posterior) {
+        if (posterior == null) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        return posterior.comparisonUpperBound + earlyDisqualificationBonus(posterior.totalScore);
+    }
+
+    private static double disqualificationUpperBound(ModePosterior posterior) {
+        return probabilityFromComparisonValue(protectedComparisonUpperBound(posterior));
+    }
+
+    private static double earlyDisqualificationBonus(double totalScore) {
+        double fadeScore = BotConfig.ModeSelection.EARLY_DISQUALIFICATION_BONUS_FADE_SCORE;
+        if (!(fadeScore > 0.0) || !(totalScore < fadeScore)) {
+            return 0.0;
+        }
+        double fadeWeight = 1.0 - totalScore / fadeScore;
+        return BotConfig.ModeSelection.EARLY_DISQUALIFICATION_MAX_BONUS * fadeWeight;
     }
 
     private static double probabilityFromComparisonValue(double comparisonValue) {

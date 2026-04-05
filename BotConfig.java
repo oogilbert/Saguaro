@@ -237,6 +237,10 @@ public final class BotConfig {
         // Beta prior parameters for per-mode win-share uncertainty.
         public static final double UNCERTAINTY_PRIOR_ALPHA = 1.0;
         public static final double UNCERTAINTY_PRIOR_BETA = 1.0;
+        // Extra comparison-space uncertainty margin granted while a mode still has little score evidence.
+        public static final double EARLY_DISQUALIFICATION_MAX_BONUS = 1.0;
+        // Raw-score horizon over which the early disqualification bonus decays to zero.
+        public static final double EARLY_DISQUALIFICATION_BONUS_FADE_SCORE = 2_000.0;
         // Minimum consecutive rounds to spend in a mode before round-start switching is allowed.
         public static final int MIN_ROUNDS_BEFORE_SWITCH = 2;
         // AntiBasicSurfer must already be winning by at least this observed score share before it can be selected.
@@ -246,7 +250,7 @@ public final class BotConfig {
         // Minimum total raw score required for the best mode before mode selection can settle.
         public static final double MIN_SETTLED_MODE_TOTAL_SCORE = 15_000.0;
         // Once every non-disqualified mode reaches this raw-score total, force settling to the highest-mean mode.
-        public static final double FORCED_SETTLED_MODE_TOTAL_SCORE = 100_000.0;
+        public static final double FORCED_SETTLED_MODE_TOTAL_SCORE = 50_000.0;
     }
 
     public static final class Learning {
