@@ -80,9 +80,9 @@ public final class WavePoisonMode implements BattleMode {
     public RenderState getRenderState() {
         return new RenderState(
                 null,
-                RenderState.WaveRenderMode.TICKS_ONLY,
+                RenderState.WaveRenderMode.NONE,
                 RenderState.WaveRenderMode.FULL,
-                true);
+                false);
     }
 
     @Override

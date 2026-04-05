@@ -1100,7 +1100,7 @@ public final class BulletShieldMode implements BattleMode {
         if (!(myNow.gunCoolingRate > 0.0)) {
             return false;
         }
-        if (hasUnshieldedEnemyWavesInFlight()) {
+        if (hasUnshieldedLikelyEnemyWavesInFlight(myNow)) {
             return false;
         }
         return true;
@@ -1111,10 +1111,10 @@ public final class BulletShieldMode implements BattleMode {
                 && myNow.gunHeat <= enemy.gunHeat + 1e-9;
     }
 
-    private boolean hasUnshieldedEnemyWavesInFlight() {
+    private boolean hasUnshieldedLikelyEnemyWavesInFlight(Snapshot myNow) {
         for (int i = 0; i < enemyWaves.size(); i++) {
             EnemyWave wave = enemyWaves.get(i);
-            if (!wave.resolved && !wave.shieldAttempted) {
+            if (!wave.resolved && !wave.shieldAttempted && isLikelyThreat(wave, myNow)) {
                 return true;
             }
         }

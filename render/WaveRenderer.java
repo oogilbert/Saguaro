@@ -19,19 +19,13 @@ public final class WaveRenderer {
     private static final int ARC_SEGMENTS = 160;
     private static final int EXPERT_TICK_HALF_LENGTH = 4;
     private static final int REACHABLE_INTERVAL_SEGMENTS = 48;
-    // Mirrors mode.shotdodger.ShotDodgerExpertId: DROID_IMPACT_HEADING is the
-    // final expert in the current shotDodger render ordering.
-    private static final int SHOT_DODGER_EXPERT_COUNT = 12;
-    private static final int SHOT_DODGER_DROID_IMPACT_EXPERT_INDEX = 11;
     private static final Color OUTSIDE_PRECISE_MEA_COLOR = new Color(120, 120, 120);
     private static final Color FULL_SHADOW_COLOR = Color.BLACK;
     private static final Color HALF_SHADOW_COLOR = Color.GRAY;
     private static final Color REACHABLE_INTERVAL_COLOR = new Color(120, 220, 255);
     private static final Color EXPERT_TICK_OUTLINE_COLOR = Color.BLACK;
     private static final Color EXPERT_TICK_INNER_COLOR = Color.WHITE;
-    private static final Color EXPERT_TICK_SELECTED_INNER_COLOR = new Color(255, 64, 64);
-    private static final Color EXPERT_TICK_DROID_IMPACT_INNER_COLOR = new Color(96, 180, 255);
-    private static final Color EXPERT_TICK_DROID_IMPACT_SELECTED_INNER_COLOR = new Color(48, 112, 255);
+    private static final Color SELECTED_EXPERT_LINE_COLOR = Color.RED;
     private static final List<BulletShadowUtil.WeightedGfInterval> NO_SHADOW_INTERVALS = Collections.emptyList();
     // Debug rendering still needs a visible density band before learning data exists.
     private static final GuessFactorDistribution DEFAULT_RENDER_DISTRIBUTION = new DefaultDistribution();
@@ -275,38 +269,45 @@ public final class WaveRenderer {
             double radialY = FastTrig.cos(angle);
             double x = wave.originX + radius * radialX;
             double y = wave.originY + radius * radialY;
-            int x1 = (int) Math.round(x - radialX * EXPERT_TICK_HALF_LENGTH);
-            int y1 = (int) Math.round(y - radialY * EXPERT_TICK_HALF_LENGTH);
-            int x2 = (int) Math.round(x + radialX * EXPERT_TICK_HALF_LENGTH);
-            int y2 = (int) Math.round(y + radialY * EXPERT_TICK_HALF_LENGTH);
-            graphics.setColor(EXPERT_TICK_OUTLINE_COLOR);
-            graphics.setStroke(new BasicStroke(3f));
-            graphics.drawLine(x1, y1, x2, y2);
-            graphics.setColor(expertTickInnerColor(wave, i, i == selectedExpertIndex));
-            graphics.setStroke(new BasicStroke(1f));
-            graphics.drawLine(x1, y1, x2, y2);
+            if (i == selectedExpertIndex) {
+                drawStandardExpertTick(graphics, x, y, radialX, radialY);
+                drawSelectedExpertTick(graphics, wave.originX, wave.originY, x, y);
+            } else {
+                drawStandardExpertTick(graphics, x, y, radialX, radialY);
+            }
         }
         graphics.setStroke(oldStroke);
     }
 
-    private static Color expertTickInnerColor(Wave wave,
-                                              int expertIndex,
-                                              boolean selected) {
-        if (isShotDodgerDroidImpactExpert(wave, expertIndex)) {
-            return selected
-                    ? EXPERT_TICK_DROID_IMPACT_SELECTED_INNER_COLOR
-                    : EXPERT_TICK_DROID_IMPACT_INNER_COLOR;
-        }
-        return selected ? EXPERT_TICK_SELECTED_INNER_COLOR : EXPERT_TICK_INNER_COLOR;
+    private static void drawStandardExpertTick(Graphics2D graphics,
+                                               double x,
+                                               double y,
+                                               double radialX,
+                                               double radialY) {
+        int x1 = (int) Math.round(x - radialX * EXPERT_TICK_HALF_LENGTH);
+        int y1 = (int) Math.round(y - radialY * EXPERT_TICK_HALF_LENGTH);
+        int x2 = (int) Math.round(x + radialX * EXPERT_TICK_HALF_LENGTH);
+        int y2 = (int) Math.round(y + radialY * EXPERT_TICK_HALF_LENGTH);
+        graphics.setColor(EXPERT_TICK_OUTLINE_COLOR);
+        graphics.setStroke(new BasicStroke(3f));
+        graphics.drawLine(x1, y1, x2, y2);
+        graphics.setColor(EXPERT_TICK_INNER_COLOR);
+        graphics.setStroke(new BasicStroke(1f));
+        graphics.drawLine(x1, y1, x2, y2);
     }
 
-    private static boolean isShotDodgerDroidImpactExpert(Wave wave,
-                                                         int expertIndex) {
-        return wave != null
-                && wave.isEnemy
-                && wave.fireTimeRenderGfMarkers != null
-                && wave.fireTimeRenderGfMarkers.length == SHOT_DODGER_EXPERT_COUNT
-                && expertIndex == SHOT_DODGER_DROID_IMPACT_EXPERT_INDEX;
+    private static void drawSelectedExpertTick(Graphics2D graphics,
+                                               double originX,
+                                               double originY,
+                                               double x,
+                                               double y) {
+        graphics.setColor(SELECTED_EXPERT_LINE_COLOR);
+        graphics.setStroke(new BasicStroke(1f));
+        graphics.drawLine(
+                (int) Math.round(originX),
+                (int) Math.round(originY),
+                (int) Math.round(x),
+                (int) Math.round(y));
     }
 
     private static int selectedExpertIndex(Wave wave) {
