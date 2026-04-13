@@ -1,10 +1,6 @@
 # Saguaro
 
-A Robocode bot by Oscar Gilbert. Results can be viewed on [literumble](https://literumble.appspot.com/Rankings?game=roborumble).
-
-## Description
-
-Saguaro is one of the world's strongest Robocode bots, built for competitive one-on-one battles.
+One of the world's strongest robocode bots. Results can be viewed on [literumble](https://literumble.appspot.com/Rankings?game=roborumble).
 
 ## Usage
 
