@@ -6,7 +6,7 @@ A Robocode bot by Oscar Gilbert. Results can be viewed on [literumble](https://l
 
 Saguaro is one of the world's strongest Robocode bots, built for competitive one-on-one battles.
 
-## Using the Release
+## Usage
 
 Take the current jar from the `release` folder and place it in your Robocode `robots` directory.
 
