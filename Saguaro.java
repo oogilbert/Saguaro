@@ -76,6 +76,7 @@ public class Saguaro extends AdvancedRobot {
 
     @Override
     public void onWin(WinEvent e) {
+        oog.mega.saguaro.mode.scoremax.PlanAudit.onWin();
         info.onWin();
         mode.onWin();
     }
@@ -104,8 +105,11 @@ public class Saguaro extends AdvancedRobot {
         info.onHitRobot(e);
     }
 
+    private int roundSkippedTurns;
+
     @Override
     public void onSkippedTurn(SkippedTurnEvent event) {
+        roundSkippedTurns++;
     }
 
     @Override
@@ -115,6 +119,30 @@ public class Saguaro extends AdvancedRobot {
 
     @Override
     public void onRoundEnded(RoundEndedEvent event) {
+        if (BotConfig.Debug.PRINT_DIAGNOSTICS) {
+            out.println("Rule model: " + oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.diagnostics());
+            out.println("Rule model: " + oog.mega.saguaro.mode.scoremax.PlanAudit.report());
+        }
+        if (getOthers() == 0 && getEnergy() > 0) oog.mega.saguaro.mode.scoremax.PlanAudit.onWin();
+        oog.mega.saguaro.info.learning.rule.RoundWinCalibration.INSTANCE.endRound(oog.mega.saguaro.mode.scoremax.PlanAudit.roundWon(),
+                info.getOurCreditedDamageOnEnemyThisRound(), info.getEnemyCreditedDamageOnUsThisRound());
+        if (BotConfig.Debug.PRINT_DIAGNOSTICS) {
+            out.println("Rule model: " + oog.mega.saguaro.info.learning.rule.RoundWinCalibration.INSTANCE.diagnostics());
+            out.println("Rule model: " + oog.mega.saguaro.info.learning.rule.HorizonCalibration.INSTANCE.diagnostics());
+        }
+        oog.mega.saguaro.mode.scoremax.PlanAudit.finishRound(info.getOurCreditedDamageOnEnemyThisRound(),
+                info.getEnemyCreditedDamageOnUsThisRound());
+        if (BotConfig.Debug.PRINT_DIAGNOSTICS) {
+            out.println("Rule model: " + oog.mega.saguaro.mode.scoremax.PlanAudit.raceCalibration());
+            out.println("Rule model: " + oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.recordDiagnostics());
+            out.println("Rule model: " + oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.weightDiagnostics());
+            out.println("Rule model: " + oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.dodgeDiagnostics());
+            out.println("Rule model: " + oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.reachDiagnostics());
+            out.println("Rule model: cost " + oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.costs()
+                    + " turns=" + getTime());
+            out.println("Gun budget: skippedTurns=" + roundSkippedTurns);
+        }
+        roundSkippedTurns = 0;
         mode.onRoundEnded();
     }
 

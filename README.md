@@ -1,6 +1,6 @@
 # Saguaro
 
-One of the world's strongest robocode bots. Results can be viewed on [literumble](https://literumble.appspot.com/Rankings?game=roborumble).
+One of the world's strongest robocode bots. Results can be viewed on [literumble](https://rumble.robowiki.net/Rankings?game=roborumble).
 
 ## Usage
 
@@ -8,5 +8,5 @@ Take the current jar from the `release` folder and place it in your Robocode `ro
 
 ## Acknowledgements
 This robot was based on lessons learned from countless other robocode bot authors, so a big thanks to every author who has made their bots publicly available. Special thanks to:
-* Rednaxela - this bot uses his kd-tree implementation as well as his FastTrig class
+* Rednaxela - this bot uses his FastTrig class
 * Kev and Skilgannon: this bot uses several things from kc.mega.BeepBoop 2.0 and jk.precise.EnergyDome 1.6. In particular the bullet shielding is a combination of how EnergyDome learns opponent shot angles along with BeepBoop's geometry for intercepting the incoming bullet, and the methods for calculating precise 50%-weighted bullet shadows and cheaper precise MEAs are both based on how BeepBoop does them.

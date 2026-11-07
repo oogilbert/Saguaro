@@ -995,7 +995,7 @@ public final class PhysicsUtil {
         if (isAtTarget(state, targetX, targetY)) {
             return true;
         }
-        double distance = Math.hypot(targetX - state.x, targetY - state.y);
+        double distance = oog.mega.saguaro.math.MathUtils.hypot(targetX - state.x, targetY - state.y);
         return distance <= estimateStoppingDistance(state.velocity) + STOPPING_DISTANCE_EPS;
     }
 

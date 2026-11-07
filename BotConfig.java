@@ -12,8 +12,8 @@ public final class BotConfig {
         }
 
         public static final boolean ENABLE_WAVE_RENDERING = true;
-        // Capture expensive WaveLog trace-source diagnostics when debugging KD-tree issues.
-        public static final boolean ENABLE_TRACE_SOURCE_CAPTURE = false;
+        // Prints round diagnostics, the active mode and what was loaded for the opponent.
+        public static final boolean PRINT_DIAGNOSTICS = false;
     }
 
     public static final class Radar {
@@ -44,16 +44,8 @@ public final class BotConfig {
         private Movement() {
         }
 
-        // Number of safe-point candidates to keep on the first real wave.
-        public static final int K_SAFE_POINTS = 2;
-        // Number of safe points to keep when the first wave is deferred and virtual.
-        public static final int DEFERRED_VIRTUAL_WAVE_SAFE_POINTS = 1;
-        // Number of safe points to keep for later waves in multi-wave planning.
-        public static final int LATER_WAVE_SAFE_POINTS = 1;
         // Maximum number of waves to include in the near-term planning/scoring horizon.
         public static final int MAX_WAVE_DEPTH = 2;
-        // Distance used when building large pre-fire waypoint targets around the opponent.
-        public static final double PRE_FIRE_TARGET_DISTANCE = 1000.0;
         // Cap applied when projecting future enemy gun heat for virtual-wave planning.
         public static final double MAX_EFFECTIVE_VIRTUAL_GUN_HEAT = 1.6;
         // Allows disabling virtual-wave planning without changing movement code paths.
@@ -184,16 +176,6 @@ public final class BotConfig {
         public static final int GLOBAL_OFFENSIVE_POWER_SAMPLE_COUNT = 4;
         // Default gun power used when tracking a likely future shot without firing immediately.
         public static final double DEFAULT_TRACKING_FIRE_POWER = 2.0;
-        // Lower bound on the prior-weight blend used when little score history exists.
-        public static final double DEFAULT_PRIOR_WEIGHT_FLOOR = 0.35;
-        // Exponent applied to score-history evidence before blending with the prior.
-        public static final double DEFAULT_PRIOR_WEIGHT_EXPONENT = 0.5;
-        // Energy-lead scale in the scoremax prior win-probability heuristic.
-        public static final double DEFAULT_ENERGY_LEAD_SCALE = 8.0;
-        // Energy-lead offset in the scoremax prior win-probability heuristic.
-        public static final double DEFAULT_ENERGY_LEAD_OFFSET = 20.0;
-        // Uncertainty scale applied when both bots are in low-energy endgames.
-        public static final double DEFAULT_LOW_ENERGY_UNCERTAINTY_SCALE = 30.0;
         // Converts one tick of gun readiness into score-equivalent energy.
         public static final double DEFAULT_READY_TICK_ENERGY_EQUIVALENT = 0.35;
         // Ready-tick lead is capped to keep the heuristic bounded.
@@ -204,13 +186,6 @@ public final class BotConfig {
         public static final double DEFAULT_ENEMY_CONTINUATION_POWER = 2.0;
         // Preserve the end-of-round EV bonus path behind a configurable toggle.
         public static final boolean ENABLE_END_OF_ROUND_BONUS_EV = true;
-        // Clamp on the prior win probability before blending with live evidence.
-        public static final double MIN_PRIOR_WIN_PROBABILITY = 0.05;
-        public static final double MAX_PRIOR_WIN_PROBABILITY = 0.95;
-        // Initial target prior for using ScoreMax against a fresh opponent.
-        public static final double FIRST_BATTLE_SCOREMAX_PRIOR_TARGET = 0.90;
-        // Number of rounds to keep the first-battle ScoreMax prior active.
-        public static final int FIRST_BATTLE_SCOREMAX_PRIOR_ROUNDS = 10;
     }
 
     public static final class ModeSelection {
@@ -221,6 +196,10 @@ public final class BotConfig {
         // Valid values: null, "scoreMax", "bulletShield", "movingBulletShield",
         //               "perfectPrediction", "shotDodger", "wavePoison", "wavePoisonShift", "antiBasicSurfer"
         public static final String LOCKED_MODE = null;
+
+        // Whether an opponent with no settled mode goes through mode selection. Off, it gets ScoreMax and
+        // never settles, so its data keeps accumulating. Training needs this on to settle new opponents.
+        public static final boolean EXPLORE_UNSETTLED_OPPONENTS = false;
 
         // Scales the mode-selection confidence bound used to disqualify candidates.
         public static final double CONFIDENCE_SCALE = 6.0;
@@ -251,6 +230,10 @@ public final class BotConfig {
         public static final double MIN_SETTLED_MODE_TOTAL_SCORE = 15_000.0;
         // Once every non-disqualified mode reaches this raw-score total, force settling to the highest-mean mode.
         public static final double FORCED_SETTLED_MODE_TOTAL_SCORE = 50_000.0;
+        // Settle on the highest-mean mode once no other non-disqualified mode's upper bound exceeds its lower
+        // bound by more than this share: what further exploration could still gain is then below it. Near 100%
+        // every mode's bounds crowd the ceiling, so none can disqualify another and only this ends exploration.
+        public static final double SETTLE_SHARE_MARGIN = 0.01;
     }
 
     public static final class Learning {
@@ -260,37 +243,8 @@ public final class BotConfig {
         // Default prior score share used before any persisted ScoreMax history exists.
         public static final double DEFAULT_SCORE_SHARE_PRIOR = 0.5;
 
-        // Default smoothing width for the targeting KD-model context weights.
-        public static final double DEFAULT_TARGETING_CONTEXT_WEIGHT_SIGMA = 0.4;
-        // Default smoothing width for the movement KD-model context weights.
-        public static final double DEFAULT_MOVEMENT_CONTEXT_WEIGHT_SIGMA = 0.55;
-        // Default KDE bandwidth for targeting distributions.
-        public static final double DEFAULT_TARGETING_KDE_BANDWIDTH = 0.36;
         // Default KDE bandwidth for movement distributions.
         public static final double DEFAULT_MOVEMENT_KDE_BANDWIDTH = 0.36;
-        // Learning rate for model feature distance weights in WaveLog.
-        public static final double WEIGHT_LEARNING_RATE = 0.015;
-        // Learning rate for model feature bias terms in WaveLog.
-        public static final double BIAS_LEARNING_RATE = 0.006;
-        // Learning rate for model feature exponent terms in WaveLog.
-        public static final double EXPONENT_LEARNING_RATE = 0.004;
-        // Learning rate for log-space model parameters such as bandwidth and sigma.
-        public static final double LOG_PARAMETER_LEARNING_RATE = 0.004;
-        // Pull back toward the default model each update; zero keeps the default fixed.
-        public static final double MODEL_DEFAULT_PULL_RATE = 0.0;
-        // Clip applied to WaveLog feature-weight gradients.
-        public static final double WEIGHT_GRADIENT_CLIP = 4.0;
-        // Clip applied to WaveLog bandwidth/sigma gradients.
-        public static final double LOG_PARAMETER_GRADIENT_CLIP = 3.0;
-        // Lower and upper bounds for learned KDE bandwidths.
-        public static final double MIN_KDE_BANDWIDTH = 0.08;
-        public static final double MAX_KDE_BANDWIDTH = 0.75;
-        // Lower and upper bounds for learned context-weight sigmas.
-        public static final double MIN_CONTEXT_WEIGHT_SIGMA = 0.12;
-        public static final double MAX_CONTEXT_WEIGHT_SIGMA = 1.25;
-        // Minimum samples required before the targeting/movement models are treated as active.
-        public static final int MIN_TARGETING_SAMPLE_COUNT = 2;
-        public static final int MIN_MOVEMENT_SAMPLE_COUNT = 2;
 
         // Global hit-rate prior strength for the lightweight enemy hit-rate baseline models.
         public static final double ENEMY_HIT_RATE_GLOBAL_PRIOR_STRENGTH = 10.0;

@@ -1,8 +1,9 @@
 package oog.mega.saguaro.info.persistence;
 
 import oog.mega.saguaro.Saguaro;
-import oog.mega.saguaro.info.wave.WaveLog;
+import oog.mega.saguaro.info.learning.rule.RuleProfile;
 
+/** The opponent model's record: what the rule models learned about this opponent. */
 public final class WaveModelDataSet implements OpponentDataSet {
     static final String DATA_SET_KEY = "wave-model";
     private static final int SECTION_MASK_BIT = 0x40;
@@ -19,22 +20,22 @@ public final class WaveModelDataSet implements OpponentDataSet {
 
     @Override
     public int sectionVersion() {
-        return WaveLog.persistenceSectionVersion();
+        return RuleProfile.PERSISTENCE_VERSION;
     }
 
     @Override
     public void startBattle() {
-        WaveLog.startBattlePersistence();
+        RuleProfile.INSTANCE.startBattlePersistence();
     }
 
     @Override
     public void loadForOpponent(Saguaro robot, String opponentName, int sectionVersion, byte[] payload) {
-        WaveLog.loadPersistedSection(sectionVersion, payload);
+        RuleProfile.INSTANCE.loadPersisted(sectionVersion, payload);
     }
 
     @Override
     public boolean hasData() {
-        return WaveLog.hasPersistedSectionData();
+        return RuleProfile.INSTANCE.hasPersistedData();
     }
 
     @Override
@@ -42,6 +43,6 @@ public final class WaveModelDataSet implements OpponentDataSet {
                               String opponentName,
                               int maxPayloadBytes,
                               boolean includeCurrentBattleData) {
-        return WaveLog.createPersistedSectionPayload(maxPayloadBytes, includeCurrentBattleData);
+        return RuleProfile.INSTANCE.persistedPayload(maxPayloadBytes);
     }
 }

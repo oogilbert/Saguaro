@@ -17,9 +17,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import oog.mega.saguaro.BotConfig;
 import oog.mega.saguaro.Saguaro;
 import oog.mega.saguaro.info.state.BulletPowerHitRateTracker;
-import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.mode.ModeController;
 import oog.mega.saguaro.mode.ModeId;
 import oog.mega.saguaro.mode.ModePerformanceProfile;
@@ -286,6 +286,11 @@ public final class BattleDataStore {
         if (baselineStatusReportedThisBattle) {
             return;
         }
+        reportSuppressedSaveStatus(robot);
+        baselineStatusReportedThisBattle = true;
+        if (!BotConfig.Debug.PRINT_DIAGNOSTICS) {
+            return;
+        }
         robot.out.println(hasAnyOpponentDataLoaded() ? "Opponent data loaded" : "No opponent data loaded");
         if (persistedLockedModeId != null) {
             robot.out.println("Persisted mode lock: " + persistedLockedModeId.displayName());
@@ -314,8 +319,6 @@ public final class BattleDataStore {
         if (!Double.isNaN(historicalHitRate)) {
             robot.out.println(String.format(Locale.US, "Historical hit rate: %.2f%%", historicalHitRate * 100.0));
         }
-        reportSuppressedSaveStatus(robot);
-        baselineStatusReportedThisBattle = true;
     }
 
     private void suppressSavesForBattle(String reason) {
@@ -340,7 +343,7 @@ public final class BattleDataStore {
         return ModePerformanceProfile.isPersistedModeStatsLoaded()
                 || BulletShieldMode.isAnyPersistedBootstrapLoaded()
                 || BulletPowerHitRateTracker.isPersistedBaselineLoaded()
-                || WaveLog.hasPersistedSectionData();
+                || oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.battlesLearned() > 0;
     }
 
     private PersistedModeDataPlan buildPersistedModeDataPlan() {
@@ -364,13 +367,6 @@ public final class BattleDataStore {
                     maxPayloadBytes,
                     includeCurrentBattleData,
                     dataPlan.lockedModeId);
-        }
-        if (dataSet instanceof WaveModelDataSet) {
-            return WaveLog.createPersistedSectionPayload(
-                    maxPayloadBytes,
-                    includeCurrentBattleData,
-                    dataPlan.includeWaveTargetingModel,
-                    dataPlan.includeWaveMovementModel);
         }
         return dataSet.savePayload(robot, trackedOpponentName, maxPayloadBytes, includeCurrentBattleData);
     }

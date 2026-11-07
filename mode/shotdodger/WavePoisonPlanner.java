@@ -332,7 +332,7 @@ final class WavePoisonPlanner {
                                  double stepDistance) {
         double heading = desiredTravelHeading(state, enemyAtTime, direction);
         double absoluteBearing = Math.atan2(enemyAtTime.x - state.x, enemyAtTime.y - state.y);
-        double distance = Math.hypot(enemyAtTime.x - state.x, enemyAtTime.y - state.y);
+        double distance = oog.mega.saguaro.math.MathUtils.hypot(enemyAtTime.x - state.x, enemyAtTime.y - state.y);
         double outwardHeading = MathUtils.normalizeAngle(absoluteBearing + Math.PI);
         double outwardDistance = clamp(DESIRED_ORBIT_DISTANCE - distance, 0.0, MAX_OUTWARD_TARGET_BIAS);
         return new double[] {

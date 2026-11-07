@@ -17,20 +17,12 @@ import robocode.Rules;
 
 final class BranchedPlanScorer {
     static final double MIN_CONTINUATION_POWER = 0.1;
-    static final double MIN_TERMINAL_RATE = 1e-6;
 
     private Info info;
     private ScoreContext scoreContext;
     private final RobocodeScoreUtil.HitScoreScratch hitScoreScratch = new RobocodeScoreUtil.HitScoreScratch();
-    private int scoreMaxSelectedRoundCount;
-    private int lastCountedScoreMaxRound;
-
     void init(Info info) {
         this.info = info;
-        if (info.getRobot().getRoundNum() == 0) {
-            this.scoreMaxSelectedRoundCount = 0;
-            this.lastCountedScoreMaxRound = Integer.MIN_VALUE;
-        }
         this.scoreContext = null;
     }
 
@@ -221,6 +213,7 @@ final class BranchedPlanScorer {
                 currentEnemyEnergy > 0.0,
                 false);
         EventScheduleBuilder.BranchedEventSchedule schedule = EventScheduleBuilder.buildBranchedEventSchedule(path, pathIntersections, selection);
+        double[] endPosition = planEndPosition(path);
         List<PlanOutcomeBranch> branches = new ArrayList<>();
         List<PlanOutcomeBranch> nextBranches = new ArrayList<>();
         List<PlanOutcomeBranch> activeBranches = new ArrayList<>();
@@ -267,7 +260,7 @@ final class BranchedPlanScorer {
         branches.addAll(activeBranches);
 
         for (PlanOutcomeBranch branch : branches) {
-            BranchValue branchValue = evaluateBranchValue(selection, schedule, branch);
+            BranchValue branchValue = evaluateBranchValue(selection, schedule, branch, endPosition);
             aggregation.weightedValue += branch.probability * branchValue.value;
             aggregation.weightedAbsoluteScore += branch.probability * branchValue.absoluteScore;
         }
@@ -474,7 +467,8 @@ final class BranchedPlanScorer {
 
     private BranchValue evaluateBranchValue(ShotPlanner.ShotSelection selection,
                                             EventScheduleBuilder.BranchedEventSchedule schedule,
-                                            PlanOutcomeBranch branch) {
+                                            PlanOutcomeBranch branch,
+                                            double[] endPosition) {
         if (branch.roundResolved) {
             return resolvedBranchValue(branch);
         }
@@ -505,7 +499,8 @@ final class BranchedPlanScorer {
                         0,
                         projectedOurCreditedDamage,
                         projectedEnemyCreditedDamage,
-                        continuationFirePower),
+                        continuationFirePower,
+                        endPosition),
                 projectedOurScore - projectedOpponentScore);
     }
 
@@ -617,7 +612,26 @@ final class BranchedPlanScorer {
                 0,
                 info.getOurCreditedDamageOnEnemyThisRound(),
                 info.getEnemyCreditedDamageOnUsThisRound(),
-                0.0);
+                0.0,
+                currentPosition());
+    }
+
+    /** Where the robots stand now, as the round-win map reads it; null before a scan. */
+    private double[] currentPosition() {
+        EnemyInfo enemy = info.getEnemy();
+        if (enemy == null || !enemy.seenThisRound) return null;
+        return oog.mega.saguaro.info.learning.rule.RoundWinCalibration.position(info.getRobot().getX(), info.getRobot().getY(),
+                enemy.x, enemy.y, info.getBattlefieldWidth(), info.getBattlefieldHeight());
+    }
+
+    /** Where a plan leaves us, against the opponent where it was last seen. */
+    private double[] planEndPosition(CandidatePath path) {
+        EnemyInfo enemy = info.getEnemy();
+        if (path == null || path.trajectory == null || path.trajectory.length() == 0
+                || enemy == null || !enemy.seenThisRound) return currentPosition();
+        oog.mega.saguaro.math.PhysicsUtil.PositionState end = path.trajectory.states[path.trajectory.length() - 1];
+        return oog.mega.saguaro.info.learning.rule.RoundWinCalibration.position(end.x, end.y, enemy.x, enemy.y,
+                info.getBattlefieldWidth(), info.getBattlefieldHeight());
     }
 
     static double exactShareValue(double ourScore,
@@ -641,10 +655,17 @@ final class BranchedPlanScorer {
 
         EnemyInfo enemy = info.getEnemy();
         double currentEnemyEnergy = Math.max(0.0, enemy.energy);
-        double currentWinProbability = WinProbabilityModel.estimateWinProbability(
-                robotState.energy,
-                currentEnemyEnergy,
-                getAssumedWinProbabilityParams());
+        EnergyRaceTable.Outcome currentRace = raceOutcome(robotState.energy, currentEnemyEnergy);
+        double[] position = currentPosition();
+        oog.mega.saguaro.info.learning.rule.RoundWinCalibration.INSTANCE.sample(info.getRobot().getTime(), currentRace.winProbability, position,
+                currentRace.ourDamage, currentRace.enemyDamage,
+                info.getOurCreditedDamageOnEnemyThisRound(), info.getEnemyCreditedDamageOnUsThisRound());
+        double currentWinProbability = currentRace.winProbability;
+        PlanAudit.recordRace(info.getRobot().getTime(),
+                new EnergyRaceTable.Outcome(currentRace.winProbability,
+                        oog.mega.saguaro.info.learning.rule.RoundWinCalibration.INSTANCE.ourDamage(currentRace.ourDamage),
+                        oog.mega.saguaro.info.learning.rule.RoundWinCalibration.INSTANCE.theirDamage(currentRace.enemyDamage)),
+                info.getOurCreditedDamageOnEnemyThisRound(), info.getEnemyCreditedDamageOnUsThisRound());
         TerminalScoreEstimate currentTerminalEstimate = estimateTerminalScoreAdds(
                 info.getOurCreditedDamageOnEnemyThisRound(),
                 info.getEnemyCreditedDamageOnUsThisRound(),
@@ -674,7 +695,8 @@ final class BranchedPlanScorer {
                                                     int enemyReadyTicks,
                                                     double ourCreditedDamageOnEnemy,
                                                     double enemyCreditedDamageOnUs,
-                                                    double continuationFirePower) {
+                                                    double continuationFirePower,
+                                                    double[] position) {
         boolean bonusEnabled = isEndOfRoundBonusEvEnabledForState();
         int clampedReadyTickLead = Math.max(
                 -BotConfig.ScoreMax.MAX_READY_TICK_LEAD,
@@ -689,10 +711,7 @@ final class BranchedPlanScorer {
                     ? ourScore / denominator
                     : ourScore - opponentScore + 0.1 * (effectiveOurEnergy - effectiveEnemyEnergy);
         }
-        double winProbability = WinProbabilityModel.estimateWinProbability(
-                effectiveOurEnergy,
-                effectiveEnemyEnergy,
-                getAssumedWinProbabilityParams());
+        double winProbability = raceOutcome(effectiveOurEnergy, effectiveEnemyEnergy).winProbability;
         TerminalScoreEstimate terminalEstimate = estimateTerminalScoreAdds(
                 ourCreditedDamageOnEnemy,
                 enemyCreditedDamageOnUs,
@@ -727,82 +746,75 @@ final class BranchedPlanScorer {
             return new TerminalScoreEstimate(0.0, 0.0);
         }
 
-        double clampedOurWinProbability = Math.max(0.0, Math.min(1.0, ourWinProbability));
-        double clampedEnemyWinProbability = 1.0 - clampedOurWinProbability;
-        double ourPower = sanitizeContinuationPower(continuationFirePower, ourEnergy);
-        double enemyPower = sanitizeContinuationPower(assumedEnemyContinuationPower(enemyEnergy), enemyEnergy);
-
-        double ourDistance = currentEnemyDistance();
-        int ourFlightTicks = nominalFlightTicksForPower(ourDistance, ourPower);
-        int enemyFlightTicks = nominalFlightTicksForPower(ourDistance, enemyPower);
-        double ourHitRate = ourPower >= MIN_CONTINUATION_POWER
-                ? info.getBulletPowerHitRateTracker().estimateHitRate(ourFlightTicks) * ShotPlanner.targetingDataHitRateScale()
-                : 0.0;
-        double enemyHitRate = enemyPower >= MIN_CONTINUATION_POWER
-                ? info.getEnemyBulletHitRateTracker().estimateHitRate(enemyFlightTicks)
-                : 0.0;
-
-        double ourDamageRate = continuationBulletDamageRate(ourPower, ourHitRate);
-        double enemyDamageRate = continuationBulletDamageRate(enemyPower, enemyHitRate);
-        double ourNetSelfEnergyLossRate = continuationNetSelfEnergyLossRate(ourPower, ourHitRate);
-        double enemyNetSelfEnergyLossRate = continuationNetSelfEnergyLossRate(enemyPower, enemyHitRate);
-        double enemyLossRate = ourDamageRate + enemyNetSelfEnergyLossRate;
-        double ourLossRate = enemyDamageRate + ourNetSelfEnergyLossRate;
-
-        // Advance both robots under the same continuation model and stop at the
-        // first zero-energy event; after that point the coupled tail is invalid.
-        double fightDuration = terminalFightDuration(ourEnergy, ourLossRate, enemyEnergy, enemyLossRate);
-        double extraOurCreditedDamage = expectedCreditedDamageOverDuration(ourDamageRate, fightDuration);
-        double extraEnemyCreditedDamage = expectedCreditedDamageOverDuration(enemyDamageRate, fightDuration);
-
+        EnergyRaceTable.Outcome race = raceOutcome(ourEnergy, enemyEnergy);
+        double ourDamage = oog.mega.saguaro.info.learning.rule.RoundWinCalibration.INSTANCE.ourDamage(race.ourDamage);
+        double enemyDamage = oog.mega.saguaro.info.learning.rule.RoundWinCalibration.INSTANCE.theirDamage(race.enemyDamage);
         double ourTerminalIfWin = RobocodeScoreUtil.SURVIVAL_AND_LAST_BONUS_1V1
-                + RobocodeScoreUtil.bulletKillBonus(ourCreditedDamageOnEnemy + extraOurCreditedDamage);
+                + RobocodeScoreUtil.bulletKillBonus(ourCreditedDamageOnEnemy + ourDamage);
         double enemyTerminalIfWin = RobocodeScoreUtil.SURVIVAL_AND_LAST_BONUS_1V1
-                + RobocodeScoreUtil.bulletKillBonus(enemyCreditedDamageOnUs + extraEnemyCreditedDamage);
+                + RobocodeScoreUtil.bulletKillBonus(enemyCreditedDamageOnUs + enemyDamage);
+        // The rest of the round's bullet damage scores too, not only its bonuses.
         return new TerminalScoreEstimate(
-                clampedOurWinProbability * ourTerminalIfWin,
-                clampedEnemyWinProbability * enemyTerminalIfWin);
+                ourWinProbability * ourTerminalIfWin + ourDamage,
+                (1.0 - ourWinProbability) * enemyTerminalIfWin + enemyDamage);
     }
 
-    static double continuationBulletDamageRate(double power, double hitRate) {
-        if (!(power >= MIN_CONTINUATION_POWER)) {
-            return 0.0;
+    private final EnergyRaceTable raceTable = new EnergyRaceTable();
+    private long raceAdvancedAt = Long.MIN_VALUE;
+    /**
+     * States of the race table solved a tick: a full pass of its 961 every ten ticks,
+     * without any one tick paying for a whole solve.
+     */
+    private static final int RACE_STATES_PER_TICK = 100;
+
+    /** The rest of the round from these energies, by the models' energy race. */
+    EnergyRaceTable.Outcome raceOutcome(double ourEnergy, double enemyEnergy) {
+        long now = info.getRobot().getTime();
+        if (now != raceAdvancedAt) {
+            raceAdvancedAt = now;
+            final double distance = currentEnemyDistance();
+            raceTable.advance(new EnergyRaceTable.Inputs() {
+                @Override public double enemyPower(double enemyEnergy, double ourEnergy) {
+                    if (!(enemyEnergy >= MIN_CONTINUATION_POWER)) return Double.NaN;
+                    return assumedEnemyContinuationPower(enemyEnergy, ourEnergy, distance, Double.NaN);
+                }
+                @Override public double ourHit(double power) {
+                    return ourHitRate(power, distance);
+                }
+                @Override public double enemyHit(double power) {
+                    return info.getEnemyBulletHitRateTracker().estimateHitRate(
+                            nominalFlightTicksForPower(distance, power));
+                }
+                @Override public double share() {
+                    double ours = ScoreMaxScoreHistoryProfile.INSTANCE.getCurrentBattleOurScore();
+                    double theirs = ScoreMaxScoreHistoryProfile.INSTANCE.getCurrentBattleOpponentScore();
+                    return ours + theirs > 0 ? ours / (ours + theirs) : 0.5;
+                }
+            }, RACE_STATES_PER_TICK);
         }
-        return hitRate * robocode.Rules.getBulletDamage(power) / EventScheduleBuilder.continuationCadenceTicks(power);
+        return raceTable.outcome(ourEnergy, enemyEnergy);
     }
 
-    static double continuationNetSelfEnergyLossRate(double power, double hitRate) {
-        if (!(power >= MIN_CONTINUATION_POWER)) {
-            return 0.0;
-        }
-        return (power - 3.0 * hitRate * power) / EventScheduleBuilder.continuationCadenceTicks(power);
+    /** DIAGNOSTIC ONLY: the race table's own power choice at these energies. */
+    double raceChosenPower(double ourEnergy, double enemyEnergy) {
+        return raceTable.chosenPower(ourEnergy, enemyEnergy);
     }
 
-    static double terminalFightDuration(double ourEnergy,
-                                         double ourLossRate,
-                                         double enemyEnergy,
-                                         double enemyLossRate) {
-        double ourTimeToZero = timeToZeroEnergy(ourEnergy, ourLossRate);
-        double enemyTimeToZero = timeToZeroEnergy(enemyEnergy, enemyLossRate);
-        return Math.min(ourTimeToZero, enemyTimeToZero);
-    }
-
-    static double timeToZeroEnergy(double energy, double lossRate) {
-        if (!(energy > 0.0)) {
-            return 0.0;
-        }
-        if (!(lossRate > MIN_TERMINAL_RATE)) {
-            return Double.POSITIVE_INFINITY;
-        }
-        return energy / lossRate;
-    }
-
-    static double expectedCreditedDamageOverDuration(double damageRate,
-                                                      double duration) {
-        if (!(damageRate > 0.0) || !(duration > 0.0) || !Double.isFinite(duration)) {
-            return 0.0;
-        }
-        return damageRate * duration;
+    /**
+     * Our hit chance at a power over the rest of the round: the long-run rate we have
+     * measured at the power we have been firing -- this battle's shots and the saved
+     * record's -- moved by the reach geometry to the power asked about. A rate from the
+     * last few dozen shots swung the table's view of a fresh round from 0.24 to 0.96
+     * within one battle.
+     */
+    private double ourHitRate(double power, double distance) {
+        oog.mega.saguaro.info.learning.rule.RuleProfile models =
+                oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE;
+        double recent = models.ourRecentPower();
+        double ratio = models.reachRatio(power);
+        double reference = Double.isFinite(recent) ? recent : power;
+        double level = info.getBulletPowerHitRateTracker().estimateHitRate(nominalFlightTicksForPower(distance, reference));
+        return Math.min(0.95, level * (Double.isFinite(ratio) ? ratio : 1.0));
     }
 
     double currentEnemyDistance() {
@@ -828,11 +840,12 @@ final class BranchedPlanScorer {
         return Wave.nominalFlightTicks(distance, Wave.bulletSpeed(power));
     }
 
-    static double sanitizeContinuationPower(double power, double availableEnergy) {
-        if (!(power >= MIN_CONTINUATION_POWER) || !(availableEnergy >= MIN_CONTINUATION_POWER)) {
-            return 0.0;
-        }
-        return Math.min(power, Math.min(ShotPlanner.MAX_FIRE_POWER, availableEnergy));
+    /** The opponent's power for the rest of the round, by its learned power rule. */
+    double assumedEnemyContinuationPower(double enemyEnergy, double ourEnergy, double distance, double ourPower) {
+        double predicted = oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.predictEnemyPower(
+                distance, enemyEnergy, ourEnergy, ourPower);
+        if (Double.isFinite(predicted)) return Math.min(predicted, Math.max(0.0, enemyEnergy));
+        return assumedEnemyContinuationPower(enemyEnergy);
     }
 
     double assumedEnemyContinuationPower(double enemyEnergy) {
@@ -842,62 +855,6 @@ final class BranchedPlanScorer {
                 ? lastDetectedBulletPower
                 : BotConfig.ScoreMax.DEFAULT_ENEMY_CONTINUATION_POWER;
         return Math.min(assumedPower, Math.max(0.0, enemyEnergy));
-    }
-
-    WinProbabilityModel.Params getAssumedWinProbabilityParams() {
-        double survivalPrior = adjustedSurvivalPrior(info.getRoundOutcomeProfile().getSurvivalPrior());
-        double clamped = Math.max(
-                BotConfig.ScoreMax.MIN_PRIOR_WIN_PROBABILITY,
-                Math.min(BotConfig.ScoreMax.MAX_PRIOR_WIN_PROBABILITY, survivalPrior));
-        return new WinProbabilityModel.Params(
-                clamped,
-                BotConfig.ScoreMax.DEFAULT_PRIOR_WEIGHT_FLOOR,
-                BotConfig.ScoreMax.DEFAULT_PRIOR_WEIGHT_EXPONENT,
-                BotConfig.ScoreMax.DEFAULT_ENERGY_LEAD_SCALE,
-                BotConfig.ScoreMax.DEFAULT_ENERGY_LEAD_OFFSET,
-                BotConfig.ScoreMax.DEFAULT_LOW_ENERGY_UNCERTAINTY_SCALE);
-    }
-
-    double adjustedSurvivalPrior(double survivalPrior) {
-        if (info == null || info.getRobot() == null || info.getDataStore() == null) {
-            return survivalPrior;
-        }
-        if (!info.getDataStore().isFirstBattleForTrackedOpponent()) {
-            return survivalPrior;
-        }
-        if (scoreMaxSelectedRoundCount <= 0) {
-            return survivalPrior;
-        }
-        double optimisticTarget = Math.max(
-                survivalPrior,
-                BotConfig.ScoreMax.FIRST_BATTLE_SCOREMAX_PRIOR_TARGET);
-        double blend = firstBattleScoreMaxPriorBlend(scoreMaxSelectedRoundCount - 1);
-        return survivalPrior + blend * (optimisticTarget - survivalPrior);
-    }
-
-    static double firstBattleScoreMaxPriorBlend(int scoreMaxRoundIndex) {
-        if (scoreMaxRoundIndex <= 0) {
-            return 1.0;
-        }
-        if (scoreMaxRoundIndex >= BotConfig.ScoreMax.FIRST_BATTLE_SCOREMAX_PRIOR_ROUNDS - 1) {
-            return 0.0;
-        }
-        double t = scoreMaxRoundIndex
-                / (double) (BotConfig.ScoreMax.FIRST_BATTLE_SCOREMAX_PRIOR_ROUNDS - 1);
-        double smooth = t * t * (3.0 - 2.0 * t);
-        return 1.0 - smooth;
-    }
-
-    void noteScoreMaxRoundSelection() {
-        if (info == null || info.getRobot() == null) {
-            return;
-        }
-        int roundNum = info.getRobot().getRoundNum();
-        if (roundNum < 0 || roundNum == lastCountedScoreMaxRound) {
-            return;
-        }
-        lastCountedScoreMaxRound = roundNum;
-        scoreMaxSelectedRoundCount++;
     }
 
     private double currentEnemyEnergyForScoring() {

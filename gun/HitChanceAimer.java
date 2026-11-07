@@ -544,7 +544,7 @@ public class HitChanceAimer implements GunController {
             return null;
         }
         double bearing = Math.atan2(targetX - shooterX, targetY - shooterY);
-        double distance = Math.hypot(targetX - shooterX, targetY - shooterY);
+        double distance = oog.mega.saguaro.math.MathUtils.hypot(targetX - shooterX, targetY - shooterY);
         WaveContextFeatures.WaveContext context = WaveContextFeatures.createWaveContext(
                 shooterX,
                 shooterY,

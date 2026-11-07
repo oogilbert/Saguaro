@@ -175,6 +175,15 @@ public final class MathUtils {
     }
 
     /**
+     * sqrt(x^2 + y^2) without Math.hypot, which runs Java's strict libm and its guards
+     * against overflow; the field's distances cannot overflow, and the result differs from
+     * hypot's only in the last bit.
+     */
+    public static double hypot(double x, double y) {
+        return Math.sqrt(x * x + y * y);
+    }
+
+    /**
      * Normalizes an angle to the range [-PI, PI].
      */
     public static double normalizeAngle(double angle) {
@@ -189,7 +198,7 @@ public final class MathUtils {
                                          double targetY,
                                          double absoluteBearing,
                                          double bulletSpeed) {
-        double distance = Math.hypot(targetX - sourceX, targetY - sourceY);
+        double distance = hypot(targetX - sourceX, targetY - sourceY);
         double r1 = MAX_BOT_SPEED * distance / (bulletSpeed + MAX_BOT_SPEED);
         double r2 = MAX_BOT_SPEED * distance / (bulletSpeed - MAX_BOT_SPEED);
         double radius = (r1 + r2) * 0.5;
@@ -210,7 +219,7 @@ public final class MathUtils {
                                           double maxX,
                                           double minY,
                                           double maxY) {
-        double distance = Math.hypot(circleX - sourceX, circleY - sourceY);
+        double distance = hypot(circleX - sourceX, circleY - sourceY);
         if (distance < circleRadius || distance < 1e-9) {
             return;
         }

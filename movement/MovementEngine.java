@@ -171,8 +171,25 @@ public class MovementEngine implements MovementController {
     }
 
     public GuessFactorDistribution queryDistributionForEnemyWaveAtFireTime(Wave wave) {
-        return distributionHandleForEnemyWaveAtFireTime(wave).query();
+        GuessFactorDistribution base = distributionHandleForEnemyWaveAtFireTime(wave).query();
+        long now = info.getRobot().getTime();
+        if (horizonCacheTime != now) {
+            horizonCacheTime = now;
+            horizonCache.clear();
+        }
+        GuessFactorDistribution corrected = horizonCache.get(wave);
+        if (corrected == null) {
+            double dx = info.getRobot().getX() - wave.originX, dy = info.getRobot().getY() - wave.originY;
+            double ticks = (Math.sqrt(dx * dx + dy * dy) - wave.getRadius(now)) / wave.speed;
+            corrected = oog.mega.saguaro.info.learning.rule.HorizonCalibration.INSTANCE.distribution(base, wave, ticks);
+            horizonCache.put(wave, corrected);
+        }
+        return corrected;
     }
+
+    /** Each real enemy wave's distribution as seen from this tick's distance to it, built once a tick. */
+    private final java.util.Map<Wave, GuessFactorDistribution> horizonCache = new java.util.IdentityHashMap<>();
+    private long horizonCacheTime = Long.MIN_VALUE;
 
     GuessFactorDistributionHandle distributionHandleForContext(WaveContextFeatures.WaveContext context) {
         if (context == null) {
@@ -750,7 +767,7 @@ public class MovementEngine implements MovementController {
         double currentBearing = Math.atan2(state.x - wave.originX, state.y - wave.originY);
         double currentDistance = Math.max(
                 CIRCULAR_WAVE_APPROX_RADIUS,
-                Math.hypot(state.x - wave.originX, state.y - wave.originY));
+                oog.mega.saguaro.math.MathUtils.hypot(state.x - wave.originX, state.y - wave.originY));
         double mea = MathUtils.maxEscapeAngle(wave.speed);
         int ticks = Math.max(1, ticksUntilArrival);
 
@@ -1177,7 +1194,13 @@ public class MovementEngine implements MovementController {
                     && opponentState != null
                     && opponentEnergy >= 0.1
                     && opponentGunHeat <= 1e-9) {
-                double firePower = Double.isNaN(opponentLastDetectedBulletPower)
+                // The power its own shots show it fires at this range and these energies.
+                double predictedPower = oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.predictEnemyPower(
+                        oog.mega.saguaro.math.MathUtils.hypot(ourState.x - opponentState.x, ourState.y - opponentState.y),
+                        opponentEnergy, info.getRobot().getEnergy(), Double.NaN);
+                double firePower = Double.isFinite(predictedPower)
+                        ? Math.max(0.1, Math.min(predictedPower, opponentEnergy))
+                        : Double.isNaN(opponentLastDetectedBulletPower)
                         ? Math.min(3.0, opponentEnergy)
                         : Math.min(opponentLastDetectedBulletPower, opponentEnergy);
                 MotionContext motionContext = deriveMotionContext(ourStates, tick, bfWidth, bfHeight);
@@ -1642,7 +1665,7 @@ public class MovementEngine implements MovementController {
             double opponentDistance = 0.0;
             if (fullFuture.opponentState != null) {
                 PhysicsUtil.PositionState tailEnd = fullStates[fullStates.length - 1];
-                opponentDistance = Math.hypot(
+                opponentDistance = oog.mega.saguaro.math.MathUtils.hypot(
                         tailEnd.x - fullFuture.opponentState.x,
                         tailEnd.y - fullFuture.opponentState.y);
             }

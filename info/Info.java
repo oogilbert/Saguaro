@@ -140,6 +140,12 @@ public class Info {
             precisePredictionTracker.onScannedRobot(captureRobotSnapshot(), enemy);
         }
         if (result.firedWave != null) {
+            Wave fired = result.firedWave;
+            if (enemy != null && Double.isFinite(fired.targetX)) {
+                oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.onEnemyFired(
+                        oog.mega.saguaro.math.MathUtils.hypot(fired.targetX - fired.originX, fired.targetY - fired.originY),
+                        enemy.energy + fired.getFirepower(), robot.getEnergy(), fired.getFirepower());
+            }
             enemyShotsFiredThisBattle++;
             enemyBulletHitRateTracker.onEnemyWaveFired(result.firedWave);
             waveManager.addEnemyWave(result.firedWave);

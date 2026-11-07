@@ -103,6 +103,27 @@ public interface ObservationProfile {
                                    double gfMax) {
     }
 
+    /** One of our waves passed the opponent, or hit it; its crossing interval, raw frame. */
+    default void onMyWaveResolved(Wave wave, boolean hit, double gfMin, double gfMax, long time) {
+    }
+
+    /**
+     * An enemy wave resolved against us. {@code revealed} when its bullet was seen -- a hit,
+     * or a collision with ours -- and then {@code bulletGf} is where it was; the interval is
+     * our body's on the wave, raw frame, NaN when unknown.
+     */
+    default void onEnemyWaveResolved(Wave wave, boolean revealed, boolean collided, double bulletGf,
+                                     double gfMin, double gfMax, long time) {
+    }
+
+    /** A new round has started. */
+    default void onRoundStart() {
+    }
+
+    /** One of our waves was fired; it is not yet among the waves in flight. */
+    default void onMyWaveFired(Wave wave) {
+    }
+
     default void onInvalidatedGunWave(Wave wave) {
     }
 

@@ -101,6 +101,8 @@ public class WaveManager {
         myWaves.clear();
         enemyWaves.clear();
         loggedMyWaves.clear();
+        info.getObservationProfile().onRoundStart();
+        oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.bind(info);
         myWaveObservationStates.clear();
         pendingEnemyBulletHit = null;
         lastMyWaveHitOpponent = false;
@@ -159,6 +161,7 @@ public class WaveManager {
             myWave.fireTimeHistoricalSignaturePoint =
                     info.getObservationProfile().createGunHistoricalSignaturePoint(myWave.fireTimeContext);
         }
+        info.getObservationProfile().onMyWaveFired(myWave);
         myWaves.add(myWave);
         myWaveObservationStates.put(myWave, new MyWaveObservationState(fireTime));
         for (Wave enemyWave : enemyWaves) {
@@ -211,6 +214,7 @@ public class WaveManager {
                     pendingEnemyBulletHit.robotX,
                     pendingEnemyBulletHit.robotY,
                     pendingEnemyBulletHit.time);
+            reportEnemyWave(match.wave, true, false, movementObservation.gf, movementInterval);
             enemyWaves.remove(match.wave);
             if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
@@ -238,7 +242,7 @@ public class WaveManager {
         long time = robot.getTime();
         double robotX = robot.getX();
         double robotY = robot.getY();
-        double maxWaveDistance = Math.hypot(battlefieldWidth, battlefieldHeight);
+        double maxWaveDistance = oog.mega.saguaro.math.MathUtils.hypot(battlefieldWidth, battlefieldHeight);
         EnemyInfo enemy = info.getEnemy();
 
         logMyWaveResults(time);
@@ -265,7 +269,7 @@ public class WaveManager {
             }
             accumulateMyWaveOverlapInterval(wave, enemy, time);
             if (wave.hasPassed(enemy.x, enemy.y, time)) {
-                finalizeMyWaveGunObservation(wave);
+                finalizeMyWaveGunObservation(wave, false);
                 lastMyWaveHitOpponent = false;
                 info.onMyWavePassedEnemy(wave);
             }
@@ -314,7 +318,7 @@ public class WaveManager {
         state.lastProcessedTime = time;
     }
 
-    private void finalizeMyWaveGunObservation(Wave wave) {
+    private void finalizeMyWaveGunObservation(Wave wave, boolean hit) {
         if (loggedMyWaves.contains(wave)) {
             return;
         }
@@ -340,6 +344,7 @@ public class WaveManager {
                 true,
                 wave.allowTargetingModelUpdate);
         info.getObservationProfile().onResolvedGunWave(wave, gfMin, gfMax);
+        info.getObservationProfile().onMyWaveResolved(wave, hit, gfMin, gfMax, robot.getTime());
     }
 
     private MovementObservationResult logEnemyWaveMovementResult(Wave wave, double hitX, double hitY) {
@@ -426,6 +431,14 @@ public class WaveManager {
                 mea);
     }
 
+    private void reportEnemyWave(Wave wave, boolean revealed, boolean collided, double bulletGf,
+                                 double[] interval) {
+        double gfMin = interval != null && interval.length >= 2 ? interval[0] : Double.NaN;
+        double gfMax = interval != null && interval.length >= 2 ? interval[1] : Double.NaN;
+        info.getObservationProfile().onEnemyWaveResolved(
+                wave, revealed, collided, bulletGf, gfMin, gfMax, robot.getTime());
+    }
+
     private void logResolvedMovementWaveInterval(Wave wave, double[] gfInterval) {
         if (gfInterval == null || gfInterval.length < 2) {
             return;
@@ -484,6 +497,7 @@ public class WaveManager {
                             robotY,
                             removalCheckTime);
                     logEnemyWaveMovementPassResult(wave, movementInterval);
+                    reportEnemyWave(wave, false, false, Double.NaN, movementInterval);
                     info.onEnemyWavePassedRobot(wave);
                     lastEnemyWaveHitRobot = false;
                     logResolvedMovementWaveInterval(wave, movementInterval);
@@ -500,7 +514,7 @@ public class WaveManager {
             if (enemy != null && enemy.alive && enemy.seenThisRound) {
                 accumulateMyWaveOverlapInterval(matchedWave, enemy, robot.getTime());
             }
-            finalizeMyWaveGunObservation(matchedWave);
+            finalizeMyWaveGunObservation(matchedWave, true);
             lastMyWaveHitOpponent = true;
         }
         removeMyWave(matchedWave, "BulletHit");
@@ -538,6 +552,7 @@ public class WaveManager {
                     robot.getX(),
                     robot.getY(),
                     e.getTime());
+            reportEnemyWave(match.wave, true, false, movementObservation.gf, movementInterval);
             enemyWaves.remove(match.wave);
             if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
@@ -581,6 +596,7 @@ public class WaveManager {
                     robot.getX(),
                     robot.getY(),
                     e.getTime());
+            reportEnemyWave(match.wave, true, true, movementObservation.gf, movementInterval);
             enemyWaves.remove(match.wave);
             if (movementObservation.logged && info.getObservationProfile().shouldRefreshEnemyWavesAfterResolvedHit()) {
                 refreshEnemyWaveDistributions();
@@ -628,7 +644,7 @@ public class WaveManager {
     private static double radiusErrorForEvent(Wave wave, double hitX, double hitY, long time,
                                               boolean allowOneTickLag,
                                               boolean allowOneTickLead) {
-        double distanceToHit = Math.hypot(hitX - wave.originX, hitY - wave.originY);
+        double distanceToHit = oog.mega.saguaro.math.MathUtils.hypot(hitX - wave.originX, hitY - wave.originY);
         double error = Math.abs(wave.getRadius(time) - distanceToHit);
         if (allowOneTickLag && time > wave.fireTime) {
             double previousTickError = Math.abs(wave.getRadius(time - 1) - distanceToHit);
@@ -687,7 +703,7 @@ public class WaveManager {
             if (time <= wave.fireTime) {
                 continue;
             }
-            double distanceToHit = Math.hypot(hitX - wave.originX, hitY - wave.originY);
+            double distanceToHit = oog.mega.saguaro.math.MathUtils.hypot(hitX - wave.originX, hitY - wave.originY);
             double previousTickError = Math.abs(wave.getRadius(time - 1) - distanceToHit);
             double twoTicksAgoError = time > wave.fireTime + 1
                     ? Math.abs(wave.getRadius(time - 2) - distanceToHit)

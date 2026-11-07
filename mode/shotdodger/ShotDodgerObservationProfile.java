@@ -110,6 +110,27 @@ public final class ShotDodgerObservationProfile implements ObservationProfile {
     }
 
     @Override
+    public void onRoundStart() {
+        ScoreMaxLearningProfile.INSTANCE.onRoundStart();
+    }
+
+    @Override
+    public void onMyWaveFired(Wave wave) {
+        ScoreMaxLearningProfile.INSTANCE.onMyWaveFired(wave);
+    }
+
+    @Override
+    public void onMyWaveResolved(Wave wave, boolean hit, double gfMin, double gfMax, long time) {
+        ScoreMaxLearningProfile.INSTANCE.onMyWaveResolved(wave, hit, gfMin, gfMax, time);
+    }
+
+    @Override
+    public void onEnemyWaveResolved(Wave wave, boolean revealed, boolean collided, double bulletGf,
+                                    double gfMin, double gfMax, long time) {
+        ScoreMaxLearningProfile.INSTANCE.onEnemyWaveResolved(wave, revealed, collided, bulletGf, gfMin, gfMax, time);
+    }
+
+    @Override
     public void logGunInterval(WaveContextFeatures.WaveContext context,
                                double gfMin,
                                double gfMax,

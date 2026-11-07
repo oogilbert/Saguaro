@@ -65,7 +65,21 @@ final class ModeSelector {
         if (qualifiedCount == 1 && settled != null && settled.modeId == best.modeId) {
             return best.modeId;
         }
-        return qualifiedCount > 0 && allQualifiedAtForcedSettleThreshold ? best.modeId : null;
+        if (qualifiedCount > 0 && allQualifiedAtForcedSettleThreshold) {
+            return best.modeId;
+        }
+        if (isDisqualified(best, relevantPosteriors)) {
+            return null;
+        }
+        for (ModePosterior posterior : relevantPosteriors) {
+            if (posterior.modeId == best.modeId || isDisqualified(posterior, relevantPosteriors)) {
+                continue;
+            }
+            if (disqualificationUpperBound(posterior) - best.lowerBound > BotConfig.ModeSelection.SETTLE_SHARE_MARGIN) {
+                return null;
+            }
+        }
+        return best.modeId;
     }
 
     ModeId selectMode(ModeId[] candidateModes) {

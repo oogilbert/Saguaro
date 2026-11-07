@@ -145,7 +145,7 @@ public final class PrecisePredictionTracker {
 
         double turnError = Math.abs(normalizedPredictedTurnDelta - normalizedActualTurnDelta);
         double velocityError = Math.abs(normalizedPredictedVelocityDelta - normalizedActualVelocityDelta);
-        double error = Math.hypot(turnError, velocityError) * DELTA_ERROR_SCALE;
+        double error = oog.mega.saguaro.math.MathUtils.hypot(turnError, velocityError) * DELTA_ERROR_SCALE;
 
         double turnActivity = maxTurnDelta > 1e-9
                 ? clamp(Math.abs(actualTurnDelta) / maxTurnDelta, 0.0, 1.0)

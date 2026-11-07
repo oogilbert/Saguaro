@@ -25,7 +25,7 @@ final class CircularTargetingExpert {
         int deltaTime = 0;
 
         while ((++deltaTime) * context.bulletSpeed
-                < Math.hypot(predictedX - context.sourceX, predictedY - context.sourceY)) {
+                < oog.mega.saguaro.math.MathUtils.hypot(predictedX - context.sourceX, predictedY - context.sourceY)) {
             predictedX += Math.sin(predictedHeading) * predictedVelocity;
             predictedY += Math.cos(predictedHeading) * predictedVelocity;
             predictedHeading = MathUtils.normalizeAngle(predictedHeading + predictedHeadingChange);

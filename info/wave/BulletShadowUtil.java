@@ -489,8 +489,8 @@ public final class BulletShadowUtil {
 
         double[] bulletStart = myBulletPointAt(myWave, bulletStartTick);
         double[] bulletEnd = myBulletPointAt(myWave, bulletEndTick);
-        double startDistance = Math.hypot(bulletStart[0] - enemyWave.originX, bulletStart[1] - enemyWave.originY);
-        double endDistance = Math.hypot(bulletEnd[0] - enemyWave.originX, bulletEnd[1] - enemyWave.originY);
+        double startDistance = oog.mega.saguaro.math.MathUtils.hypot(bulletStart[0] - enemyWave.originX, bulletStart[1] - enemyWave.originY);
+        double endDistance = oog.mega.saguaro.math.MathUtils.hypot(bulletEnd[0] - enemyWave.originX, bulletEnd[1] - enemyWave.originY);
         double startRadius = (waveStartTick - enemyWave.fireTime) * enemyWave.speed;
         double endRadius = (waveEndTick - enemyWave.fireTime) * enemyWave.speed;
         if (startDistance < startRadius || endDistance > startDistance) {

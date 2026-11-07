@@ -828,6 +828,21 @@ public final class ScoreMaxPlanner {
         return score > bestScore || (score == bestScore && absoluteScore > bestAbsoluteScore);
     }
 
+    /** The chosen plan's danger for each real enemy wave on it, before the horizon correction, for fitting that correction. */
+    private void notePlannedWaveDangers(List<PathWaveIntersection> intersections) {
+        if (intersections == null) return;
+        long now = info.getRobot().getTime();
+        for (PathWaveIntersection intersection : intersections) {
+            if (intersection == null || intersection.wave == null || !intersection.wave.isEnemy
+                    || intersection.wave.isVirtual || intersection.distribution == null
+                    || intersection.exposedGfIntervals == null) continue;
+            double danger = Math.max(0.0, Math.min(1.0, oog.mega.saguaro.info.wave.BulletShadowUtil.integrateWeightedIntervals(
+                    oog.mega.saguaro.info.learning.rule.HorizonCalibration.uncorrected(intersection.distribution),
+                    intersection.exposedGfIntervals, -1.0, 1.0)));
+            oog.mega.saguaro.info.learning.rule.HorizonCalibration.INSTANCE.notePlanned(intersection.wave, intersection.firstContactTime - now, danger);
+        }
+    }
+
     private static List<CandidatePath> selectTopDistinctFamilyPaths(List<PlanEvaluation> evaluations, int maxFamilies) {
         if (evaluations == null || evaluations.isEmpty() || maxFamilies <= 0) {
             return new ArrayList<>();
@@ -997,7 +1012,6 @@ public final class ScoreMaxPlanner {
     }
 
     public BattlePlan getBestPlan() {
-        scorer.noteScoreMaxRoundSelection();
         RobotSnapshot robotState = info.captureRobotSnapshot();
         invalidateSelectedPathStateIfWaveDangerChanged();
         BattlePlan disabledRamPlan = buildDisabledRamPlan(
@@ -1174,6 +1188,18 @@ public final class ScoreMaxPlanner {
         lastSelectedWaveDangerRevision = info.getEnemyWaveDangerRevision();
         lastSelectedFirePower = bestPlan.firePower;
         lastSelectedShotWasShadow = selection.bestShotWasShadow;
+        if (bestPlan.firePower > 0 && selection.bestEvaluation != null
+                && selection.bestEvaluation.shotSelection != null) {
+            oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.notePlannedShot(
+                    info.getRobot().getTime(), selection.bestEvaluation.shotSelection.rawHitProbability);
+        }
+        if (bestPlan.firePower > 0 && info.getEnemy() != null) {
+            PlanAudit.recordPower(scorer.raceChosenPower(robotState.energy, info.getEnemy().energy), bestPlan.firePower);
+        }
+        PlanAudit.recordPlan(info.getRobot().getTime(),
+                selection.bestEvaluation != null ? selection.bestEvaluation.shotSelection : null,
+                selection.bestPathIntersections, bestPlan.firePower);
+        notePlannedWaveDangers(selection.bestPathIntersections);
         scorer.clearScoreContext();
         if (openingMove != null) {
             return new BattlePlan(

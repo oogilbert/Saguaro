@@ -45,6 +45,10 @@ public final class WaveContextFeatures {
         public final boolean didHit;
         public final long battleTime;
         public final int shotsFired;
+        /** Ticks since the shooter's previous real wave, or -1 when none is in the air. */
+        public final int ticksSincePreviousWave;
+        /** Ticks until the shooter's nearest real wave in the air reaches the target, or -1. */
+        public final int ticksToNearestArrival;
 
         public WaveContext(double sourceX,
                            double sourceY,
@@ -79,7 +83,9 @@ public final class WaveContextFeatures {
                            double stickWallReverse2,
                            boolean didHit,
                            long battleTime,
-                           int shotsFired) {
+                           int shotsFired,
+                           int ticksSincePreviousWave,
+                           int ticksToNearestArrival) {
             this.sourceX = sourceX;
             this.sourceY = sourceY;
             this.bulletSpeed = bulletSpeed;
@@ -114,6 +120,8 @@ public final class WaveContextFeatures {
             this.didHit = didHit;
             this.battleTime = battleTime;
             this.shotsFired = shotsFired;
+            this.ticksSincePreviousWave = ticksSincePreviousWave;
+            this.ticksToNearestArrival = ticksToNearestArrival;
         }
 
         @Override
@@ -159,7 +167,9 @@ public final class WaveContextFeatures {
                     && Double.doubleToLongBits(stickWallReverse2) == Double.doubleToLongBits(other.stickWallReverse2)
                     && didHit == other.didHit
                     && battleTime == other.battleTime
-                    && shotsFired == other.shotsFired;
+                    && shotsFired == other.shotsFired
+                    && ticksSincePreviousWave == other.ticksSincePreviousWave
+                    && ticksToNearestArrival == other.ticksToNearestArrival;
         }
 
         @Override
@@ -198,6 +208,8 @@ public final class WaveContextFeatures {
             result = 31 * result + (didHit ? 1 : 0);
             result = 31 * result + Long.hashCode(battleTime);
             result = 31 * result + shotsFired;
+            result = 31 * result + ticksSincePreviousWave;
+            result = 31 * result + ticksToNearestArrival;
             return result;
         }
     }
@@ -235,7 +247,7 @@ public final class WaveContextFeatures {
         int resolvedMomentumDirectionSign =
                 resolveMomentumDirectionSign(momentumLateralVelocity, momentumDirectionSign, lateralDirectionSign);
         double advancingVelocity = -targetVelocity * Math.cos(targetHeading - bearing);
-        double distance = Math.hypot(targetX - sourceX, targetY - sourceY);
+        double distance = oog.mega.saguaro.math.MathUtils.hypot(targetX - sourceX, targetY - sourceY);
         int flightTicks = Wave.nominalFlightTicks(distance, bulletSpeed);
         double[] wallFeatures = computeDirectionalWallFeatures(
                 sourceX,
@@ -296,7 +308,43 @@ public final class WaveContextFeatures {
                 stickWallFeatures[3],
                 didHit,
                 currentTime,
-                shotsFired);
+                shotsFired,
+                ticksSincePreviousWave(referenceWaves, excludedReferenceWave, currentTime),
+                ticksToNearestArrival(referenceWaves, excludedReferenceWave, targetX, targetY, currentTime));
+    }
+
+    /** What a mover that reacts to fire sees: how long since the shooter's last real wave. */
+    static int ticksSincePreviousWave(List<Wave> referenceWaves, Wave excludedReferenceWave, long currentTime) {
+        if (referenceWaves == null) {
+            return -1;
+        }
+        long best = Long.MAX_VALUE;
+        for (Wave wave : referenceWaves) {
+            if (wave == null || wave == excludedReferenceWave || wave.isVirtual || wave.fireTime >= currentTime) {
+                continue;
+            }
+            best = Math.min(best, currentTime - wave.fireTime);
+        }
+        return best == Long.MAX_VALUE ? -1 : (int) Math.min(Integer.MAX_VALUE, best);
+    }
+
+    /** And how soon the nearest of them reaches it. */
+    static int ticksToNearestArrival(List<Wave> referenceWaves, Wave excludedReferenceWave,
+                                     double targetX, double targetY, long currentTime) {
+        if (referenceWaves == null) {
+            return -1;
+        }
+        int best = Integer.MAX_VALUE;
+        for (Wave wave : referenceWaves) {
+            if (wave == null || wave == excludedReferenceWave || wave.isVirtual || wave.fireTime >= currentTime) {
+                continue;
+            }
+            if (wave.hasPassed(targetX, targetY, currentTime)) {
+                continue;
+            }
+            best = Math.min(best, PhysicsUtil.waveArrivalTick(wave, targetX, targetY, currentTime));
+        }
+        return best == Integer.MAX_VALUE ? -1 : best;
     }
 
     public static double updateMomentumLateralVelocity(double previousMomentumLateralVelocity,

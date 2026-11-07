@@ -88,7 +88,7 @@ public final class RamPredictors {
                 ourFutureState.y - opponentState.y);
         double lateralVelocity = ourFutureState.velocity * FastTrig.sin(ourFutureState.heading - absoluteBearing);
         double projectedBearing = MathUtils.normalizeAngle(absoluteBearing + lateralVelocity / LEAD_DIVISOR);
-        double distance = Math.hypot(ourFutureState.x - opponentState.x, ourFutureState.y - opponentState.y);
+        double distance = oog.mega.saguaro.math.MathUtils.hypot(ourFutureState.x - opponentState.x, ourFutureState.y - opponentState.y);
         return new OpponentDriveSimulator.DriveTarget(
                 opponentState.x + FastTrig.sin(projectedBearing) * distance,
                 opponentState.y + FastTrig.cos(projectedBearing) * distance);

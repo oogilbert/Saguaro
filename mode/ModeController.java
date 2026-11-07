@@ -17,7 +17,6 @@ import oog.mega.saguaro.info.learning.RoundOutcomeProfile;
 import oog.mega.saguaro.info.learning.ScoreMaxLearningProfile;
 import oog.mega.saguaro.info.learning.ScoreMaxScoreHistoryProfile;
 import oog.mega.saguaro.info.persistence.BattleDataStore;
-import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.info.persistence.BulletPowerHitRateDataSet;
 import oog.mega.saguaro.info.persistence.ModePerformanceDataSet;
 import oog.mega.saguaro.info.persistence.WaveModelDataSet;
@@ -173,7 +172,6 @@ public final class ModeController {
             mode.onBattleEnded(robot);
         }
         dataStore.saveRequestedData(robot);
-        announceEndOfBattleWeights(robot);
     }
 
     public BattlePlan getPlan() {
@@ -535,10 +533,7 @@ public final class ModeController {
             return ModeObservationPolicy.TARGETING_ONLY;
         }
         if (modeId == ModeId.PERFECT_PREDICTION) {
-            return ModeObservationPolicy.MOVEMENT_UPDATE_ONLY;
-        }
-        if (modeId == ModeId.ANTI_BASIC_SURFER) {
-            return ModeObservationPolicy.MOVEMENT_FULL_TARGETING_READ_ONLY;
+            return ModeObservationPolicy.MOVEMENT_DISTRIBUTIONS_ONLY;
         }
         if (modeId == ModeId.SHOT_DODGER || isWavePoisonVariant(modeId)) {
             return ModeObservationPolicy.SHOT_DODGER_EXPERT_ONLY;
@@ -563,7 +558,11 @@ public final class ModeController {
         if (configuredLockedMode != null) {
             return configuredLockedMode;
         }
-        return dataStore != null ? dataStore.getPersistedLockedMode() : null;
+        ModeId persistedLockedMode = dataStore != null ? dataStore.getPersistedLockedMode() : null;
+        if (persistedLockedMode != null) {
+            return persistedLockedMode;
+        }
+        return BotConfig.ModeSelection.EXPLORE_UNSETTLED_OPPONENTS ? null : ModeId.SCORE_MAX;
     }
 
     private ModeId getLockedModeFromConfig() {
@@ -580,6 +579,9 @@ public final class ModeController {
     }
 
     private void announceMode(ModeId fromModeId, ModeId toModeId) {
+        if (!BotConfig.Debug.PRINT_DIAGNOSTICS) {
+            return;
+        }
         if (!battleModeAnnouncementPrinted) {
             info.getRobot().out.println("Battle mode: " + toModeId.displayName());
             battleModeAnnouncementPrinted = true;
@@ -595,25 +597,6 @@ public final class ModeController {
         }
     }
 
-    private void announceEndOfBattleWeights(Saguaro robot) {
-        if (!WaveLog.isTargetingModelDefault()) {
-            printWaveModelDelta(robot, "Targeting Delta:", WaveLog.getTargetingModelDeltaLines());
-        }
-        if (!WaveLog.isMovementModelDefault()) {
-            printWaveModelDelta(robot, "Movement Delta:", WaveLog.getMovementModelDeltaLines());
-        }
-    }
-
-    private void printWaveModelDelta(Saguaro robot, String header, List<String> lines) {
-        robot.out.println(header);
-        if (lines == null || lines.isEmpty()) {
-            robot.out.println("  none");
-            return;
-        }
-        for (String line : lines) {
-            robot.out.println("  " + line);
-        }
-    }
 
     private static boolean isShieldMode(ModeId modeId) {
         return modeId == ModeId.BULLET_SHIELD || modeId == ModeId.MOVING_BULLET_SHIELD;

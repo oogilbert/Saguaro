@@ -25,6 +25,36 @@ public final class ModeObservationProfile implements ObservationProfile {
         this.delegate = delegate;
     }
 
+    @Override
+    public void onMyWaveResolved(Wave wave, boolean hit, double gfMin, double gfMax, long time) {
+        if (!policy.logTargetingObservations) {
+            return;
+        }
+        delegate.onMyWaveResolved(wave, hit, gfMin, gfMax, time);
+    }
+
+    @Override
+    public void onEnemyWaveResolved(Wave wave, boolean revealed, boolean collided, double bulletGf,
+                                    double gfMin, double gfMax, long time) {
+        if (!policy.logMovementObservations) {
+            return;
+        }
+        delegate.onEnemyWaveResolved(wave, revealed, collided, bulletGf, gfMin, gfMax, time);
+    }
+
+    @Override
+    public void onRoundStart() {
+        delegate.onRoundStart();
+    }
+
+    @Override
+    public void onMyWaveFired(Wave wave) {
+        if (!policy.logTargetingObservations) {
+            return;
+        }
+        delegate.onMyWaveFired(wave);
+    }
+
     public void setPolicy(ModeObservationPolicy policy) {
         if (policy == null) {
             throw new IllegalArgumentException("Mode observation profile requires a non-null policy");

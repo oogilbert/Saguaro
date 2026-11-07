@@ -12,7 +12,6 @@ import oog.mega.saguaro.gun.ShotSolution;
 import oog.mega.saguaro.info.state.EnemyInfo;
 import oog.mega.saguaro.info.wave.BulletShadowUtil;
 import oog.mega.saguaro.info.wave.Wave;
-import oog.mega.saguaro.info.wave.WaveLog;
 import oog.mega.saguaro.math.GuessFactorDistribution;
 import oog.mega.saguaro.math.FastTrig;
 import oog.mega.saguaro.math.MathUtils;
@@ -64,6 +63,8 @@ final class ShotPlanner {
         final double continuationFirePower;
         final boolean shadowShot;
         final Map<Wave, Double> enemyWaveHitProbabilities;
+        /** The hit chance before the chosen-shot calibration; NaN where none was made. */
+        double rawHitProbability = Double.NaN;
 
         ShotSelection(double power, double firingAngle,
                       double hitProbability,
@@ -102,7 +103,7 @@ final class ShotPlanner {
             if (shotScore == null) {
                 return this;
             }
-            return new ShotSelection(
+            ShotSelection scored = new ShotSelection(
                     power,
                     firingAngle,
                     hitProbability,
@@ -118,6 +119,8 @@ final class ShotPlanner {
                     continuationFirePower,
                     shadowShot,
                     enemyWaveHitProbabilities);
+            scored.rawHitProbability = rawHitProbability;
+            return scored;
         }
 
         boolean hasFiniteScore() {
@@ -276,7 +279,7 @@ final class ShotPlanner {
     static double targetingDataHitRateScale() {
         double maturity = Math.min(
                 1.0,
-                WaveLog.getTargetingSampleCount()
+                oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE.targetingSampleCount()
                         / (double) BotConfig.Gun.TARGETING_DATA_FULL_CONFIDENCE_SAMPLES);
         return BotConfig.Gun.MIN_TARGETING_DATA_HIT_RATE_SCALE
                 + (1.0 - BotConfig.Gun.MIN_TARGETING_DATA_HIT_RATE_SCALE) * maturity;
@@ -340,7 +343,14 @@ final class ShotPlanner {
                 enemyWavesAtFireTime,
                 expectedBulletDamageTaken,
                 expectedEnemyEnergyGain);
-        double hitProbability = hitProbabilityNoShadow * collisionEffects.bulletSurvivalProbability;
+        // The chance the plan's own choosing leaves: chosen shots are the ones whose
+        // predicted chance is highest among the candidates, so the prediction attached to a
+        // choice runs above the rate it realises -- half again above it, measured against
+        // DrussGT -- however unbiased each candidate's prediction. A map fitted on the plans'
+        // chosen shots and their outcomes restores it, and it starts as the identity.
+        double rawHitProbability = hitProbabilityNoShadow * collisionEffects.bulletSurvivalProbability;
+        double hitProbability = oog.mega.saguaro.info.learning.rule.RuleProfile.INSTANCE
+                .chosenShotChance(rawHitProbability);
         double bulletDamage = Rules.getBulletDamage(power);
         double expectedDamageDealt = hitProbability * Math.min(bulletDamage, enemyEnergyForScoring);
         double firingEnergyDelta = -power + hitProbability * 3.0 * power;
@@ -366,6 +376,7 @@ final class ShotPlanner {
                 continuationFirePower,
                 shadowShot,
                 collisionEffects.enemyWaveHitProbabilities);
+        candidate.rawHitProbability = rawHitProbability;
         ShotScore shotScore = scoreEvaluator.scoreShot(path, pathIntersections, candidate, currentOurEnergy);
         return candidate.withScore(shotScore);
     }

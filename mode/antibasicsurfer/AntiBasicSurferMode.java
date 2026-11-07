@@ -36,7 +36,7 @@ public final class AntiBasicSurferMode implements BattleMode {
 
     @Override
     public ModeObservationPolicy getObservationPolicy() {
-        return ModeObservationPolicy.MOVEMENT_FULL_TARGETING_READ_ONLY;
+        return ModeObservationPolicy.FULL;
     }
 
     @Override

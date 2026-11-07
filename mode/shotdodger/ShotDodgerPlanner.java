@@ -203,7 +203,7 @@ final class ShotDodgerPlanner {
                 continue;
             }
             PhysicsUtil.PositionState state = path.trajectory.stateAt(i);
-            double distance = Math.hypot(state.x - enemyAtTime.x, state.y - enemyAtTime.y);
+            double distance = oog.mega.saguaro.math.MathUtils.hypot(state.x - enemyAtTime.x, state.y - enemyAtTime.y);
             if (distance < minDistance) {
                 minDistance = distance;
             }

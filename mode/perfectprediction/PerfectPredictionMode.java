@@ -84,7 +84,7 @@ public final class PerfectPredictionMode implements BattleMode {
 
     @Override
     public ModeObservationPolicy getObservationPolicy() {
-        return ModeObservationPolicy.MOVEMENT_UPDATE_ONLY;
+        return ModeObservationPolicy.MOVEMENT_DISTRIBUTIONS_ONLY;
     }
 
     @Override
@@ -384,7 +384,7 @@ public final class PerfectPredictionMode implements BattleMode {
                 double wallDistance = distanceToNearestWall(candidateX, candidateY, bfWidth, bfHeight);
                 double opponentDistance = RobotHitbox.minDistance(opponentNow.x, opponentNow.y, candidateX, candidateY);
                 double score = Math.min(0.5 * opponentDistance, wallDistance);
-                double travelDistance = Math.hypot(candidateX - myNow.x, candidateY - myNow.y);
+                double travelDistance = oog.mega.saguaro.math.MathUtils.hypot(candidateX - myNow.x, candidateY - myNow.y);
                 if (score > bestScore + 1e-9
                         || (Math.abs(score - bestScore) <= 1e-9 && wallDistance > bestWallDistance + 1e-9)
                         || (Math.abs(score - bestScore) <= 1e-9
