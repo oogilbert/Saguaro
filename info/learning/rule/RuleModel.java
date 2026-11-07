@@ -38,6 +38,14 @@ public final class RuleModel {
     private static final int MAX_POINTS = 64;
     private static final double LEARNING_RATE = 0.04;
     private static final double SCALE_DECAY = 0.995;
+    /**
+     * A mover's rating is divided by its own spread plus this share of the spread it would
+     * have with every credit at +1. Observations bunched at one guess factor give a rating
+     * of one shape whatever the credits' size, so its own spread alone cancels that size
+     * out: a credit of the wrong sign then has no gradient and stays wrong for rounds, as it
+     * did against bots that mostly sit still.
+     */
+    static final double EVIDENCE_SHARE = 0.05;
 
     private final int features;
     private final int dimensions;
@@ -58,6 +66,7 @@ public final class RuleModel {
     private final double[] weightOf = new double[NEIGHBOURS];
     private final double[] points = new double[MAX_POINTS];
     private final double[] rating = new double[MAX_POINTS];
+    private final double[] evidence = new double[MAX_POINTS];
     private final double[] standard = new double[MAX_POINTS];
     private final double[] probability = new double[MAX_POINTS];
     private final double[] given = new double[MAX_POINTS];
@@ -358,6 +367,7 @@ public final class RuleModel {
     public void rating(double[] situation, List<RuleLog.Entry> log, double[] at, int count,
                        double[] out, long asOf, int shift) {
         java.util.Arrays.fill(out, 0, count, 0.0);
+        gathered = 0;
         if (log.isEmpty()) return;
         hitShift = shift;
         int found;
@@ -366,6 +376,7 @@ public final class RuleModel {
         } finally {
             hitShift = 0;
         }
+        gathered = found;
         double h = bandwidth();
         for (int n = 0; n < found; n++) {
             double w = weightOf[n];
@@ -374,6 +385,22 @@ public final class RuleModel {
             for (int g = 0; g < count; g++) {
                 double u = (at[g] - centre) / h;
                 out[g] += w / (1.0 + u * u);
+            }
+        }
+    }
+
+    /** Observations the last {@link #rating} read. */
+    private int gathered;
+
+    /** What the last {@link #rating} would have given with every credit at +1. */
+    void evidence(List<RuleLog.Entry> log, double[] at, int count, double[] out) {
+        java.util.Arrays.fill(out, 0, count, 0.0);
+        double h = bandwidth();
+        for (int n = 0; n < gathered; n++) {
+            double centre = log.get(which[n]).guessFactor();
+            for (int g = 0; g < count; g++) {
+                double u = (at[g] - centre) / h;
+                out[g] += closeness[n] / (1.0 + u * u);
             }
         }
     }
@@ -462,12 +489,15 @@ public final class RuleModel {
         if (found == 0) return;
         double s = sharpness(), h = bandwidth();
         java.util.Arrays.fill(rating, 0, count, 0.0);
+        java.util.Arrays.fill(evidence, 0, count, 0.0);
         for (int n = 0; n < found; n++) {
             double w = weightOf[n];
             double at = log.get(which[n]).guessFactor();
             for (int g = 0; g < count; g++) {
                 double u = (points[g] - at) / h;
-                rating[g] += w / (1.0 + u * u);
+                double k = 1.0 / (1.0 + u * u);
+                rating[g] += w * k;
+                evidence[g] += closeness[n] * k;
             }
         }
         double mean = 0;
@@ -475,7 +505,18 @@ public final class RuleModel {
         mean /= count;
         double variance = 0;
         for (int g = 0; g < count; g++) variance += (rating[g] - mean) * (rating[g] - mean);
-        double spread = Math.sqrt(variance / count);
+        double ownSpread = Math.sqrt(variance / count);
+        double spread = ownSpread;
+        if (sigma < 0) {
+            double evidenceMean = 0;
+            for (int g = 0; g < count; g++) evidenceMean += evidence[g];
+            evidenceMean /= count;
+            double evidenceVariance = 0;
+            for (int g = 0; g < count; g++) {
+                evidenceVariance += (evidence[g] - evidenceMean) * (evidence[g] - evidenceMean);
+            }
+            spread += EVIDENCE_SHARE * Math.sqrt(evidenceVariance / count);
+        }
         if (!(spread > 1e-9)) {
             // A rating with no contrast predicts the uniform guess: it scores nothing.
             liftCount++;
@@ -527,12 +568,14 @@ public final class RuleModel {
                 double u = (points[g] - entry.guessFactor()) / h;
                 double k = 1.0 / (1.0 + u * u);
                 double kb = 2.0 * u * u * k * k;
+                // The credits move the rating's own spread, not the evidence added to it.
+                double ownStandard = ownSpread > 1e-9 ? standard[g] * spread / ownSpread : 0;
                 underGiven += given[g] * k;
                 underPrediction += probability[g] * k;
-                againstZ += standard[g] * k;
+                againstZ += ownStandard * k;
                 bandGiven += given[g] * kb;
                 bandPrediction += probability[g] * kb;
-                bandZ += standard[g] * kb;
+                bandZ += ownStandard * kb;
             }
             double effect = coefficient * (underGiven - underPrediction - gap * againstZ / count);
             double bandEffect = coefficient * (bandGiven - bandPrediction - gap * bandZ / count);

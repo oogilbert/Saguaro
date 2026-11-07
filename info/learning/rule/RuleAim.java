@@ -87,6 +87,7 @@ final class RuleAim {
      */
     private record ShotKey(long fireTime, double speed) { }
     private final Map<ShotKey, double[]> ratingCache = new HashMap<>();
+    private final Map<ShotKey, double[]> evidenceCache = new HashMap<>();
 
     /** Diagnostics. */
     long terminalRejected, terminalRequests, terminalNanos;
@@ -103,6 +104,7 @@ final class RuleAim {
     void startRound() {
         records.clear();
         ratingCache.clear();
+        evidenceCache.clear();
         cacheTime = Long.MIN_VALUE;
     }
 
@@ -110,6 +112,7 @@ final class RuleAim {
         if (cacheTime == now) return;
         cacheTime = now;
         ratingCache.clear();
+        evidenceCache.clear();
     }
 
     // ---- the rating ---------------------------------------------------------------
@@ -128,7 +131,8 @@ final class RuleAim {
      * spread uniformly over the interval. Returned as (angle, mass) per piece; each piece
      * lies within one cell.
      */
-    private List<double[]> learned(ChainWave wave, double bearing, double lower, double upper, double[] bins) {
+    private List<double[]> learned(ChainWave wave, double bearing, double lower, double upper,
+                                   double[] bins, double[] evidence) {
         List<Double> cuts = new ArrayList<>();
         cuts.add(lower);
         cuts.add(upper);
@@ -166,7 +170,15 @@ final class RuleAim {
             count++;
         }
         for (double[] piece : pieces) minimum = Math.min(minimum, piece[2]);
-        double mean = sum / count, spread = Math.sqrt(Math.max(0, square / count - mean * mean));
+        double evidenceSum = 0, evidenceSquare = 0;
+        for (int i = 0; i < BINS; i++) {
+            if (!reached[i]) continue;
+            evidenceSum += evidence[i];
+            evidenceSquare += evidence[i] * evidence[i];
+        }
+        double evidenceMean = evidenceSum / count;
+        double mean = sum / count, spread = Math.sqrt(Math.max(0, square / count - mean * mean))
+                + RuleModel.EVIDENCE_SHARE * Math.sqrt(Math.max(0, evidenceSquare / count - evidenceMean * evidenceMean));
         double beta = model.choiceSharpness(), floor = model.floor();
         double rated = 0, measured = 0;
         for (double[] piece : pieces) {
@@ -286,9 +298,12 @@ final class RuleAim {
         if (bins == null) {
             bins = rating(RuleProfile.features(context), log.clock(context.battleTime));
             ratingCache.put(key, bins);
+            double[] evidence = new double[BINS];
+            model.evidence(log.entries(), GRID, BINS, evidence);
+            evidenceCache.put(key, evidence);
         }
         double[] density = new double[BINS];
-        for (double[] piece : learned(shot, bearing, interval[0], interval[1], bins)) {
+        for (double[] piece : learned(shot, bearing, interval[0], interval[1], bins, evidenceCache.get(key))) {
             density[shot.cell(piece[0])] += piece[1];
         }
         terminalNanos += System.nanoTime() - t0;
