@@ -57,7 +57,13 @@ public final class BulletShieldMode implements BattleMode {
     private static final double BODY_HALF_DIAGONAL = 18.1 * Math.sqrt(2.0);
     private static final double WIGGLE_SIZE = 0.1;
     private static final double OPENING_ANTI_GRAVITY_COMMAND_DISTANCE = 1000.0;
+    /** Offsets this close count as the same: the opponent aimed the same way. */
     private static final double MODEL_SCORE_MATCH_EPSILON = 1e-5;
+    /** Observations this many shots old count half as much as the latest one. */
+    private static final double OFFSET_HALF_LIFE_OBSERVATIONS = 30.0;
+    private static final double OBSERVATION_WEIGHT_GROWTH = Math.pow(2.0, 1.0 / OFFSET_HALF_LIFE_OBSERVATIONS);
+    /** The persisted bootstrap counts as this many observations agreeing with it. */
+    private static final double PERSISTED_BOOTSTRAP_WEIGHT = 2.0;
     private static final double WAVE_MATCH_POWER_TOLERANCE = 1e-3;
     private static final double SHARED_WAVE_ORIGIN_TOLERANCE = 0.6;
     private static final Color SHIELD_COLLISION_PATH_COLOR = new Color(255, 244, 128, 220);
@@ -573,9 +579,10 @@ public final class BulletShieldMode implements BattleMode {
         predictedHeadings[3] = absoluteBearing(predictedNext.x, predictedNext.y, my2.x, my2.y);
 
         for (int i = 0; i < BASE_OPTIONS; i++) {
-            predictedHeadings[i + BASE_OPTIONS] = normalize(predictedHeadings[i] + bootstrapState.offsets[i]);
+            predictedHeadings[i + BASE_OPTIONS] =
+                    normalize(predictedHeadings[i] + bootstrapState.plainOffsets[i].bestOffset);
             predictedHeadings[i + BASE_OPTIONS * 2] =
-                    normalize(predictedHeadings[i] + lateralDirection * bootstrapState.directionalOffsets[i]);
+                    normalize(predictedHeadings[i] + lateralDirection * bootstrapState.directionalOffsets[i].bestOffset);
         }
 
         EnemyWave wave = new EnemyWave();
@@ -1230,17 +1237,6 @@ public final class BulletShieldMode implements BattleMode {
             return;
         }
 
-        // TEMP DIAGNOSTIC: the option this wave was shielded with and every option's error.
-        StringBuilder trace = new StringBuilder(String.format(java.util.Locale.ROOT,
-                "TRACE obs %d %d fire %d power %.2f best %d src %d errs",
-                robot.getRoundNum(), time, wave.fireTime, wave.power, wave.bestOptionIndex,
-                wave.sharedWave == null ? -1L : wave.sharedWave.sourceTickTime));
-        for (int i = 0; i < OPTIONS; i++) {
-            trace.append(String.format(java.util.Locale.ROOT, " %.4f",
-                    Utils.normalRelativeAngle(bullet.getHeadingRadians() - wave.predictedHeadings[i])));
-        }
-        robot.out.println(trace);
-
         // The predicted headings use the shooter and us as scanned the tick before the shot's
         // origin. Without a scan from exactly that tick they are built from older positions, so
         // the bullet says nothing about how the opponent aims: learning from it would corrupt
@@ -1250,33 +1246,26 @@ public final class BulletShieldMode implements BattleMode {
             return;
         }
 
-        // The persisted bootstrap is only an opening prior. The first real shield observation
-        // replaces it completely so stale opponent behavior never contaminates live battle data.
-        if (bootstrapState.persistedBootstrapLoaded && !bootstrapState.currentBattleShieldDataAvailable) {
-            clearShieldStatistics(bootstrapState);
-            bootstrapState.persistedBootstrapLoaded = false;
-            bootstrapState.persistedBootstrapBestOptionIndex = 0;
-            bootstrapState.persistedBootstrapAngleOffset = 0.0;
-        }
         bootstrapState.currentBattleShieldDataAvailable = true;
 
-        for (int i = 0; i < OPTIONS; i++) {
-            double diff = Utils.normalRelativeAngle(bullet.getHeadingRadians() - wave.predictedHeadings[i]);
-            bootstrapState.optionSquaredErrorSums[i] += diff * diff;
-            bootstrapState.optionObservationCounts[i]++;
-            if (Math.abs(diff) < MODEL_SCORE_MATCH_EPSILON) {
-                bootstrapState.optionScores[i]++;
+        // Each way of aiming learns the exact offsets the opponent fires at, never an average:
+        // a shield needs the bullet's exact line, so the offset it uses is the one the most
+        // (recent) bullets agreed on exactly. A shot aimed some other way only makes a group of
+        // its own, which can never outweigh how the opponent usually aims.
+        for (int i = 0; i < BASE_OPTIONS; i++) {
+            double offset = Utils.normalRelativeAngle(bullet.getHeadingRadians() - wave.predictedHeadings[i]);
+            bootstrapState.plainOffsets[i].add(offset, bootstrapState.observationWeight);
+            bootstrapState.directionalOffsets[i].add(wave.direction * offset, bootstrapState.observationWeight);
+        }
+        // Newer observations weigh more, so a real change in how it aims takes over.
+        bootstrapState.observationWeight *= OBSERVATION_WEIGHT_GROWTH;
+        if (bootstrapState.observationWeight > 1e100) {
+            double factor = 1.0 / bootstrapState.observationWeight;
+            for (int i = 0; i < BASE_OPTIONS; i++) {
+                bootstrapState.plainOffsets[i].scale(factor);
+                bootstrapState.directionalOffsets[i].scale(factor);
             }
-            if (i < BASE_OPTIONS) {
-                bootstrapState.offsets[i] =
-                        (bootstrapState.offsets[i] * bootstrapState.offsetCounts[i] + diff)
-                                / (bootstrapState.offsetCounts[i] + 1);
-                bootstrapState.directionalOffsets[i] =
-                        (bootstrapState.directionalOffsets[i] * bootstrapState.offsetCounts[i]
-                                + wave.direction * diff)
-                                / (bootstrapState.offsetCounts[i] + 1);
-                bootstrapState.offsetCounts[i]++;
-            }
+            bootstrapState.observationWeight = 1.0;
         }
 
         resolveObservedWave(wave);
@@ -1546,63 +1535,55 @@ public final class BulletShieldMode implements BattleMode {
     }
 
     private static void clearShieldStatistics(ShieldBootstrapState state) {
-        for (int i = 0; i < OPTIONS; i++) {
-            state.optionScores[i] = 0;
-            state.optionObservationCounts[i] = 0;
-            state.optionSquaredErrorSums[i] = 0.0;
-        }
         for (int i = 0; i < BASE_OPTIONS; i++) {
-            state.offsetCounts[i] = 0;
-            state.offsets[i] = 0.0;
-            state.directionalOffsets[i] = 0.0;
+            state.plainOffsets[i].clear();
+            state.directionalOffsets[i].clear();
         }
+        state.observationWeight = 1.0;
     }
 
     private static void applyPersistedBootstrap(ShieldBootstrapState state, int bestOptionIndex, double angleOffset) {
         clearShieldStatistics(state);
-        state.optionScores[bestOptionIndex] = 1;
-        if (bestOptionIndex >= BASE_OPTIONS && bestOptionIndex < BASE_OPTIONS * 2) {
-            state.offsets[bestOptionIndex - BASE_OPTIONS] = angleOffset;
-        } else if (bestOptionIndex >= BASE_OPTIONS * 2) {
-            state.directionalOffsets[bestOptionIndex - BASE_OPTIONS * 2] = angleOffset;
+        if (bestOptionIndex < BASE_OPTIONS) {
+            state.plainOffsets[bestOptionIndex].add(0.0, PERSISTED_BOOTSTRAP_WEIGHT);
+        } else if (bestOptionIndex < BASE_OPTIONS * 2) {
+            state.plainOffsets[bestOptionIndex - BASE_OPTIONS].add(angleOffset, PERSISTED_BOOTSTRAP_WEIGHT);
+        } else {
+            state.directionalOffsets[bestOptionIndex - BASE_OPTIONS * 2].add(angleOffset, PERSISTED_BOOTSTRAP_WEIGHT);
         }
     }
 
+    /** On equal agreement the earlier option wins: no offset before a learned one. */
     private static int selectBestOptionIndex(ShieldBootstrapState state) {
         int bestIndex = 0;
-        int bestScore = state.optionScores[0];
-        double bestAverageSquaredError = averageSquaredError(state, 0);
+        double bestScore = optionScore(state, 0);
         for (int i = 1; i < OPTIONS; i++) {
-            if (state.optionScores[i] > bestScore) {
+            double score = optionScore(state, i);
+            if (score > bestScore) {
                 bestIndex = i;
-                bestScore = state.optionScores[i];
-                bestAverageSquaredError = averageSquaredError(state, i);
-                continue;
-            }
-            if (state.optionScores[i] == bestScore) {
-                double candidateAverageSquaredError = averageSquaredError(state, i);
-                if (candidateAverageSquaredError < bestAverageSquaredError) {
-                    bestIndex = i;
-                    bestAverageSquaredError = candidateAverageSquaredError;
-                }
+                bestScore = score;
             }
         }
         return bestIndex;
     }
 
-    private static double averageSquaredError(ShieldBootstrapState state, int optionIndex) {
-        if (state.optionObservationCounts[optionIndex] <= 0) {
-            return Double.POSITIVE_INFINITY;
+    /** How much (recent) observation agrees exactly with the option. */
+    private static double optionScore(ShieldBootstrapState state, int optionIndex) {
+        if (optionIndex < BASE_OPTIONS) {
+            return state.plainOffsets[optionIndex].weightAt(0.0);
         }
-        return state.optionSquaredErrorSums[optionIndex] / state.optionObservationCounts[optionIndex];
+        if (optionIndex < BASE_OPTIONS * 2) {
+            return state.plainOffsets[optionIndex - BASE_OPTIONS].bestWeight;
+        }
+        return state.directionalOffsets[optionIndex - BASE_OPTIONS * 2].bestWeight;
     }
 
     private static double angleOffsetForOption(ShieldBootstrapState state, int optionIndex) {
         if (optionIndex >= BASE_OPTIONS && optionIndex < BASE_OPTIONS * 2) {
-            return state.offsets[optionIndex - BASE_OPTIONS];
+            return state.plainOffsets[optionIndex - BASE_OPTIONS].bestOffset;
         }
         if (optionIndex >= BASE_OPTIONS * 2) {
-            return state.directionalOffsets[optionIndex - BASE_OPTIONS * 2];
+            return state.directionalOffsets[optionIndex - BASE_OPTIONS * 2].bestOffset;
         }
         return 0.0;
     }
@@ -1856,16 +1837,72 @@ public final class BulletShieldMode implements BattleMode {
     }
 
     private static final class ShieldBootstrapState {
-        final int[] optionScores = new int[OPTIONS];
-        final int[] optionObservationCounts = new int[OPTIONS];
-        final double[] optionSquaredErrorSums = new double[OPTIONS];
-        final int[] offsetCounts = new int[BASE_OPTIONS];
-        final double[] offsets = new double[BASE_OPTIONS];
-        final double[] directionalOffsets = new double[BASE_OPTIONS];
+        /** For each way of aiming, the offsets observed, and those signed by our lateral direction. */
+        final OffsetConsensus[] plainOffsets = createOffsetConsensuses();
+        final OffsetConsensus[] directionalOffsets = createOffsetConsensuses();
+        /** What the next observation adds; it grows so that older observations fade. */
+        double observationWeight = 1.0;
         boolean currentBattleShieldDataAvailable;
         boolean persistedBootstrapLoaded;
         int persistedBootstrapBestOptionIndex;
         double persistedBootstrapAngleOffset;
+    }
+
+    private static OffsetConsensus[] createOffsetConsensuses() {
+        OffsetConsensus[] consensuses = new OffsetConsensus[BASE_OPTIONS];
+        for (int i = 0; i < BASE_OPTIONS; i++) {
+            consensuses[i] = new OffsetConsensus();
+        }
+        return consensuses;
+    }
+
+    /**
+     * Observed offsets grouped by value, offsets within the match tolerance counting as the same
+     * one, each group weighted by the observations agreeing on it.
+     */
+    private static final class OffsetConsensus {
+        /** Per group: its weight and the latest offset in it, kept exact for prediction. */
+        private final Map<Long, double[]> groups = new HashMap<Long, double[]>();
+        double bestWeight;
+        double bestOffset;
+
+        void clear() {
+            groups.clear();
+            bestWeight = 0.0;
+            bestOffset = 0.0;
+        }
+
+        void add(double offset, double weight) {
+            Long key = groupKey(offset);
+            double[] group = groups.get(key);
+            if (group == null) {
+                group = new double[2];
+                groups.put(key, group);
+            }
+            group[0] += weight;
+            group[1] = offset;
+            // Weights only grow, so only the group just added to can become the best.
+            if (group[0] > bestWeight) {
+                bestWeight = group[0];
+                bestOffset = offset;
+            }
+        }
+
+        double weightAt(double offset) {
+            double[] group = groups.get(groupKey(offset));
+            return group == null ? 0.0 : group[0];
+        }
+
+        void scale(double factor) {
+            for (double[] group : groups.values()) {
+                group[0] *= factor;
+            }
+            bestWeight *= factor;
+        }
+
+        private static Long groupKey(double offset) {
+            return Math.round(offset / MODEL_SCORE_MATCH_EPSILON);
+        }
     }
 
     private static final class Snapshot {
