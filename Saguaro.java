@@ -57,8 +57,14 @@ public class Saguaro extends AdvancedRobot {
         }
     }
 
+    private long traceLastScanTime = -1L; // TEMP DIAGNOSTIC
+
     @Override
     public void onScannedRobot(ScannedRobotEvent e) {
+        if (traceLastScanTime >= 0 && e.getTime() > traceLastScanTime + 1) {
+            out.println("TRACE scangap " + getRoundNum() + " " + traceLastScanTime + " " + e.getTime());
+        }
+        traceLastScanTime = e.getTime();
         mode.onScannedRobot(e);
         info.onScannedRobot(e);
     }
@@ -110,6 +116,7 @@ public class Saguaro extends AdvancedRobot {
     @Override
     public void onSkippedTurn(SkippedTurnEvent event) {
         roundSkippedTurns++;
+        out.println("TRACE skip " + getRoundNum() + " " + event.getSkippedTurn()); // TEMP DIAGNOSTIC
     }
 
     @Override

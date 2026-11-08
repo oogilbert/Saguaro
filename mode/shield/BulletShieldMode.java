@@ -1230,6 +1230,26 @@ public final class BulletShieldMode implements BattleMode {
             return;
         }
 
+        // TEMP DIAGNOSTIC: the option this wave was shielded with and every option's error.
+        StringBuilder trace = new StringBuilder(String.format(java.util.Locale.ROOT,
+                "TRACE obs %d %d fire %d power %.2f best %d src %d errs",
+                robot.getRoundNum(), time, wave.fireTime, wave.power, wave.bestOptionIndex,
+                wave.sharedWave == null ? -1L : wave.sharedWave.sourceTickTime));
+        for (int i = 0; i < OPTIONS; i++) {
+            trace.append(String.format(java.util.Locale.ROOT, " %.4f",
+                    Utils.normalRelativeAngle(bullet.getHeadingRadians() - wave.predictedHeadings[i])));
+        }
+        robot.out.println(trace);
+
+        // The predicted headings use the shooter and us as scanned the tick before the shot's
+        // origin. Without a scan from exactly that tick they are built from older positions, so
+        // the bullet says nothing about how the opponent aims: learning from it would corrupt
+        // the offsets.
+        if (wave.sharedWave == null || wave.sharedWave.sourceTickTime != wave.fireTime - 1L) {
+            resolveObservedWave(wave);
+            return;
+        }
+
         // The persisted bootstrap is only an opening prior. The first real shield observation
         // replaces it completely so stale opponent behavior never contaminates live battle data.
         if (bootstrapState.persistedBootstrapLoaded && !bootstrapState.currentBattleShieldDataAvailable) {
@@ -1259,6 +1279,10 @@ public final class BulletShieldMode implements BattleMode {
             }
         }
 
+        resolveObservedWave(wave);
+    }
+
+    private void resolveObservedWave(EnemyWave wave) {
         wave.resolved = true;
         if (activePlan != null && activePlan.wave == wave) {
             activePlan = null;
