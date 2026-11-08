@@ -579,16 +579,11 @@ public final class ModeController {
     }
 
     private void announceMode(ModeId fromModeId, ModeId toModeId) {
-        if (!BotConfig.Debug.PRINT_DIAGNOSTICS) {
-            return;
+        info.getRobot().out.println(toModeId.taunt());
+        battleModeAnnouncementPrinted = true;
+        if (BotConfig.Debug.PRINT_DIAGNOSTICS) {
+            announceWeightsIfApplicable(toModeId);
         }
-        if (!battleModeAnnouncementPrinted) {
-            info.getRobot().out.println("Battle mode: " + toModeId.displayName());
-            battleModeAnnouncementPrinted = true;
-        } else {
-            info.getRobot().out.println("Mode switch: " + fromModeId.displayName() + " -> " + toModeId.displayName());
-        }
-        announceWeightsIfApplicable(toModeId);
     }
 
     private void announceWeightsIfApplicable(ModeId modeId) {

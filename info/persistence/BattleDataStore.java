@@ -581,7 +581,7 @@ public final class BattleDataStore {
                 return new PersistedModeDataPlan(modeId, false, false, false, false, false, true);
             }
             if (modeId == ModeId.SHOT_DODGER) {
-                return new PersistedModeDataPlan(modeId, false, false, false, true, false, false);
+                return new PersistedModeDataPlan(modeId, true, false, false, true, false, false);
             }
             if (modeId == ModeId.WAVE_POISON || modeId == ModeId.WAVE_POISON_SHIFT) {
                 return new PersistedModeDataPlan(modeId, true, false, false, true, false, false);

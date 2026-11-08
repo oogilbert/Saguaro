@@ -10,6 +10,7 @@ import oog.mega.saguaro.math.ConstantDeltaPredictor;
 import oog.mega.saguaro.math.GuessFactorDistributionHandle;
 import oog.mega.saguaro.math.MathUtils;
 import oog.mega.saguaro.math.PhysicsUtil;
+import robocode.Rules;
 import robocode.ScannedRobotEvent;
 
 public class EnemyInfo {
@@ -163,7 +164,13 @@ public class EnemyInfo {
         // We scan at tick T and see the energy drop, so enemy waves should be anchored at T-1.
         double energyDrop = energy - e.getEnergy();
         if (seenThisRound && energyDrop > 0) {
+            // A wall hit costs damage by the speed of that turn's move, but Robocode then backs the
+            // robot out along its heading, so how far it got only bounds that speed from below.
+            // As BeepBoop does, take the speed our own prediction of its movement gives, within
+            // what the hit allows: no slower than the distance it got, from braking hard to
+            // speeding up. The shot's power is then only known to within that range.
             double wallDamage = 0.0;
+            double mostWallDamage = 0.0;
             if (scannedVelocity == 0.0) {
                 double absoluteBearing = robot.getHeadingRadians() + e.getBearingRadians();
                 double distance = e.getDistance();
@@ -190,10 +197,18 @@ public class EnemyInfo {
                             attemptedVelocity = (newX - x) / sinH;
                         }
                     } else {
-                        attemptedVelocity = velocity; // Fallback for corner hits
+                        attemptedVelocity = 0.0; // A corner stops it along both axes: no floor.
                     }
 
-                    wallDamage = Math.max(0.0, Math.abs(attemptedVelocity) * 0.5 - 1.0);
+                    double speed = Math.abs(velocity);
+                    double fastest = Math.min(Rules.MAX_VELOCITY, speed + Rules.ACCELERATION);
+                    double slowest = Math.min(fastest, Math.max(Math.abs(attemptedVelocity), speed - Rules.DECELERATION));
+                    double predicted = previousScanTime == lastScanTime - 1L
+                            ? Math.abs(velocity + ConstantDeltaPredictor.estimateVelocityDelta(velocity, previousVelocity))
+                            : speed;
+                    double hitSpeed = Math.max(slowest, Math.min(fastest, predicted));
+                    wallDamage = Math.max(0.0, hitSpeed * 0.5 - 1.0);
+                    mostWallDamage = Math.max(0.0, fastest * 0.5 - 1.0);
                 }
             }
             double firepower = energyDrop - wallDamage;
@@ -218,7 +233,10 @@ public class EnemyInfo {
                         observationProfile.createMovementHistoricalSignaturePoint(firedWave.fireTimeContext);
                 firedWave.renderReachableGfInterval = null;
                 lastDetectedBulletPower = firepower;
-                gunHeat = 1.0 + firepower / 5.0;
+                // With the power uncertain, the gun is kept no hotter than the least power that
+                // fits -- cool if no shot at all does -- so a real next shot is never missed.
+                double leastFirepower = energyDrop - mostWallDamage;
+                gunHeat = leastFirepower < 0.099 ? 0.0 : 1.0 + Math.min(firepower, leastFirepower) / 5.0;
             }
         }
 
