@@ -122,8 +122,6 @@ public final class BotConfig {
         public static final int SNAPSHOT_HISTORY_LIMIT = 6;
         // When shield cooldown is within this many ticks of an integer boundary, round up to avoid edge-tick fire failures.
         public static final double SHIELD_READY_TICK_EDGE_EPSILON = 1e-6;
-        // Extra slack kept between an aggressive shot and the next required shield fire time.
-        public static final long AGGRESSIVE_SHOT_SHIELD_SAFETY_TICKS = 3L;
         // Range inside which shield mode is willing to take the direct-finisher shot immediately.
         public static final double AGGRESSIVE_CLOSE_RANGE_RADIUS = 60.0;
         // Opening-round grace period before shield mode considers idle aggressive shots.

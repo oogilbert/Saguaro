@@ -1173,7 +1173,7 @@ public final class BulletShieldMode implements BattleMode {
     private long conservativeShieldReadyTimeAfterAggressiveFire(Snapshot myNow, double firePower) {
         double conservativeGunHeat = myNow.gunHeat + Rules.getGunHeat(firePower);
         long readyTicks = Math.max(1L, ticksUntilShieldGunReady(conservativeGunHeat, myNow.gunCoolingRate));
-        return myNow.time + readyTicks + BotConfig.Shield.AGGRESSIVE_SHOT_SHIELD_SAFETY_TICKS;
+        return myNow.time + readyTicks;
     }
 
     private EnemyWave buildPessimisticExpectedNextWave(Snapshot myNow, long expectedEnemyFireTime) {
@@ -1181,7 +1181,12 @@ public final class BulletShieldMode implements BattleMode {
             return null;
         }
         Point2D.Double expectedSource = projectPessimisticEnemySource(myNow, expectedEnemyFireTime);
-        return buildSyntheticHeadOnWave(expectedSource.x, expectedSource.y, expectedEnemyFireTime, myNow);
+        EnemyWave wave = buildSyntheticHeadOnWave(expectedSource.x, expectedSource.y, expectedEnemyFireTime, myNow);
+        // The hardest next shot to shield is the fastest one: whatever power it fired last, the
+        // opponent can always fire the minimum next, so an aggressive shot must leave time for that.
+        wave.power = Rules.MIN_BULLET_POWER;
+        wave.speed = bulletSpeed(wave.power);
+        return wave;
     }
 
     private Point2D.Double projectPessimisticEnemySource(Snapshot myNow, long expectedEnemyFireTime) {
