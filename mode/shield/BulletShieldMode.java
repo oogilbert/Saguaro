@@ -9,6 +9,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -57,13 +58,12 @@ public final class BulletShieldMode implements BattleMode {
     private static final double BODY_HALF_DIAGONAL = 18.1 * Math.sqrt(2.0);
     private static final double WIGGLE_SIZE = 0.1;
     private static final double OPENING_ANTI_GRAVITY_COMMAND_DISTANCE = 1000.0;
-    /** Offsets this close count as the same: the opponent aimed the same way. */
-    private static final double MODEL_SCORE_MATCH_EPSILON = 1e-5;
-    /** Observations this many shots old count half as much as the latest one. */
-    private static final double OFFSET_HALF_LIFE_OBSERVATIONS = 30.0;
-    private static final double OBSERVATION_WEIGHT_GROWTH = Math.pow(2.0, 1.0 / OFFSET_HALF_LIFE_OBSERVATIONS);
-    /** The persisted bootstrap counts as this many observations agreeing with it. */
-    private static final double PERSISTED_BOOTSTRAP_WEIGHT = 2.0;
+    /** The persisted bootstrap counts as this many bullets its offset would have shielded. */
+    private static final int PERSISTED_BOOTSTRAP_WEIGHT = 2;
+    /** How finely the edges of a shield shot's tolerance are found, in radians of enemy heading. */
+    private static final double TOLERANCE_EDGE_PRECISION = 1e-9;
+    /** The widest enemy heading error searched for a shield shot's tolerance. */
+    private static final double MAX_TOLERANCE_SEARCH = 0.1;
     private static final double WAVE_MATCH_POWER_TOLERANCE = 1e-3;
     private static final double SHARED_WAVE_ORIGIN_TOLERANCE = 0.6;
     private static final Color SHIELD_COLLISION_PATH_COLOR = new Color(255, 244, 128, 220);
@@ -195,6 +195,7 @@ public final class BulletShieldMode implements BattleMode {
             if (bullet != null) {
                 activePlan.fireIssued = true;
                 activePlan.wave.shieldAttempted = true;
+                recordShieldShot(activePlan, bullet, myNow);
                 recordFiredShieldCollisionPath(activePlan, bullet);
             }
         } else if (bullet != null && pendingAggressiveShotTime == myNow.time) {
@@ -206,6 +207,19 @@ public final class BulletShieldMode implements BattleMode {
     @Override
     public RenderState getRenderState() {
         return new RenderState(buildShieldModePathOverlays(), false);
+    }
+
+    /** Keeps the shot as fired, so the bullet it was aimed at can later say which aims it would have stopped. */
+    private static void recordShieldShot(ShieldPlan plan, Bullet bullet, Snapshot myNow) {
+        EnemyWave wave = plan.wave;
+        wave.shieldShotFired = true;
+        wave.shieldShotX = bullet.getX();
+        wave.shieldShotY = bullet.getY();
+        wave.shieldShotHeading = bullet.getHeadingRadians();
+        wave.shieldShotSpeed = bullet.getVelocity();
+        wave.shieldShotFireTime = plan.fireTime;
+        wave.shieldShotLastUsefulTime = firstBodyContactTime(wave, myNow.x, myNow.y);
+        wave.shieldShotPlannedHeading = wave.predictedHeadings[wave.bestOptionIndex];
     }
 
     private void recordFiredShieldCollisionPath(ShieldPlan plan, Bullet bullet) {
@@ -1253,24 +1267,34 @@ public final class BulletShieldMode implements BattleMode {
 
         bootstrapState.currentBattleShieldDataAvailable = true;
 
-        // Each way of aiming learns the exact offsets the opponent fires at, never an average:
-        // a shield needs the bullet's exact line, so the offset it uses is the one the most
-        // (recent) bullets agreed on exactly. A shot aimed some other way only makes a group of
-        // its own, which can never outweigh how the opponent usually aims.
-        for (int i = 0; i < BASE_OPTIONS; i++) {
-            double offset = Utils.normalRelativeAngle(bullet.getHeadingRadians() - wave.predictedHeadings[i]);
-            bootstrapState.plainOffsets[i].add(offset, bootstrapState.observationWeight);
-            bootstrapState.directionalOffsets[i].add(wave.direction * offset, bootstrapState.observationWeight);
+        double actualHeading = bullet.getHeadingRadians();
+        for (int i = 0; i < OPTIONS; i++) {
+            double error = Utils.normalRelativeAngle(actualHeading - wave.predictedHeadings[i]);
+            bootstrapState.optionSquaredErrorSums[i] += error * error;
         }
-        // Newer observations weigh more, so a real change in how it aims takes over.
-        bootstrapState.observationWeight *= OBSERVATION_WEIGHT_GROWTH;
-        if (bootstrapState.observationWeight > 1e100) {
-            double factor = 1.0 / bootstrapState.observationWeight;
-            for (int i = 0; i < BASE_OPTIONS; i++) {
-                bootstrapState.plainOffsets[i].scale(factor);
-                bootstrapState.directionalOffsets[i].scale(factor);
+
+        // An aim is judged by whether a shield aimed with it would have stopped the bullet, not by
+        // whether it was exact: the shot we fired stops a range of enemy headings around the one
+        // it was aimed at, and an aim whose error falls in that range would have stopped this
+        // bullet too. A bullet we fired no shield shot at says nothing about that range.
+        double[] tolerance = wave.shieldShotFired ? shieldShotTolerance(wave) : null;
+        for (int i = 0; i < BASE_OPTIONS; i++) {
+            double offset = Utils.normalRelativeAngle(actualHeading - wave.predictedHeadings[i]);
+            if (tolerance == null) {
+                bootstrapState.plainOffsets[i].addObservation(offset);
+                bootstrapState.directionalOffsets[i].addObservation(wave.direction * offset);
+                continue;
             }
-            bootstrapState.observationWeight = 1.0;
+            // An offset o shields the bullet when offset - o lies in the tolerance, and a
+            // directional offset when offset - direction * o does.
+            bootstrapState.plainOffsets[i].addObservation(offset, offset - tolerance[1], offset - tolerance[0]);
+            if (wave.direction > 0.0) {
+                bootstrapState.directionalOffsets[i].addObservation(
+                        offset, offset - tolerance[1], offset - tolerance[0]);
+            } else {
+                bootstrapState.directionalOffsets[i].addObservation(
+                        -offset, tolerance[0] - offset, tolerance[1] - offset);
+            }
         }
 
         resolveObservedWave(wave);
@@ -1544,43 +1568,52 @@ public final class BulletShieldMode implements BattleMode {
             state.plainOffsets[i].clear();
             state.directionalOffsets[i].clear();
         }
-        state.observationWeight = 1.0;
+        for (int i = 0; i < OPTIONS; i++) {
+            state.optionSquaredErrorSums[i] = 0.0;
+        }
     }
 
     private static void applyPersistedBootstrap(ShieldBootstrapState state, int bestOptionIndex, double angleOffset) {
         clearShieldStatistics(state);
         if (bestOptionIndex < BASE_OPTIONS) {
-            state.plainOffsets[bestOptionIndex].add(0.0, PERSISTED_BOOTSTRAP_WEIGHT);
+            state.plainOffsets[bestOptionIndex].addShielded(0.0, PERSISTED_BOOTSTRAP_WEIGHT);
         } else if (bestOptionIndex < BASE_OPTIONS * 2) {
-            state.plainOffsets[bestOptionIndex - BASE_OPTIONS].add(angleOffset, PERSISTED_BOOTSTRAP_WEIGHT);
+            state.plainOffsets[bestOptionIndex - BASE_OPTIONS].addShielded(angleOffset, PERSISTED_BOOTSTRAP_WEIGHT);
         } else {
-            state.directionalOffsets[bestOptionIndex - BASE_OPTIONS * 2].add(angleOffset, PERSISTED_BOOTSTRAP_WEIGHT);
+            state.directionalOffsets[bestOptionIndex - BASE_OPTIONS * 2]
+                    .addShielded(angleOffset, PERSISTED_BOOTSTRAP_WEIGHT);
         }
     }
 
-    /** On equal agreement the earlier option wins: no offset before a learned one. */
+    /**
+     * The option that would have shielded the most bullets; between options that would have
+     * shielded as many, the one whose predictions had the smaller squared error, and on a full
+     * tie the earlier option: no offset before a learned one.
+     */
     private static int selectBestOptionIndex(ShieldBootstrapState state) {
         int bestIndex = 0;
-        double bestScore = optionScore(state, 0);
+        int bestShielded = shieldedCount(state, 0);
         for (int i = 1; i < OPTIONS; i++) {
-            double score = optionScore(state, i);
-            if (score > bestScore) {
+            int shielded = shieldedCount(state, i);
+            if (shielded > bestShielded
+                    || (shielded == bestShielded
+                    && state.optionSquaredErrorSums[i] < state.optionSquaredErrorSums[bestIndex])) {
                 bestIndex = i;
-                bestScore = score;
+                bestShielded = shielded;
             }
         }
         return bestIndex;
     }
 
-    /** How much (recent) observation agrees exactly with the option. */
-    private static double optionScore(ShieldBootstrapState state, int optionIndex) {
+    /** How many bullets a shield aimed with the option's current offset would have stopped. */
+    private static int shieldedCount(ShieldBootstrapState state, int optionIndex) {
         if (optionIndex < BASE_OPTIONS) {
-            return state.plainOffsets[optionIndex].weightAt(0.0);
+            return state.plainOffsets[optionIndex].shieldedAt(0.0);
         }
         if (optionIndex < BASE_OPTIONS * 2) {
-            return state.plainOffsets[optionIndex - BASE_OPTIONS].bestWeight;
+            return state.plainOffsets[optionIndex - BASE_OPTIONS].bestShielded;
         }
-        return state.directionalOffsets[optionIndex - BASE_OPTIONS * 2].bestWeight;
+        return state.directionalOffsets[optionIndex - BASE_OPTIONS * 2].bestShielded;
     }
 
     private static double angleOffsetForOption(ShieldBootstrapState state, int optionIndex) {
@@ -1681,30 +1714,15 @@ public final class BulletShieldMode implements BattleMode {
         PreciseShadow lastShadow = null;
         long firstSegmentTime = Math.max(fireTime + 1L, wave.fireTime + 1L);
         for (long time = firstSegmentTime; time <= lastUsefulTime; time++) {
-            Point2D.Double bulletStart = positionAtTick(wave, bulletHeading, time - 1L);
-            Point2D.Double bulletEnd = positionAtTick(wave, bulletHeading, time);
-
-            double startDistance = bulletStart.distance(fireLocation);
-            double endDistance = bulletEnd.distance(fireLocation);
-            double startRadius = (time - 1L - fireTime) * myBulletSpeed;
-            double endRadius = (time - fireTime) * myBulletSpeed;
-
-            if (startDistance < startRadius || endDistance > startDistance) {
+            Point2D.Double[] segment = shadowSegment(wave, fireLocation, fireTime, bulletHeading, myBulletSpeed, time);
+            if (segment == SHADOWS_ENDED) {
                 return lastShadow;
             }
-            if (endDistance > endRadius) {
+            if (segment == null) {
                 continue;
             }
-
-            Point2D.Double shadowStart = startDistance <= endRadius
-                    ? bulletStart
-                    : circleSegmentIntersection(fireLocation, bulletStart, bulletEnd, endRadius, false);
-            Point2D.Double shadowEnd = endDistance >= startRadius
-                    ? bulletEnd
-                    : circleSegmentIntersection(fireLocation, bulletStart, bulletEnd, startRadius, true);
-            if (shadowStart == null || shadowEnd == null) {
-                continue;
-            }
+            Point2D.Double shadowStart = segment[0];
+            Point2D.Double shadowEnd = segment[1];
 
             double edge1 = absoluteBearing(fireLocation.x, fireLocation.y, shadowStart.x, shadowStart.y);
             double edge2 = absoluteBearing(fireLocation.x, fireLocation.y, shadowEnd.x, shadowEnd.y);
@@ -1729,6 +1747,110 @@ public final class BulletShieldMode implements BattleMode {
             lastShadow = shadow;
         }
         return lastShadow;
+    }
+
+    private static final Point2D.Double[] SHADOWS_ENDED = new Point2D.Double[0];
+
+    /**
+     * The part of the enemy bullet's path during the tick ending at {@code time} that a bullet
+     * fired from {@code fireLocation} at {@code fireTime} can meet: null when it can't meet any of
+     * it this tick, {@link #SHADOWS_ENDED} when it can't on any later tick either.
+     */
+    private static Point2D.Double[] shadowSegment(EnemyWave wave,
+                                                  Point2D.Double fireLocation,
+                                                  long fireTime,
+                                                  double bulletHeading,
+                                                  double myBulletSpeed,
+                                                  long time) {
+        Point2D.Double bulletStart = positionAtTick(wave, bulletHeading, time - 1L);
+        Point2D.Double bulletEnd = positionAtTick(wave, bulletHeading, time);
+
+        double startDistance = bulletStart.distance(fireLocation);
+        double endDistance = bulletEnd.distance(fireLocation);
+        double startRadius = (time - 1L - fireTime) * myBulletSpeed;
+        double endRadius = (time - fireTime) * myBulletSpeed;
+
+        if (startDistance < startRadius || endDistance > startDistance) {
+            return SHADOWS_ENDED;
+        }
+        if (endDistance > endRadius) {
+            return null;
+        }
+
+        Point2D.Double shadowStart = startDistance <= endRadius
+                ? bulletStart
+                : circleSegmentIntersection(fireLocation, bulletStart, bulletEnd, endRadius, false);
+        Point2D.Double shadowEnd = endDistance >= startRadius
+                ? bulletEnd
+                : circleSegmentIntersection(fireLocation, bulletStart, bulletEnd, startRadius, true);
+        if (shadowStart == null || shadowEnd == null) {
+            return null;
+        }
+        return new Point2D.Double[] { shadowStart, shadowEnd };
+    }
+
+    /** Whether the shield shot fired at this wave would have met an enemy bullet fired at {@code enemyHeading}. */
+    private static boolean shieldShotStops(EnemyWave wave, double enemyHeading) {
+        Point2D.Double fireLocation = new Point2D.Double(wave.shieldShotX, wave.shieldShotY);
+        long firstSegmentTime = Math.max(wave.shieldShotFireTime + 1L, wave.fireTime + 1L);
+        for (long time = firstSegmentTime; time <= wave.shieldShotLastUsefulTime; time++) {
+            Point2D.Double[] segment = shadowSegment(
+                    wave, fireLocation, wave.shieldShotFireTime, enemyHeading, wave.shieldShotSpeed, time);
+            if (segment == SHADOWS_ENDED) {
+                return false;
+            }
+            if (segment == null) {
+                continue;
+            }
+            double edge1 = absoluteBearing(fireLocation.x, fireLocation.y, segment[0].x, segment[0].y);
+            double edge2 = absoluteBearing(fireLocation.x, fireLocation.y, segment[1].x, segment[1].y);
+            if (!(Math.abs(Utils.normalRelativeAngle(edge1 - edge2)) > 1e-8)) {
+                continue;
+            }
+            double fromEdge1 = Utils.normalRelativeAngle(wave.shieldShotHeading - edge1);
+            double fromEdge2 = Utils.normalRelativeAngle(wave.shieldShotHeading - edge2);
+            if (fromEdge1 * fromEdge2 <= 0.0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The range of errors, relative to the heading the shield shot was aimed at, that an enemy
+     * bullet could have had and still been stopped by it; null if it would not even have stopped a
+     * bullet on that heading.
+     */
+    private static double[] shieldShotTolerance(EnemyWave wave) {
+        if (!shieldShotStops(wave, wave.shieldShotPlannedHeading)) {
+            return null;
+        }
+        return new double[] { toleranceEdge(wave, -1.0), toleranceEdge(wave, 1.0) };
+    }
+
+    /** The furthest error in the given direction that the shield shot still stops, every error before it stopped too. */
+    private static double toleranceEdge(EnemyWave wave, double sign) {
+        double stopped = 0.0;
+        double missed = Double.NaN;
+        for (double error = TOLERANCE_EDGE_PRECISION; error <= MAX_TOLERANCE_SEARCH; error *= 2.0) {
+            if (!shieldShotStops(wave, normalize(wave.shieldShotPlannedHeading + sign * error))) {
+                missed = error;
+                break;
+            }
+            stopped = error;
+        }
+        if (Double.isNaN(missed)) {
+            return sign * stopped;
+        }
+        while (missed - stopped > TOLERANCE_EDGE_PRECISION) {
+            double middle = 0.5 * (stopped + missed);
+            if (shieldShotStops(wave, normalize(wave.shieldShotPlannedHeading + sign * middle))) {
+                stopped = middle;
+            } else {
+                missed = middle;
+            }
+        }
+        return sign * stopped;
     }
 
     private static Point2D.Double raySegmentIntersection(Point2D.Double origin,
@@ -1845,8 +1967,8 @@ public final class BulletShieldMode implements BattleMode {
         /** For each way of aiming, the offsets observed, and those signed by our lateral direction. */
         final OffsetConsensus[] plainOffsets = createOffsetConsensuses();
         final OffsetConsensus[] directionalOffsets = createOffsetConsensuses();
-        /** What the next observation adds; it grows so that older observations fade. */
-        double observationWeight = 1.0;
+        /** Per option, the summed squared error of the headings it predicted. */
+        final double[] optionSquaredErrorSums = new double[OPTIONS];
         boolean currentBattleShieldDataAvailable;
         boolean persistedBootstrapLoaded;
         int persistedBootstrapBestOptionIndex;
@@ -1862,51 +1984,119 @@ public final class BulletShieldMode implements BattleMode {
     }
 
     /**
-     * Observed offsets grouped by value, offsets within the match tolerance counting as the same
-     * one, each group weighted by the observations agreeing on it.
+     * For one way of aiming, the range of offsets that would have shielded each observed bullet.
+     * The offset it uses is one that would have shielded the most of them; among those, the one
+     * closest to the mean observed offset, which has the smallest squared error.
      */
     private static final class OffsetConsensus {
-        /** Per group: its weight and the latest offset in it, kept exact for prediction. */
-        private final Map<Long, double[]> groups = new HashMap<Long, double[]>();
-        double bestWeight;
+        /**
+         * Both ends of every shielded range, in offset order with ranges starting at an offset
+         * before others end there: each end's offset, and how the count of bullets shielded
+         * changes passing it (up at a start, down at an end).
+         */
+        private double[] endOffsets = new double[64];
+        private int[] endChanges = new int[64];
+        private int endCount;
+        private double observedOffsetSum;
+        private int observedOffsetCount;
+        int bestShielded;
         double bestOffset;
 
         void clear() {
-            groups.clear();
-            bestWeight = 0.0;
+            endCount = 0;
+            observedOffsetSum = 0.0;
+            observedOffsetCount = 0;
+            bestShielded = 0;
             bestOffset = 0.0;
         }
 
-        void add(double offset, double weight) {
-            Long key = groupKey(offset);
-            double[] group = groups.get(key);
-            if (group == null) {
-                group = new double[2];
-                groups.put(key, group);
-            }
-            group[0] += weight;
-            group[1] = offset;
-            // Weights only grow, so only the group just added to can become the best.
-            if (group[0] > bestWeight) {
-                bestWeight = group[0];
-                bestOffset = offset;
-            }
+        /** A bullet observed at this offset, with no shield shot to say which offsets would have stopped it. */
+        void addObservation(double offset) {
+            observedOffsetSum += offset;
+            observedOffsetCount++;
+            refreshBest();
         }
 
-        double weightAt(double offset) {
-            double[] group = groups.get(groupKey(offset));
-            return group == null ? 0.0 : group[0];
+        /** A bullet observed at this offset that any offset from low to high would have shielded. */
+        void addObservation(double offset, double low, double high) {
+            insertEnd(low, 1);
+            insertEnd(high, -1);
+            observedOffsetSum += offset;
+            observedOffsetCount++;
+            refreshBest();
         }
 
-        void scale(double factor) {
-            for (double[] group : groups.values()) {
-                group[0] *= factor;
+        /** Bullets known to have been shielded by exactly this offset. */
+        void addShielded(double offset, int count) {
+            insertEnd(offset, count);
+            insertEnd(offset, -count);
+            refreshBest();
+        }
+
+        int shieldedAt(double offset) {
+            int shielded = 0;
+            for (int i = 0; i < endCount; i++) {
+                // Ranges ending exactly at the offset still shield it; they come after those starting there.
+                if (endOffsets[i] > offset || (endOffsets[i] == offset && endChanges[i] < 0)) {
+                    break;
+                }
+                shielded += endChanges[i];
             }
-            bestWeight *= factor;
+            return shielded;
         }
 
-        private static Long groupKey(double offset) {
-            return Math.round(offset / MODEL_SCORE_MATCH_EPSILON);
+        private void insertEnd(double offset, int change) {
+            if (endCount == endOffsets.length) {
+                endOffsets = Arrays.copyOf(endOffsets, endCount * 2);
+                endChanges = Arrays.copyOf(endChanges, endCount * 2);
+            }
+            int low = 0;
+            int high = endCount;
+            while (low < high) {
+                int middle = (low + high) >>> 1;
+                if (endOffsets[middle] < offset || (endOffsets[middle] == offset && endChanges[middle] >= change)) {
+                    low = middle + 1;
+                } else {
+                    high = middle;
+                }
+            }
+            System.arraycopy(endOffsets, low, endOffsets, low + 1, endCount - low);
+            System.arraycopy(endChanges, low, endChanges, low + 1, endCount - low);
+            endOffsets[low] = offset;
+            endChanges[low] = change;
+            endCount++;
+        }
+
+        private void refreshBest() {
+            double meanOffset = observedOffsetCount > 0 ? observedOffsetSum / observedOffsetCount : 0.0;
+            if (endCount == 0) {
+                bestShielded = 0;
+                bestOffset = meanOffset;
+                return;
+            }
+            int shielded = 0;
+            int mostShielded = 0;
+            for (int i = 0; i < endCount; i++) {
+                shielded += endChanges[i];
+                mostShielded = Math.max(mostShielded, shielded);
+            }
+            shielded = 0;
+            double stretchStart = 0.0;
+            double closest = Double.NaN;
+            for (int i = 0; i < endCount; i++) {
+                int before = shielded;
+                shielded += endChanges[i];
+                if (shielded == mostShielded && before < mostShielded) {
+                    stretchStart = endOffsets[i];
+                } else if (before == mostShielded && shielded < mostShielded) {
+                    double candidate = Math.max(stretchStart, Math.min(endOffsets[i], meanOffset));
+                    if (Double.isNaN(closest) || Math.abs(candidate - meanOffset) < Math.abs(closest - meanOffset)) {
+                        closest = candidate;
+                    }
+                }
+            }
+            bestShielded = mostShielded;
+            bestOffset = closest;
         }
     }
 
@@ -1958,6 +2148,15 @@ public final class BulletShieldMode implements BattleMode {
         double direction;
         boolean shieldAttempted;
         boolean resolved;
+        /** The shield shot fired at this wave, as it left our gun. */
+        boolean shieldShotFired;
+        double shieldShotX;
+        double shieldShotY;
+        double shieldShotHeading;
+        double shieldShotSpeed;
+        long shieldShotFireTime;
+        long shieldShotLastUsefulTime;
+        double shieldShotPlannedHeading;
     }
 
     private static final class AggressiveAttackDecision {
