@@ -5,8 +5,9 @@ public final class ModeObservationPolicy {
             new ModeObservationPolicy(true, true, true, true, true, true, true, true, false);
     public static final ModeObservationPolicy NONE =
             new ModeObservationPolicy(false, false, false, false, false, false, false, false, false);
+    /** Shield modes: they aim with the targeting model, but never train either opponent model. */
     public static final ModeObservationPolicy TARGETING_ONLY =
-            new ModeObservationPolicy(true, true, false, false, false, false, true, false, true);
+            new ModeObservationPolicy(true, true, false, false, false, false, false, false, true);
     public static final ModeObservationPolicy MOVEMENT_DISTRIBUTIONS_ONLY =
             new ModeObservationPolicy(false, true, true, true, true, true, true, true, false);
     public static final ModeObservationPolicy SHOT_DODGER_EXPERT_ONLY =

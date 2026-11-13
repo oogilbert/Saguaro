@@ -373,8 +373,10 @@ public final class RuleProfile {
         long asOf = crossings.clock(time);
         ChainWave view = new ChainWave(context, wave.fireTime, wave.heading);
 
-        // The shot's raw predicted chance, from the distribution it was aimed from.
-        if (!wave.bulletCollided && record != null && record.masses != null && Double.isFinite(wave.heading)) {
+        // The shot's raw predicted chance, from the distribution it was aimed from. The map is
+        // part of the saved model, so it learns only where the targeting model may.
+        if (!wave.bulletCollided && wave.allowTargetingModelUpdate && record != null && record.masses != null
+                && Double.isFinite(wave.heading)) {
             double fired = view.gf(wave.heading);
             double width = bodyWidth(context);
             RuleDistribution prediction = new RuleDistribution(record.masses, width, null);
